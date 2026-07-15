@@ -17,8 +17,8 @@ options = vision.HandLandmarkerOptions(
     base_options=mp.tasks.BaseOptions(model_asset_path=MODEL_PATH),
     running_mode=RunningMode.VIDEO,
     num_hands=2,
-    min_hand_detection_confidence=0.7,
-    min_tracking_confidence=0.5
+    min_hand_detection_confidence=0.5,
+    min_tracking_confidence=0.3
 )
 landmarker = vision.HandLandmarker.create_from_options(options)
 
