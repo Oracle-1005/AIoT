@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+.eggs/
+venv/
+.env
+
+# Model files (use Git LFS if large)
+*.pkl
+*.h5
+*.pb
+*.tflite
+
+# Data
+data/raw/*
+data/processed/*
+data/*.db
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Pi
+*.img
+*.img.xz
