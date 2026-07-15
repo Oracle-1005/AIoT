@@ -10,14 +10,13 @@
 |:--:|------|:--:|------|:--:|------|
 | 1 | 主控板 | 1 | Raspberry Pi 5 8GB | ✅ 已领取 | 硬件 B |
 | 2 | 微控制器 | 2 | Micro:bit v2 | ✅ 已领取 | 硬件 A |
-| 3 | WiFi MCU | 1 | ESP32 Dev Board | ✅ 已领取 | 硬件 B |
-| 4 | 摄像头 | 1 | Pi Camera Module (排线连接) | ⏳ 待到位 | 硬件 B |
-| 5 | LED 矩阵 | 2 | 8×32 WS2812B (共 512 LEDs) | ⏳ 待到位 | 硬件 B |
-| 6 | 传感器套件 | 1 | Standard Sensor Kit | ✅ 已领取 | 硬件 A |
-| 7 | 电池盒 | 2 | Micro:bit 电池盒 (AAA×2) | ✅ 已领取 | 硬件 A |
-| 8 | 腕带 | 2 | 松紧带/Velcro | 待制作 | 硬件 A |
-| 9 | 电源 | 1 | Pi 5 USB-C 供电 | ✅ | 硬件 B |
-| 10 | 电源 | 1 | ESP32 USB 供电 或 独立 5V | ✅ | 硬件 B |
+| 3 | 摄像头 | 1 | Pi Camera Module (排线连接) | ⏳ 待到位 | 硬件 B |
+| 4 | LED 矩阵 | 2 | 8×32 WS2812B (共 512 LEDs) | ⏳ 待到位 | 硬件 B |
+| 5 | 传感器套件 | 1 | Standard Sensor Kit | ✅ 已领取 | 硬件 A |
+| 6 | 电池盒 | 2 | Micro:bit 电池盒 (AAA×2) | ✅ 已领取 | 硬件 A |
+| 7 | 腕带 | 2 | 松紧带/Velcro | 待制作 | 硬件 A |
+| 8 | 电源 | 1 | Pi 5 USB-C 供电 | ✅ | 硬件 B |
+| 9 | 电源 | 1 | LED 矩阵 5V 独立供电 | ⏳ 待到位 | 硬件 B |
 
 ---
 
@@ -46,16 +45,17 @@
 | 供电 | AAA×2 电池盒 (3V) |
 | 佩戴方式 | 腕带固定于左右手腕 |
 
-### 2.3 ESP32
+### 2.3 Pi 5 直驱 WS2812B LED Matrix
 
 | 项目 | 参数 |
 |------|------|
-| 芯片 | ESP32-WROOM-32 |
-| WiFi | 2.4 GHz 802.11 b/g/n |
-| LED 驱动库 | FastLED 或 Adafruit NeoPixel |
-| 通信 | MQTT Client → 订阅 Pi 5 Mosquitto |
-| LED 数据引脚 | GPIO 可配（建议 GPIO 16/17） |
-| 供电 | 5V (LED 矩阵独立供电，勿从 ESP32 3.3V 取) |
+| 驱动方式 | Pi 5 GPIO18 (PWM) 直连 LED Matrix DATA 脚 |
+| LED 驱动库 | `rpi_ws281x` (Python) |
+| 供电 | **LED 矩阵 5V 独立供电**（512 LEDs 全亮 ~30W，勿从 Pi 5 取电） |
+| 共地 | Pi 5 GND ↔ LED Matrix GND |
+| 接线 | GPIO18 → Panel 1 DIN → Panel 1 DOUT → Panel 2 DIN |
+
+> **为什么不用 ESP32**：Pi 5 可直接驱动 WS2812B，减少一套开发环境、通信链路和故障点。后端 Python 代码直接调 `rpi_ws281x` 控制 LED，无需 MQTT 中转。
 
 ### 2.4 WS2812B LED Matrix (2× 8×32)
 
@@ -119,9 +119,11 @@
                     │
         ┌───────────┼───────────┐
         ↓           ↓           ↓
-     Pi 5         PC 开发机    ESP32
-  (Mosquitto,   (模型推理,    (LED Matrix
-   Flask API)   BLE 接收)     MQTT Client)
+     Pi 5         PC 开发机    Dashboard 前端
+  (Mosquitto,   (模型推理,    (Chart.js,
+   Flask API,   BLE 接收)     Web Audio API)
+   LED Matrix
+   直驱 GPIO)
         │
    Pi Camera
   (排线直连)
@@ -132,7 +134,7 @@
 | Pi 5 ↔ PC | WiFi / Ethernet | 同一局域网 |
 | PC ↔ Micro:bit ×2 | **BLE** (不经过 WiFi) | 蓝牙直连 |
 | Pi Camera ↔ Pi 5 | MIPI 排线 | 本地 |
-| ESP32 ↔ Pi 5 | WiFi | 同一局域网 |
+| LED Matrix ↔ Pi 5 | GPIO 直连 | 本地 |
 | 前端 Dashboard ↔ Pi 5 | WiFi HTTP | 同一局域网 |
 
 ---
@@ -161,8 +163,7 @@ AIoT/
 │       └── style.css
 ├── hardware/               # 硬件组
 │   ├── microbit/           #   Micro:bit 固件 (.hex / .py)
-│   ├── esp32/              #   ESP32 固件 (.ino)
-│   └── pi/                 #   Pi 5 配置脚本
+│   └── pi/                 #   Pi 5 配置 + LED 驱动脚本
 ├── data/                   # 数据 (Git 忽略)
 │   ├── raw/
 │   └── processed/

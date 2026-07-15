@@ -268,10 +268,10 @@ forever:
 
 ---
 
-## 5. 硬件 B（Pi 5 + ESP32 + LED Matrix + Camera）— 环境搭建
+## 5. 硬件 B（Pi 5 + LED Matrix + Camera）— 环境搭建
 
-> **开发工具**：Pi Imager, Arduino IDE, Python  
-> **目标**：Pi 5 就绪 + ESP32 LED 驱动 + Camera 验证
+> **开发工具**：Pi Imager, Python  
+> **目标**：Pi 5 就绪 + Pi 5 直驱 LED Matrix + Camera 验证
 
 ### 5.1 Pi 5 初始化
 
@@ -295,52 +295,78 @@ libcamera-hello --list-cameras
 # 应列出 Pi Camera 设备
 ```
 
-### 5.2 ESP32 — LED Matrix 驱动
+### 5.2 Pi 5 直驱 WS2812B LED Matrix
 
-**推荐库**：FastLED (Arduino Library Manager 安装)
+> **说明**：Pi 5 用 GPIO18 (PWM) 直接驱动 LED Matrix，无需 ESP32。减少一套开发环境、通信链路和故障点。
 
 **接线**：
 ```
-ESP32 GPIO16 → WS2812B Panel 1 DIN
+Pi 5 GPIO18 → WS2812B Panel 1 DIN
 Panel 1 DOUT → Panel 2 DIN
 5V 外部电源 → 两个 Panel VCC + GND
-ESP32 GND → 两个 Panel GND (共地)
+Pi 5 GND → 两个 Panel GND (共地)
+⚠️ 不要从 Pi 5 5V 引脚给 LED Matrix 供电！
 ```
 
-**测试代码骨架**（Arduino）：
-```cpp
-#include <FastLED.h>
-#define LED_PIN 16
-#define NUM_LEDS 512   // 2 × 256
-CRGB leds[NUM_LEDS];
-
-void setup() {
-    FastLED.addLeds<WS2812B, LED_PIN, GRB>(leds, NUM_LEDS);
-    FastLED.setBrightness(30);  // 限制亮度，避免大电流
-}
-
-void loop() {
-    // 测试：全红 → 全绿 → 全蓝
-    fill_solid(leds, NUM_LEDS, CRGB::Red);
-    FastLED.show(); delay(1000);
-    fill_solid(leds, NUM_LEDS, CRGB::Green);
-    FastLED.show(); delay(1000);
-    fill_solid(leds, NUM_LEDS, CRGB::Blue);
-    FastLED.show(); delay(1000);
-}
+**安装依赖**：
+```bash
+pip install rpi_ws281x
 ```
 
-### 5.3 ESP32 — MQTT 连接
+**测试代码**（`hardware/pi/led_test.py`）：
+```python
+from rpi_ws281x import Adafruit_NeoPixel, Color
+import time
 
-在 ESP32 上添加 WiFi + PubSubClient 库，订阅 `aiot/gesture` topic，收到消息后解析 JSON 并触发对应 LED 效果。
+LED_COUNT = 512        # 2 × 8×32
+LED_PIN = 18           # GPIO18 (PWM)
+LED_FREQ_HZ = 800000
+LED_DMA = 10
+LED_BRIGHTNESS = 30    # 限制亮度，避免大电流
+
+strip = Adafruit_NeoPixel(LED_COUNT, LED_PIN, LED_FREQ_HZ, LED_DMA, False, LED_BRIGHTNESS)
+strip.begin()
+
+# 测试：全红 → 全绿 → 全蓝
+for color in [Color(255,0,0), Color(0,255,0), Color(0,0,255)]:
+    for i in range(LED_COUNT):
+        strip.setPixelColor(i, color)
+    strip.show()
+    time.sleep(1)
+
+# 关闭
+for i in range(LED_COUNT):
+    strip.setPixelColor(i, Color(0,0,0))
+strip.show()
+```
+
+### 5.3 LED Matrix 手势反馈接口
+
+Pi 5 后端直接调用 `rpi_ws281x` 控制 LED，无需 MQTT 中转：
+
+```python
+# 在 backend/ 中封装为 led_controller.py
+from rpi_ws281x import Adafruit_NeoPixel, Color
+
+LED_EFFECTS = {
+    "downbeat":    lambda s: s.fill(Color(255,255,255)),  # 白闪
+    "crescendo":   lambda s: s.fill(Color(255,0,255)),    # 紫色
+    "decrescendo": lambda s: s.fill(Color(0,0,255)),      # 蓝色
+    "cutoff":      lambda s: s.fill(Color(0,0,0)),        # 黑屏
+    "style_switch":lambda s: s.fill(Color(255,128,0)),    # 橙色
+    "idle":        lambda s: s.fill(Color(20,20,20)),     # 暗呼吸
+    "tempo_up":    lambda s: s.fill(Color(0,255,0)),      # 绿色
+    "tempo_down":  lambda s: s.fill(Color(0,0,128)),      # 深蓝
+}
+```
 
 ### 5.4 第一周目标
 
 - [ ] Pi 5 刷系统 + Mosquitto 运行 ✅
 - [ ] Pi Camera 验证 (libcamera-hello) ✅
-- [ ] ESP32 点亮两块 LED Matrix ✅
-- [ ] ESP32 MQTT 连接 Pi 5 Broker + 订阅 `aiot/gesture`
-- [ ] 根据手势 JSON 触发不同 LED 效果
+- [ ] Pi 5 直驱 LED Matrix 点亮 ✅
+- [ ] 根据手势触发不同 LED 效果
+- [ ] 后端集成 LED 控制模块
 
 ---
 
@@ -354,7 +380,7 @@ void loop() {
 | 前端 | Dashboard 静态页面 + Chart.js 图表 | 浏览器截图 |
 | 硬件 A | 双 Micro:bit BLE 广播 | nRF Connect 截图 |
 | 硬件 B | Pi 5 Mosquitto + Pi Camera 驱动 | `libcamera-hello` 输出 |
-| 硬件 B | ESP32 点亮 LED Matrix | 视频/照片 |
+| 硬件 B | Pi 5 直驱 LED Matrix 点亮 | 视频/照片 |
 
 ---
 

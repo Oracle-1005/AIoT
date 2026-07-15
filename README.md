@@ -17,7 +17,7 @@
 | 前端 | 王玺达 (t0939390) | HTML + Chart.js Dashboard + Web Audio API |
 | 后端 | 罗子超 (t0939291) | Flask + SQLite + MQTT Client API |
 | 硬件 | 王俊智 (t0939382) | Micro:bit BLE 固件 + 腕带 + 传感器 |
-| 硬件 | 王清源 (t0939384) | Pi 5 + ESP32 + LED Matrix + Pi Camera |
+| 硬件 | 王清源 (t0939384) | Pi 5 + LED Matrix (GPIO 直驱) + Pi Camera |
 
 ## 项目结构
 
@@ -26,7 +26,7 @@ AIoT/
 ├── model/       # 模型（MediaPipe + Random Forest）
 ├── backend/     # Flask + SQLite + MQTT
 ├── frontend/    # HTML + Chart.js Dashboard
-├── hardware/    # Micro:bit / ESP32 / Pi 5 固件和配置
+├── hardware/    # Micro:bit 固件 / Pi 5 配置和 LED 驱动脚本
 ├── data/        # 采集数据和数据库
 └── docs/        # 技术文档
 ```

@@ -659,7 +659,7 @@ $$P(x|y) = P(x_1|y) \times P(x_2|y) \times \cdots \times P(x_n|y)$$
 | Item | Qty |
 |------|-----|
 | Micro:bit v2 Board | 2 |
-| ESP32 Board | 1 |
+| ESP32 Board | 1 | (本项目未使用，Pi 5 直驱 LED Matrix)
 | Raspberry Pi 5 (8GB) | 1 |
 | Sensor Kit | 1 |
 
