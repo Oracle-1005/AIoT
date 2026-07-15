@@ -81,7 +81,7 @@ Expected payload shape:
   "prediction": {
     "gesture": "crescendo",
     "label": "CRESCENDO",
-    "zh": "渐强",
+    "zh": "Build intensity",
     "confidence": 94,
     "response": "Volume +14%, Energy +28%",
     "top3": [

@@ -1,40 +1,40 @@
 export const navItems = [
-  { id: 'hero', label: '首页', short: 'Hero' },
-  { id: 'live-stage', label: '实时舞台', short: 'Live' },
-  { id: 'ai-flow', label: 'AI 决策', short: 'AI' },
-  { id: 'validation', label: '关键验证', short: 'Proof' },
-  { id: 'analytics', label: '历史分析', short: 'Data' },
-  { id: 'architecture', label: '系统架构', short: 'Arch' },
-  { id: 'training', label: '校准训练', short: 'Train' },
-  { id: 'about', label: '项目介绍', short: 'About' },
+  { id: 'hero', label: 'Hero', short: 'Hero' },
+  { id: 'live-stage', label: 'Live Stage', short: 'Live' },
+  { id: 'ai-flow', label: 'AI Flow', short: 'AI' },
+  { id: 'validation', label: 'Proof Points', short: 'Proof' },
+  { id: 'analytics', label: 'Analytics', short: 'Data' },
+  { id: 'architecture', label: 'Architecture', short: 'Arch' },
+  { id: 'training', label: 'Calibration', short: 'Train' },
+  { id: 'about', label: 'About', short: 'About' },
 ]
 
 export const gestureCatalog = [
   {
     key: 'crescendo',
     label: 'CRESCENDO',
-    zh: '渐强',
+    zh: 'Build intensity',
     response: 'Volume +14%, Energy +28%',
     color: '#f4c76b',
   },
   {
     key: 'downbeat',
     label: 'DOWNBEAT',
-    zh: '强拍 / 落拍',
+    zh: 'Primary beat',
     response: 'Trigger Beat, BPM Sync',
     color: '#38bdf8',
   },
   {
     key: 'tempoUp',
     label: 'TEMPO UP',
-    zh: '加快节奏',
+    zh: 'Accelerate tempo',
     response: 'BPM +6',
     color: '#22c55e',
   },
   {
     key: 'cutoff',
     label: 'CUTOFF',
-    zh: '收拍 / 停止',
+    zh: 'Stop the performance',
     response: 'Pause Audio, Save Session',
     color: '#fb7185',
   },
@@ -42,36 +42,36 @@ export const gestureCatalog = [
 
 export const assetSlots = [
   {
-    title: '路演主视频',
+    title: 'Main roadshow video',
     path: '/media/roadshow-demo.mp4',
     note: '建议录制 20-40 秒横屏视频：同学双手指挥，屏幕音乐参数同步变化。',
   },
   {
-    title: '摄像头识别画面',
+    title: 'Camera recognition capture',
     path: '/media/live-camera-demo.mp4',
     note: '建议录制带手部关键点叠加的屏幕片段，替换实时舞台中的占位画面。',
   },
   {
-    title: 'Micro:bit 佩戴照片',
+    title: 'Micro:bit wrist photo',
     path: '/media/microbit-wrist.jpg',
     note: '建议拍摄左右手佩戴 Micro:bit 或固定在手腕上的清晰照片。',
   },
   {
-    title: '团队/现场照片',
+    title: 'Team or setup photo',
     path: '/media/team-roadshow.jpg',
     note: '建议拍摄答辩现场、设备连接或小组调试照片，用于项目介绍页。',
   },
 ]
 
 export const flowSteps = [
-  { name: 'Camera', detail: '双手关键点 / 轨迹', layer: '感知层' },
-  { name: 'Micro:bit L/R', detail: '三轴加速度 / 峰值', layer: '感知层' },
-  { name: 'Raspberry Pi 5', detail: 'WebSocket / Serial', layer: '边缘层' },
-  { name: 'Feature Engine', detail: '速度 / 角度 / 时窗', layer: 'AI 层' },
-  { name: 'Gesture Model', detail: '8 类指挥意图', layer: 'AI 层' },
-  { name: 'Music Mapping', detail: 'BPM / 音量 / 风格', layer: '业务层' },
-  { name: 'Audio + LED', detail: '浏览器音频 / 灯光反馈', layer: '执行层' },
-  { name: 'Database', detail: '原始数据 / 预测 / 动作', layer: '数据层' },
+  { name: 'Camera', detail: 'Hand landmarks / trajectories', layer: 'Sensing' },
+  { name: 'Micro:bit L/R', detail: '3-axis acceleration / peaks', layer: 'Sensing' },
+  { name: 'Raspberry Pi 5', detail: 'WebSocket / Serial', layer: 'Edge' },
+  { name: 'Feature Engine', detail: 'Speed / angle / time window', layer: 'AI' },
+  { name: 'Gesture Model', detail: '8 conducting intentions', layer: 'AI' },
+  { name: 'Music Mapping', detail: 'BPM / volume / style', layer: 'Logic' },
+  { name: 'Audio + LED', detail: 'Browser audio / lighting feedback', layer: 'Output' },
+  { name: 'Database', detail: 'Raw data / predictions / actions', layer: 'Data' },
 ]
 
 export const historicalRows = [
@@ -140,34 +140,34 @@ export const trainingSteps = [
 
 export const validationCards = [
   {
-    title: 'AI 识别依据',
-    claim: '不是单一阈值判断，而是将手部轨迹、速度、角度、动作时窗和加速度峰值组合成特征向量。',
-    evidence: 'Top-3 预测、置信度、推断日志和特征面板会同步展示模型判断过程。',
-    demo: '演示渐强和强拍时，观察置信度与 Top-3 结果随动作变化。',
+    title: 'AI Recognition Evidence',
+    claim: 'The system does not rely on a single threshold. It combines hand trajectory, speed, angle, action window, and acceleration peaks into feature vectors.',
+    evidence: 'Top-3 predictions, confidence scores, inference logs, and live feature panels reveal the model decision process.',
+    demo: 'During crescendo and downbeat gestures, watch confidence and Top-3 results shift with the movement.',
   },
   {
-    title: '多传感器融合价值',
-    claim: 'Camera 擅长空间轨迹，Micro:bit 擅长捕捉快速下落和力度峰值，两者互补。',
-    evidence: '右手落拍可由 IMU 峰值增强识别，左手高度可由摄像头映射到音量和能量。',
-    demo: '遮挡或快速动作时，对比 Camera 与 IMU 数据仍能形成稳定响应。',
+    title: 'Sensor Fusion Value',
+    claim: 'The camera captures spatial movement while Micro:bit devices capture fast drops and intensity peaks, so the two inputs complement each other.',
+    evidence: 'Right-hand downbeats can be reinforced by IMU peaks, while left-hand height maps naturally to volume and energy.',
+    demo: 'During fast movements or partial occlusion, compare the camera stream and IMU values for a stable response.',
   },
   {
-    title: '实时性验证',
-    claim: '本地推断和 WebSocket 数据通道让交互延迟控制在路演可感知范围内。',
-    evidence: '实时舞台持续显示 FPS、响应延迟、BPM 和音乐参数变化。',
-    demo: '现场做一次落拍动作，观察视觉冲击波、BPM 与音量反馈是否同步。',
+    title: 'Real-time Performance',
+    claim: 'Local inference and WebSocket delivery keep interaction latency within the range needed for a live demonstration.',
+    evidence: 'The live stage continuously displays FPS, response latency, BPM, and music parameter changes.',
+    demo: 'Perform one downbeat and observe whether the visual pulse, BPM, and volume feedback stay synchronized.',
   },
   {
-    title: '数据闭环',
-    claim: '系统不仅演示实时效果，也保留原始传感器数据、AI 预测和执行动作。',
-    evidence: '历史分析页展示识别次数、平均置信度、延迟、手势分布和事件表。',
-    demo: '完成一次演示后，可把记录写入数据库并回放关键事件。',
+    title: 'Data Loop',
+    claim: 'The system demonstrates real-time control while preserving raw sensor data, AI predictions, and executed actions.',
+    evidence: 'The analytics view shows recognition count, average confidence, latency, gesture distribution, and event records.',
+    demo: 'After a performance, store the session and replay the key interaction events.',
   },
   {
-    title: '演示稳定性',
-    claim: '校准、训练采样和预留视频位能降低现场硬件波动对路演结果的影响。',
-    evidence: '校准页展示 Camera Position、IMU Zero Point、Gesture Baseline 等检查项。',
-    demo: '真实硬件可用时走实时模式，信号不稳时可切换预录素材或 mock 数据。',
+    title: 'Demo Reliability',
+    claim: 'Calibration, training samples, and reserved video slots reduce the risk of hardware instability during the roadshow.',
+    evidence: 'The calibration view tracks Camera Position, IMU Zero Point, Gesture Baseline, and related checks.',
+    demo: 'Use live mode when hardware is stable, and switch to recorded material or mock data when signals fluctuate.',
   },
 ]
 

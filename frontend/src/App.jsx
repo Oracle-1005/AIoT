@@ -154,7 +154,7 @@ function TopNav({ onPresentation }) {
           </span>
           <button type="button" className="primary-button" onClick={onPresentation}>
             <Maximize2 size={16} />
-            路演模式
+            Presentation Mode
           </button>
         </div>
       </div>
@@ -194,19 +194,19 @@ function HeroSection({ frame, onPresentation }) {
             AIoT Smart Conducting Performance System
           </span>
           <h1 className="hero-title mt-6 max-w-5xl font-display text-5xl font-semibold leading-tight sm:text-6xl lg:text-7xl">
-            用动作，重新定义音乐交互
+            Conduct Music Through Motion
           </h1>
           <p className="mt-6 max-w-3xl text-lg leading-8 text-slate-200">
-            通过摄像头、双 Micro:bit 与 Raspberry Pi 本地 AI 模型，实时识别双手指挥意图，并将动作转换为节奏、音量、能量、风格和音乐段落控制。
+            A camera, dual Micro:bit sensors, and a Raspberry Pi edge AI model recognize conducting gestures in real time and translate motion into tempo, volume, energy, style, and musical section control.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <button type="button" className="primary-button" onClick={() => scrollToSection('live-stage')}>
               <Play size={16} />
-              开始现场演示
+              Start Live Demo
             </button>
             <button type="button" className="secondary-button" onClick={onPresentation}>
               <Maximize2 size={16} />
-              全屏路演
+              Fullscreen Demo
             </button>
           </div>
           <div className="mt-8 grid max-w-5xl gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -316,8 +316,8 @@ function LiveStage({ frame, logs }) {
     <section id="live-stage" className="section-shell">
       <SectionHeader
         eyebrow="Live Conducting Stage"
-        title="实时指挥舞台"
-        description="路演时默认进入这一屏：左侧展示摄像头和双手轨迹，中间展示 AI 识别结果，右侧展示音乐参数，底部呈现 Micro:bit 与系统响应。"
+        title="Live Conducting Stage"
+        description="This is the main roadshow screen: camera tracking and hand trajectories on the left, AI recognition in the center, music parameters on the right, and Micro:bit sensor feedback below."
         icon={Monitor}
       />
 
@@ -347,7 +347,7 @@ function CameraGesturePanel({ frame }) {
         <div>
           <p className="flex items-center gap-2 text-sm font-semibold text-white">
             <Camera size={16} className="text-cyan" />
-            实时摄像头画面
+            Live Camera View
           </p>
           <p className="mt-1 text-xs text-slate-400">Hand landmarks, skeleton lines, trajectory trail</p>
         </div>
@@ -359,7 +359,7 @@ function CameraGesturePanel({ frame }) {
       <div className="scanline relative overflow-hidden rounded-lg border border-cyan/20 bg-black/50">
         <ConductorSignalScene frame={frame} />
         <div className="absolute inset-x-6 top-16 h-40 rounded-lg border border-dashed border-white/20 bg-white/[0.025] text-center">
-          <p className="mt-4 text-xs font-medium text-slate-300">双手识别安全区</p>
+          <p className="mt-4 text-xs font-medium text-slate-300">Two-hand tracking zone</p>
         </div>
       </div>
       <div className="mt-4">
@@ -379,7 +379,7 @@ function AiPredictionCard({ frame }) {
       <div className="mb-5 flex items-center justify-between">
         <p className="flex items-center gap-2 text-sm font-semibold text-white">
           <Brain size={16} className="text-violet-300" />
-          AI 识别结果
+          AI Prediction
         </p>
         <span className="status-pill">
           <StatusDot tone="green" />
@@ -409,7 +409,7 @@ function AiPredictionCard({ frame }) {
             animate={{ width: `${frame.prediction.confidence}%` }}
           />
         </div>
-        <p className="mt-4 text-sm text-slate-200">系统响应：{frame.prediction.response}</p>
+        <p className="mt-4 text-sm text-slate-200">System response: {frame.prediction.response}</p>
       </motion.div>
 
       <div className="mt-5">
@@ -459,7 +459,7 @@ function MusicControlCenter({ frame }) {
       <div className="mb-5 flex items-center justify-between">
         <p className="flex items-center gap-2 text-sm font-semibold text-white">
           <Music2 size={16} className="text-gold" />
-          音乐控制中心
+          Music Control Center
         </p>
         <span className="status-pill">{frame.music.style}</span>
       </div>
@@ -504,9 +504,9 @@ function MusicControlCenter({ frame }) {
       <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.04] p-4">
         <p className="text-xs font-semibold uppercase text-slate-400">Gesture Mapping</p>
         <div className="mt-3 space-y-3 text-sm text-slate-200">
-          <MappingRow left="左手 Y 坐标" right="音高 / 和弦 / 音量" />
-          <MappingRow left="右手 X 坐标" right="声像 / 音色" />
-          <MappingRow left="加速度峰值" right="节拍 / 强拍识别" />
+          <MappingRow left="Left hand Y position" right="Pitch / Chord / Volume" />
+          <MappingRow left="Right hand X position" right="Panning / Timbre" />
+          <MappingRow left="Acceleration peak" right="Beat / Downbeat detection" />
         </div>
       </div>
     </div>
@@ -539,7 +539,7 @@ function MicrobitCard({ side, data, color }) {
       </div>
 
       <div className="mt-5 grid gap-3 sm:grid-cols-[0.8fr_1.2fr]">
-        <AssetPlaceholder title="设备照片占位" path="/media/microbit-wrist.jpg" note="替换为真实 Micro:bit 佩戴照片。" type="image" />
+        <AssetPlaceholder title="Device photo placeholder" path="/media/microbit-wrist.jpg" note="替换为真实 Micro:bit 佩戴照片。" type="image" />
         <div className="grid grid-cols-3 gap-3">
           {['x', 'y', 'z'].map((axis) => (
             <div key={axis} className="metric-tile">
@@ -570,18 +570,18 @@ function MicrobitCard({ side, data, color }) {
 
 function RealtimeMetrics({ frame }) {
   const metrics = [
-    ['左手高度', `${Math.round(frame.camera.leftHandY * 100)}%`],
-    ['右手位置', `${Math.round(frame.camera.rightHandX * 100)}%`],
-    ['双手距离', frame.camera.handDistance],
-    ['运动速度', `${frame.camera.movementSpeed} m/s`],
-    ['轨迹角度', `${frame.camera.trajectoryAngle} deg`],
-    ['响应延迟', `${frame.connection.latency} ms`],
+    ['Left hand height', `${Math.round(frame.camera.leftHandY * 100)}%`],
+    ['Right hand position', `${Math.round(frame.camera.rightHandX * 100)}%`],
+    ['Hand distance', frame.camera.handDistance],
+    ['Movement speed', `${frame.camera.movementSpeed} m/s`],
+    ['Trajectory angle', `${frame.camera.trajectoryAngle} deg`],
+    ['Response latency', `${frame.connection.latency} ms`],
   ]
   return (
     <div className="glass-panel p-5">
       <p className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
         <Gauge size={16} className="text-cyan" />
-        实时特征与系统状态
+        Real-time Features and System Status
       </p>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         {metrics.map(([label, value]) => (
@@ -600,7 +600,7 @@ function InferenceLog({ logs }) {
     <div className="glass-panel p-5">
       <p className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
         <Clock size={16} className="text-gold" />
-        AI 推断日志
+        AI Inference Log
       </p>
       <div className="space-y-2 font-mono text-xs text-slate-300">
         {logs.map((line) => (
@@ -618,8 +618,8 @@ function DecisionFlow({ frame, connectionState }) {
     <section id="ai-flow" className="section-shell">
       <SectionHeader
         eyebrow="AI Intelligence"
-        title="AI 决策过程"
-        description="用于回答路演中的关键问题：AI 如何融合 Camera 与 Micro:bit 数据，并将指挥动作映射为音乐控制。"
+        title="AI Decision Flow"
+        description="This view explains how the system fuses camera and Micro:bit data, then maps recognized conducting intentions into real-time music control."
         icon={Brain}
       />
 
@@ -683,8 +683,8 @@ function ValidationHighlights() {
     <section id="validation" className="section-shell">
       <SectionHeader
         eyebrow="Proof Points"
-        title="关键验证点"
-        description="把现场评审通常会追问的技术可信度，用更自然的方式融入页面：AI 依据、融合价值、实时性、数据闭环和演示稳定性。"
+        title="Key Proof Points"
+        description="A compact evidence layer for the roadshow: AI reasoning, sensor fusion value, real-time performance, data logging, and demo reliability."
         icon={ShieldCheck}
       />
 
@@ -696,16 +696,16 @@ function ValidationHighlights() {
             </div>
             <div>
               <p className="text-sm font-semibold text-white">Roadshow Defense Layer</p>
-              <p className="text-xs text-slate-400">用演示证据支撑项目完整性</p>
+              <p className="text-xs text-slate-400">Evidence for a complete AIoT workflow</p>
             </div>
           </div>
 
           <div className="mt-6 grid gap-3">
             {[
-              ['特征输入', '轨迹 / 速度 / 加速度 / 时窗'],
-              ['模型输出', '8 类指挥意图 + Top-3 置信度'],
-              ['执行反馈', 'BPM / Volume / Energy / Style'],
-              ['数据保存', 'Raw Sensor / Feature / Prediction / Action'],
+              ['Feature Input', 'Trajectory / Speed / Acceleration / Time Window'],
+              ['Model Output', '8 Conducting Intents + Top-3 Confidence'],
+              ['Execution Feedback', 'BPM / Volume / Energy / Style'],
+              ['Data Logging', 'Raw Sensor / Feature / Prediction / Action'],
             ].map(([label, value]) => (
               <div key={label} className="rounded-lg border border-white/10 bg-white/[0.045] p-4">
                 <p className="text-xs uppercase text-slate-500">{label}</p>
@@ -750,17 +750,17 @@ function AnalyticsDashboard() {
     <section id="analytics" className="section-shell">
       <SectionHeader
         eyebrow="Data Analytics"
-        title="历史数据与分析"
-        description="展示数据库闭环：保存原始传感器数据、处理特征、AI 预测结果和最终音乐执行记录。"
+        title="Historical Analytics"
+        description="This dashboard shows the database loop: raw sensor data, extracted features, AI predictions, and final music actions."
         icon={BarChart3}
       />
 
       <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {[
-          ['今日识别次数', '268'],
-          ['平均置信度', '91.4%'],
-          ['平均响应延迟', '86 ms'],
-          ['有效手势率', '94.8%'],
+          ['Recognitions Today', '268'],
+          ['Average Confidence', '91.4%'],
+          ['Average Latency', '86 ms'],
+          ['Valid Gesture Rate', '94.8%'],
         ].map(([label, value]) => (
           <div key={label} className="glass-panel p-5">
             <p className="text-sm text-slate-400">{label}</p>
@@ -771,7 +771,7 @@ function AnalyticsDashboard() {
 
       <div className="grid gap-4 lg:grid-cols-[1.25fr_0.75fr]">
         <div className="glass-panel p-5">
-          <p className="mb-4 text-sm font-semibold text-white">BPM / Volume / Confidence 时间序列</p>
+          <p className="mb-4 text-sm font-semibold text-white">BPM / Volume / Confidence Timeline</p>
           <div className="h-80">
             <ResponsiveContainer>
               <LineChart data={analyticsSeries}>
@@ -788,7 +788,7 @@ function AnalyticsDashboard() {
         </div>
 
         <div className="glass-panel p-5">
-          <p className="mb-4 text-sm font-semibold text-white">手势分布</p>
+          <p className="mb-4 text-sm font-semibold text-white">Gesture Distribution</p>
           <div className="h-80">
             <ResponsiveContainer>
               <PieChart>
@@ -816,7 +816,7 @@ function AnalyticsDashboard() {
         <table className="w-full min-w-[760px] border-collapse bg-white/[0.04] text-left text-sm">
           <thead className="bg-white/[0.07] text-xs uppercase text-slate-400">
             <tr>
-              {['时间', '输入源', '识别动作', '置信度', '音乐响应', '延迟'].map((head) => (
+              {['Time', 'Input Source', 'Gesture', 'Confidence', 'Music Response', 'Latency'].map((head) => (
                 <th key={head} className="px-4 py-3 font-semibold">{head}</th>
               ))}
             </tr>
@@ -841,19 +841,19 @@ function AnalyticsDashboard() {
 
 function ArchitectureView() {
   const rows = [
-    { icon: Camera, title: '感知层', items: ['Camera', 'Micro:bit L/R', 'Hand Tracking'] },
-    { icon: Server, title: '网络与边缘层', items: ['Bluetooth', 'Serial', 'WebSocket', 'Raspberry Pi 5'] },
-    { icon: Cpu, title: 'AI 与业务层', items: ['Feature Engine', 'Gesture Recognition Model', 'Music Mapping Engine'] },
-    { icon: Music2, title: '音乐执行层', items: ['Browser Audio', 'Speaker', 'RGB LED Matrix'] },
-    { icon: Database, title: '数据层', items: ['Sensor Records', 'Predictions', 'Actions'] },
+    { icon: Camera, title: 'Sensing Layer', items: ['Camera', 'Micro:bit L/R', 'Hand Tracking'] },
+    { icon: Server, title: 'Network and Edge Layer', items: ['Bluetooth', 'Serial', 'WebSocket', 'Raspberry Pi 5'] },
+    { icon: Cpu, title: 'AI and Logic Layer', items: ['Feature Engine', 'Gesture Recognition Model', 'Music Mapping Engine'] },
+    { icon: Music2, title: 'Music Output Layer', items: ['Browser Audio', 'Speaker', 'RGB LED Matrix'] },
+    { icon: Database, title: 'Data Layer', items: ['Sensor Records', 'Predictions', 'Actions'] },
   ]
 
   return (
     <section id="architecture" className="section-shell">
       <SectionHeader
         eyebrow="System Architecture"
-        title="系统架构视图"
-        description="把 Camera、Micro:bit、Raspberry Pi、本地 AI、音乐执行和数据库写入组织成清晰的数据链路。"
+        title="System Architecture"
+        description="A clear data path connecting the camera, Micro:bit devices, Raspberry Pi, local AI inference, music output, and database logging."
         icon={Network}
       />
 
@@ -891,14 +891,14 @@ function CalibrationTraining() {
     <section id="training" className="section-shell">
       <SectionHeader
         eyebrow="Calibration & Training"
-        title="校准与训练模式"
-        description="展示系统可靠性：通过摄像头位置、手部范围、IMU 零点和手势样本采集，让不同演示者都能稳定完成路演。"
+        title="Calibration and Training Mode"
+        description="A reliability workflow that calibrates camera position, hand range, IMU zero point, and gesture baselines for different performers."
         icon={Settings}
       />
 
       <div className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
         <div className="glass-panel p-5">
-          <p className="mb-4 text-sm font-semibold text-white">校准检查</p>
+          <p className="mb-4 text-sm font-semibold text-white">Calibration Checklist</p>
           <div className="space-y-3">
             {trainingSteps.map((step) => (
               <div key={step.label} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.04] px-4 py-3">
@@ -914,12 +914,12 @@ function CalibrationTraining() {
         <div className="glass-panel p-5">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-sm font-semibold text-white">手势采集任务</p>
+              <p className="text-sm font-semibold text-white">Gesture Collection Task</p>
               <p className="mt-1 text-xs text-slate-400">Label: Crescendo · Plan: 10 samples · Completed: 6</p>
             </div>
             <button type="button" className="secondary-button">
               <Radio size={15} />
-              开始录制
+              Start Recording
             </button>
           </div>
 
@@ -962,18 +962,18 @@ function CalibrationTraining() {
 
 function AboutProject() {
   const cards = [
-    ['Problem', '传统音乐控制依赖键盘、鼠标和触摸屏，难以捕捉真实指挥动作中的节奏、力度和情感表达。'],
-    ['Solution', '系统通过 Camera 和 Micro:bit 获取双手动作，利用本地 AI 模型识别指挥意图，并实时转换为音乐控制指令。'],
+    ['Problem', 'Traditional music control relies on keyboards, mice, and touchscreens, making it difficult to capture rhythm, intensity, and expression from real conducting gestures.'],
+    ['Solution', 'The system captures two-hand motion through a camera and Micro:bit devices, uses a local AI model to recognize conducting intent, and converts that intent into music control commands in real time.'],
     ['Innovation', 'Contactless Interaction · Multi-sensor Fusion · Edge AI Inference · Real-time Music Control · Persistent Data Analytics'],
-    ['Application', '音乐教育、指挥训练、互动展览、创意演出、特殊人群音乐交互、娱乐与数字艺术。'],
+    ['Application', 'Music education, conductor training, interactive exhibitions, creative performance, accessible music interaction, entertainment, and digital art.'],
   ]
 
   return (
     <section id="about" className="section-shell pb-20">
       <SectionHeader
         eyebrow="Project About"
-        title="项目介绍与素材替换清单"
-        description="保留立项表中的核心概念，同时把路演需要的真实照片和视频位置提前留好，方便后续快速替换。"
+        title="Project Overview and Media Slots"
+        description="This section keeps the core proposal concept while reserving clear locations for the real videos and photos that will be added before the roadshow."
         icon={Home}
       />
 
@@ -989,7 +989,7 @@ function AboutProject() {
         <div className="glass-panel p-5">
           <p className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
             <Layers size={16} className="text-cyan" />
-            真实素材预留
+            Reserved Media Slots
           </p>
           <div className="space-y-3">
             {assetSlots.map((slot, index) => (
@@ -1011,9 +1011,9 @@ function AboutProject() {
 function PresentationMode({ open, onClose, frame }) {
   const [step, setStep] = useState(0)
   const steps = [
-    { title: 'Raise Your Hands to Start', sub: '系统检测双手，进入实时指挥模式。', icon: Hand },
+    { title: 'Raise Your Hands to Start', sub: 'The system detects both hands and enters live conducting mode.', icon: Hand },
     { title: frame.prediction.label, sub: `${frame.prediction.zh} · ${frame.prediction.response}`, icon: Brain },
-    { title: `BPM ${Math.max(92, frame.music.bpm - 6)} -> ${frame.music.bpm}`, sub: '右手下落触发强拍，音乐节奏同步调整。', icon: Activity },
+    { title: `BPM ${Math.max(92, frame.music.bpm - 6)} -> ${frame.music.bpm}`, sub: 'A right-hand drop triggers the downbeat and synchronizes the musical tempo.', icon: Activity },
     { title: 'Performance Summary', sub: 'Duration 01:42 · Gestures 26 · Confidence 93.2% · Latency 84 ms', icon: ShieldCheck },
   ]
   const current = steps[step]
@@ -1042,7 +1042,7 @@ function PresentationMode({ open, onClose, frame }) {
             </div>
             <button type="button" className="secondary-button" onClick={onClose}>
               <X size={16} />
-              退出
+              Exit
             </button>
           </div>
 
@@ -1079,11 +1079,11 @@ function PresentationMode({ open, onClose, frame }) {
             <div className="flex gap-2">
               <button type="button" className="secondary-button" onClick={() => setStep((value) => Math.max(0, value - 1))}>
                 <Pause size={15} />
-                上一步
+                Previous
               </button>
               <button type="button" className="primary-button" onClick={() => setStep((value) => Math.min(steps.length - 1, value + 1))}>
                 <Play size={15} />
-                下一步
+                Next
               </button>
             </div>
           </div>
