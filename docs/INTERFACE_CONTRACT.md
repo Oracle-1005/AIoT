@@ -12,14 +12,14 @@
 ```
 ┌─────────────┐     ┌──────────────────┐     ┌─────────────┐     ┌──────────────┐
 │  Micro:bit×2 │────▶│  PC (模型推理)    │────▶│  Flask 后端  │────▶│  SQLite DB   │
-│  BLE UART    │ ①   │  MediaPipe       │ ③   │  MQTT Client │ ⑤   │              │
+│  BLE UART    │ ①   │  MediaPipe       │ ③   │  Pi 5        │ ⑤   │              │
 └─────────────┘     │  + Random Forest  │     └──────┬───────┘     └──────────────┘
                     └──────────────────┘            │ ④
         ┌──────────┐                               ├──────────────▶  Dashboard 前端
         │ Pi Camera│──────────────────────────────▶│                  (Chart.js)
         └──────────┘  ②                            │ ⑥
-                                                   └──────────────▶  ESP32 → LED Matrix
-                                                                     (MQTT)
+                                                   └──────────────▶  Pi 5 GPIO → LED Matrix
+                                                                     (rpi_ws281x 直驱)
 ```
 
 | 编号 | 方向 | 传输方式 | 责任人 |
@@ -29,7 +29,7 @@
 | ③ | 模型 → 后端 | Python import (同进程) | 模型 → 后端 |
 | ④ | 后端 → 前端 | HTTP REST API | 后端 → 前端 |
 | ⑤ | 后端 → 数据库 | SQLite (本地文件) | 后端 |
-| ⑥ | 后端 → ESP32 | MQTT (Mosquitto on Pi 5) | 后端 → 硬件 B |
+| ⑥ | 后端 → LED Matrix | Pi 5 GPIO 直驱 (`rpi_ws281x`) | 后端 → 硬件 B |
 
 ---
 
@@ -342,42 +342,65 @@ CREATE TABLE sessions (
 
 ---
 
-## 7. 接口 ⑥ — 后端 → ESP32 (MQTT)
+## 7. 接口 ⑥ — 后端 → LED Matrix (Pi 5 GPIO 直驱)
 
-### 7.1 MQTT 配置
+> **说明**：Pi 5 通过 GPIO18 直接驱动 WS2812B LED Matrix，无需 MQTT 中转。后端调用 `rpi_ws281x` 库控制灯光效果。
+
+### 7.1 硬件连接
 
 | 参数 | 值 |
 |------|-----|
-| Broker | Pi 5 (Mosquitto) |
-| 端口 | 1883 |
-| Topic | `aiot/gesture` |
-| QoS | 0 (实时性优先) |
+| 主控 | Raspberry Pi 5 |
+| LED 型号 | WS2812B (2× 8×32 = 512 LEDs) |
+| 数据引脚 | GPIO18 (PWM) |
+| 驱动库 | `rpi_ws281x` (Python) |
+| 供电 | 5V 独立电源（勿从 Pi 5 取电） |
 
-### 7.2 消息格式
+### 7.2 后端调用方式
 
-```json
-{
-  "gesture": "downbeat",
-  "gesture_id": 1,
-  "confidence": 0.92,
-  "timestamp": 1721052000.500000
-}
+后端 Flask 路由在收到手势推理结果后，直接调用 LED 控制模块：
+
+```python
+# backend/led_controller.py
+from rpi_ws281x import Adafruit_NeoPixel, Color
+
+class LEDController:
+    def __init__(self, led_count=512, led_pin=18, brightness=100):
+        self.strip = Adafruit_NeoPixel(
+            led_count, led_pin, 800000, 10, False, brightness
+        )
+        self.strip.begin()
+    
+    def trigger(self, gesture: str):
+        """根据手势触发对应 LED 效果"""
+        effects = {
+            "idle":          self._breathing,
+            "downbeat":      self._flash_white,
+            "crescendo":     self._brightness_ramp_up,
+            "decrescendo":   self._brightness_ramp_down,
+            "cutoff":        self._instant_black,
+            "style_switch":  self._palette_switch,
+            "tempo_up":      self._fast_pulse,
+            "tempo_down":    self._slow_pulse,
+        }
+        effect = effects.get(gesture, self._breathing)
+        effect()
 ```
 
-### 7.3 ESP32 端期望行为
+### 7.3 手势 ↔ LED 效果映射
 
-| 手势 | LED Matrix 效果 |
-|------|----------------|
-| `idle` | 渐变呼吸灯 (低亮度) |
-| `downbeat` | 全屏白光闪烁 (100ms) |
-| `crescendo` | 亮度从下到上递增 |
-| `decrescendo` | 亮度从上到下递减 |
-| `cutoff` | 快速红色闪烁 |
-| `style_switch` | 颜色切换滚动 |
-| `tempo_up` | 绿色快闪 |
-| `tempo_down` | 蓝色慢闪 |
+| 手势 | LED Matrix 效果 | 说明 |
+|------|----------------|------|
+| `idle` | 慢呼吸脉冲 (4s 周期, 20%↔40% 亮度) | 待命中 |
+| `downbeat` | 全屏白光闪烁 (100ms) | 节拍锚点 |
+| `crescendo` | 亮度从下到上递增, 暗蓝→亮紫→亮红 | 力度可视化 |
+| `decrescendo` | 亮度从上到下递减, 亮红→暗紫→暗蓝 | 渐弱可视化 |
+| `cutoff` | 瞬间全黑 (0.5s 后恢复) | 果断切断 |
+| `style_switch` | 调色板切换 (暖金↔冷蓝↔霓虹) | 风格可视化 |
+| `tempo_up` | 脉冲/波浪频率同步 BPM 增加, 色相偏暖 | 加速反馈 |
+| `tempo_down` | 脉冲/波浪频率同步 BPM 降低, 色相偏冷 | 减速反馈 |
 
-> LED Matrix 排列：2× 8×32 WS2812B（共 512 LEDs），连接方式由硬件 B 决定。
+> LED Matrix 排列：2× 8×32 WS2812B（共 512 LEDs），详情见 `TECHNICAL_SPEC.md` 第 2.4 节。完整手势→音乐→灯光映射方案见 `docs/GESTURE_MUSIC_LED_MAPPING.md`。
 
 ---
 
