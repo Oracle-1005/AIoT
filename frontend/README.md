@@ -36,75 +36,77 @@ npm run build
 
 The production files will be generated in `dist/`.
 
-## WebSocket Data
+## Backend Data
 
-The app uses mock data unless a WebSocket URL is configured.
+The app currently supports the Flask backend in `../backend` through REST polling.
+If the backend is not running, the frontend automatically falls back to mock data.
 
 Create `.env.local`:
 
 ```bash
-VITE_CONDUCTOR_WS_URL=ws://localhost:8000/ws/conductor
+VITE_BACKEND_BASE_URL=http://localhost:5000
 ```
 
-Expected payload shape:
+The current backend endpoints are:
+
+```text
+GET /api/status
+GET /api/gesture/current
+GET /api/gesture/history?limit=20
+GET /api/sensors/live
+GET /api/music/state
+```
+
+The frontend adapter polls the first, second, fourth, and fifth endpoints and
+normalizes them into the display frame used by the roadshow UI.
+
+Current backend shapes:
 
 ```json
 {
-  "timestamp": "2026-07-12T20:16:31.774Z",
-  "camera": {
-    "leftHandY": 0.72,
-    "rightHandX": 0.61,
-    "handDistance": 0.54,
-    "movementSpeed": 1.86,
-    "trajectoryAngle": 82
+  "status": {
+    "status": "ok",
+    "camera_connected": false,
+    "microbit_left": false,
+    "microbit_right": false,
+    "model_loaded": false,
+    "uptime_seconds": 1
   },
-  "microbit": {
-    "left": {
-      "id": "Device A",
-      "battery": 86,
-      "signal": "Excellent",
-      "motion": "Rising",
-      "x": 0.13,
-      "y": 1.42,
-      "z": 0.29
-    },
-    "right": {
-      "id": "Device B",
-      "battery": 81,
-      "signal": "Good",
-      "motion": "Downbeat",
-      "x": 0.86,
-      "y": 2.18,
-      "z": 0.71
+  "gesture_current": {
+    "gesture": "idle",
+    "confidence": 0.0,
+    "gesture_id": 0,
+    "timestamp": 0.0,
+    "features_used": 0,
+    "all_probs": {
+      "idle": 1.0,
+      "downbeat": 0.0
     }
   },
-  "prediction": {
-    "gesture": "crescendo",
-    "label": "CRESCENDO",
-    "zh": "Build intensity",
-    "confidence": 94,
-    "response": "Volume +14%, Energy +28%",
-    "top3": [
-      { "label": "Crescendo", "value": 94 },
-      { "label": "Tempo Up", "value": 4 },
-      { "label": "Idle", "value": 2 }
-    ]
+  "sensors_live": {
+    "microbit_left": { "acc_x": 0.0, "acc_y": 0.0, "acc_z": 0.0 },
+    "microbit_right": { "acc_x": 0.0, "acc_y": 0.0, "acc_z": 0.0 },
+    "hand_detected": false,
+    "hand_count": 0,
+    "timestamp": 0.0
   },
-  "music": {
-    "title": "Demo Symphony No.1",
-    "bpm": 108,
-    "volume": 72,
-    "energy": 68,
-    "density": 45,
-    "key": "C Major",
-    "style": "Cinematic",
-    "progress": 42
-  },
-  "latency": 84
+  "music_state": {
+    "playing": false,
+    "bpm": 120,
+    "volume": 0.8,
+    "style": "piano",
+    "current_gesture": "idle"
+  }
 }
 ```
 
-The WebSocket-ready adapter is in `src/hooks/useConductorFeed.js`.
+Optional future WebSocket mode is still supported:
+
+```bash
+VITE_CONDUCTOR_WS_URL=ws://localhost:8000/ws/frontend
+```
+
+The data adapter is in `src/hooks/useConductorFeed.js`.
 
 ## Real Media Slots
 

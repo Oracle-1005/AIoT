@@ -11,6 +11,13 @@ export const navItems = [
 
 export const gestureCatalog = [
   {
+    key: 'idle',
+    label: 'IDLE',
+    zh: 'Hold state',
+    response: 'Maintain current playback state',
+    color: '#94a3b8',
+  },
+  {
     key: 'crescendo',
     label: 'CRESCENDO',
     zh: 'Build intensity',
@@ -32,11 +39,32 @@ export const gestureCatalog = [
     color: '#22c55e',
   },
   {
+    key: 'decrescendo',
+    label: 'DECRESCENDO',
+    zh: 'Reduce intensity',
+    response: 'Volume -10%, Energy -18%',
+    color: '#8b5cf6',
+  },
+  {
     key: 'cutoff',
     label: 'CUTOFF',
     zh: 'Stop the performance',
     response: 'Pause Audio, Save Session',
     color: '#fb7185',
+  },
+  {
+    key: 'style_switch',
+    label: 'STYLE SWITCH',
+    zh: 'Change timbre preset',
+    response: 'Switch style preset',
+    color: '#f97316',
+  },
+  {
+    key: 'tempoDown',
+    label: 'TEMPO DOWN',
+    zh: 'Slow down tempo',
+    response: 'BPM -6',
+    color: '#a78bfa',
   },
 ]
 

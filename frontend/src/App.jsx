@@ -120,7 +120,13 @@ function AssetPlaceholder({ title, path, note, type = 'video' }) {
   )
 }
 
-function TopNav({ onPresentation }) {
+function TopNav({ onPresentation, connectionState }) {
+  const statusTone = connectionState.includes('mock') ? 'gold' : 'green'
+  const statusLabel = connectionState
+    .split(' ')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+
   return (
     <header className="sticky top-0 z-40 border-b border-white/10 bg-void/80 backdrop-blur-xl">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
@@ -148,9 +154,9 @@ function TopNav({ onPresentation }) {
         </nav>
 
         <div className="flex items-center gap-2">
-          <span className="hidden items-center gap-2 rounded-md border border-mint/25 bg-mint/10 px-3 py-2 text-xs font-medium text-mint sm:inline-flex">
-            <StatusDot tone="green" />
-            System Online
+          <span className="hidden items-center gap-2 rounded-md border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-slate-200 sm:inline-flex">
+            <StatusDot tone={statusTone} />
+            {statusLabel}
           </span>
           <button type="button" className="primary-button" onClick={onPresentation}>
             <Maximize2 size={16} />
@@ -535,7 +541,7 @@ function MicrobitCard({ side, data, color }) {
           </p>
           <p className="mt-1 text-xs text-slate-400">{data.id} · Bluetooth / Serial Ready</p>
         </div>
-        <span className={`rounded-md border px-3 py-1 text-xs font-semibold ${accent}`}>Connected</span>
+        <span className={`rounded-md border px-3 py-1 text-xs font-semibold ${accent}`}>{data.signal}</span>
       </div>
 
       <div className="mt-5 grid gap-3 sm:grid-cols-[0.8fr_1.2fr]">
@@ -1113,7 +1119,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-transparent text-slate-100">
-      <TopNav onPresentation={openPresentation} />
+      <TopNav onPresentation={openPresentation} connectionState={connectionState} />
       <main>
         <HeroSection frame={frame} onPresentation={openPresentation} />
         <LiveStage frame={frame} logs={logs} />
