@@ -36,3 +36,11 @@ Thumbs.db
 # Pi
 *.img
 *.img.xz
+
+# Backend local environments and runtime files
+backend/.venv/
+backend/.testvenv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/data/*.db
+backend/*.log
