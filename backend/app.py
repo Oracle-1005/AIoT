@@ -1,50 +1,91 @@
-"""Flask backend for the AIoT Smart Conducting System.
+"""PC backend for the AIoT Smart Conducting System.
 
-This implementation follows the original INTERFACE_CONTRACT.md:
-- Interface ③: model is imported and called in the same process.
-- Interface ④: frontend reads REST endpoints.
-- Interface ⑤: history is persisted in SQLite.
-- Interface ⑥: accepted predictions are published over MQTT.
+Current architecture:
+- Flask + SQLite remain available for frontend/history.
+- PC acts as TCP server for Pi JSON Lines messages.
+- Four Pi uplink types are accepted: fused_frame, window_features,
+  control_event and status.
+- LED/system downlink uses the same TCP connection; MQTT is not used.
 """
 
 from __future__ import annotations
 
 import atexit
 import os
+import time
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
-from database import DB_PATH, get_prediction_history, init_db
+from database import DB_PATH, get_pi_message_history, get_prediction_history, init_db
+from message_router import UPLINK_MESSAGE_TYPES, route_uplink_message
 from model_service import model_service
-from mqtt_client import MQTT_ENABLED, MQTT_HOST, MQTT_PORT, mqtt_client
+from pi_gateway import PI_GATEWAY_ENABLED, PI_GATEWAY_HOST, PI_GATEWAY_PORT, pi_gateway
 from state import live_state
+
+DOWNLINK_MESSAGE_TYPES = frozenset({"led_command", "led_state", "led_config", "system_command", "time_sync"})
 
 
 def create_app() -> Flask:
     app = Flask(__name__)
     CORS(app)
-
     init_db()
     model_service.load()
-    mqtt_client.start()
+    pi_gateway.set_handler(route_uplink_message)
+    pi_gateway.start()
 
     @app.get("/api/status")
     def status():
-        return jsonify(
-            {
-                "status": "ok",
-                "camera_connected": live_state.camera_connected,
-                "microbit_left": live_state.microbit_left_connected,
-                "microbit_right": live_state.microbit_right_connected,
-                "model_loaded": model_service.loaded,
-                "uptime_seconds": live_state.uptime_seconds(),
-            }
-        )
+        return jsonify({
+            "status": "ok",
+            "camera_connected": live_state.camera_connected,
+            "microbit_left": live_state.microbit_left_connected,
+            "microbit_right": live_state.microbit_right_connected,
+            "model_loaded": model_service.loaded,
+            "pi_gateway": pi_gateway.status(),
+            "uptime_seconds": live_state.uptime_seconds(),
+        })
+
+    @app.get("/api/pi/status")
+    def pi_status():
+        return jsonify({"gateway": pi_gateway.status(), "runtime": live_state.get_pi_state()})
+
+    @app.get("/api/pi/messages")
+    def pi_messages():
+        try:
+            limit = int(request.args.get("limit", 50))
+        except ValueError:
+            return jsonify({"error": "limit must be an integer"}), 400
+        message_type = request.args.get("message_type")
+        if message_type and message_type not in UPLINK_MESSAGE_TYPES:
+            return jsonify({"error": f"message_type must be one of {sorted(UPLINK_MESSAGE_TYPES)}"}), 400
+        records = get_pi_message_history(message_type=message_type, limit=limit)
+        return jsonify({"count": len(records), "records": records})
+
+    @app.post("/api/pi/send")
+    def pi_send():
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            return jsonify({"error": "request body must be a JSON object"}), 400
+        message_type = body.get("message_type", body.get("type"))
+        if message_type not in DOWNLINK_MESSAGE_TYPES:
+            return jsonify({"error": f"message_type must be one of {sorted(DOWNLINK_MESSAGE_TYPES)}"}), 400
+        payload = body.get("payload", {})
+        if not isinstance(payload, dict):
+            return jsonify({"error": "payload must be a JSON object"}), 400
+        message = {
+            "schema_version": str(body.get("schema_version", "draft")),
+            "message_type": message_type,
+            "sequence": body.get("sequence"),
+            "created_at": time.time(),
+            "payload": payload,
+        }
+        if not pi_gateway.send(message):
+            return jsonify({"sent": False, "error": "Pi is not connected"}), 503
+        return jsonify({"sent": True, "message": message})
 
     @app.get("/api/gesture/current")
-    def gesture_current():
-        return jsonify(live_state.get_prediction())
+    def gesture_current(): return jsonify(live_state.get_prediction())
 
     @app.get("/api/gesture/history")
     def gesture_history():
@@ -53,22 +94,18 @@ def create_app() -> Flask:
             since_raw = request.args.get("since")
             since = float(since_raw) if since_raw not in (None, "") else None
         except ValueError:
-            return jsonify({"error": "`limit` must be int and `since` must be float"}), 400
-
+            return jsonify({"error": "limit must be int and since must be float"}), 400
         records = get_prediction_history(limit=limit, since=since)
         return jsonify({"count": len(records), "records": records})
 
     @app.get("/api/sensors/live")
-    def sensors_live():
-        return jsonify(live_state.get_sensors())
+    def sensors_live(): return jsonify(live_state.get_sensors())
 
     @app.get("/api/music/state")
-    def music_state():
-        return jsonify(live_state.get_music())
+    def music_state(): return jsonify(live_state.get_music())
 
     @app.errorhandler(404)
-    def not_found(_error):
-        return jsonify({"error": "Endpoint not found"}), 404
+    def not_found(_error): return jsonify({"error": "Endpoint not found"}), 404
 
     @app.errorhandler(500)
     def internal_error(error):
@@ -76,16 +113,14 @@ def create_app() -> Flask:
         return jsonify({"error": "Internal server error"}), 500
 
     app.config["AIOT_DB_PATH"] = str(DB_PATH)
-    app.config["AIOT_MQTT_ENABLED"] = MQTT_ENABLED
-    app.config["AIOT_MQTT_BROKER"] = f"{MQTT_HOST}:{MQTT_PORT}"
+    app.config["AIOT_PI_GATEWAY_ENABLED"] = PI_GATEWAY_ENABLED
+    app.config["AIOT_PI_GATEWAY"] = f"{PI_GATEWAY_HOST}:{PI_GATEWAY_PORT}"
     return app
 
 
 app = create_app()
-atexit.register(mqtt_client.stop)
-
+atexit.register(pi_gateway.stop)
 
 if __name__ == "__main__":
     debug = os.getenv("FLASK_DEBUG", "1").lower() in {"1", "true", "yes", "on"}
-    # Disable the reloader because it otherwise initializes MQTT twice.
-    app.run(host="0.0.0.0", port=5000, debug=debug, use_reloader=False)
+    app.run(host="0.0.0.0", port=int(os.getenv("FLASK_PORT", "5000")), debug=debug, use_reloader=False)
