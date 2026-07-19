@@ -238,6 +238,18 @@ export function createConductorFrame(tick = 0) {
       tracking: 'Stable',
       fps: 30,
       latency,
+      piGateway: 'Mock Pi Feed',
+      piGatewayConnected: false,
+      piGatewayRunning: false,
+      piGatewayHost: '0.0.0.0:9000',
+      piLastMessage: 'Mock fused frame',
+      piMessageCounts: {
+        fused_frame: tick + 12,
+        window_features: Math.max(0, tick - 1),
+        control_event: Math.floor(tick / 3),
+        status: Math.floor(tick / 5) + 1,
+      },
+      piLastError: null,
     },
     camera: {
       leftHandY: Number((0.62 + Math.sin(phase) * 0.16).toFixed(2)),

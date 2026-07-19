@@ -360,6 +360,10 @@ function CameraGesturePanel({ frame }) {
         <div className="flex flex-wrap gap-2">
           <span className="status-pill">FPS {frame.connection.fps}</span>
           <span className="status-pill">{frame.connection.latency} ms</span>
+          <span className="status-pill">
+            <StatusDot tone={frame.connection.piGatewayConnected ? 'green' : 'gold'} />
+            {frame.connection.piGateway}
+          </span>
         </div>
       </div>
       <div className="scanline relative overflow-hidden rounded-lg border border-cyan/20 bg-black/50">
@@ -582,6 +586,9 @@ function RealtimeMetrics({ frame }) {
     ['Movement speed', `${frame.camera.movementSpeed} m/s`],
     ['Trajectory angle', `${frame.camera.trajectoryAngle} deg`],
     ['Response latency', `${frame.connection.latency} ms`],
+    ['Pi Gateway', frame.connection.piGateway],
+    ['Pi Listen Port', frame.connection.piGatewayHost],
+    ['Last Pi Message', frame.connection.piLastMessage],
   ]
   return (
     <div className="glass-panel p-5">
@@ -593,7 +600,7 @@ function RealtimeMetrics({ frame }) {
         {metrics.map(([label, value]) => (
           <div key={label} className="metric-tile">
             <p className="text-xs text-slate-400">{label}</p>
-            <p className="mt-2 font-display text-2xl font-semibold text-white">{value}</p>
+            <p className="mt-2 break-words font-display text-xl font-semibold text-white sm:text-2xl">{value}</p>
           </div>
         ))}
       </div>
@@ -672,6 +679,13 @@ function DecisionFlow({ frame, connectionState }) {
                 },
                 music: frame.music,
                 latency: frame.connection.latency,
+                piGateway: {
+                  status: frame.connection.piGateway,
+                  listen: frame.connection.piGatewayHost,
+                  lastMessage: frame.connection.piLastMessage,
+                  messageCounts: frame.connection.piMessageCounts,
+                  lastError: frame.connection.piLastError,
+                },
                 connectionState,
               },
               null,

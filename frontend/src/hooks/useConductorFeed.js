@@ -50,6 +50,34 @@ function normalizeAcceleration(value) {
   return Number(normalized.toFixed(2))
 }
 
+function normalizeMilligravity(value) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return 0
+  return Number((value / 1000).toFixed(2))
+}
+
+function readAcceleration(sample = {}, axis = 'x') {
+  const mgKey = `a${axis}_mg`
+  const accKey = `acc_${axis}`
+  const directKey = axis
+
+  if (typeof sample[mgKey] === 'number') return normalizeMilligravity(sample[mgKey])
+  if (typeof sample[accKey] === 'number') return normalizeAcceleration(sample[accKey])
+  if (typeof sample[directKey] === 'number') return normalizeAcceleration(sample[directKey])
+  return 0
+}
+
+function formatPiGateway(gateway = {}) {
+  if (!gateway.enabled) return 'Disabled'
+  if (gateway.connected) return 'Pi Connected'
+  if (gateway.running) return `Listening ${gateway.listen_port || 9000}`
+  return 'Gateway Pending'
+}
+
+function formatPiLastMessage(runtime = {}) {
+  if (!runtime.last_message_type) return 'No Pi message yet'
+  return toTitleCase(String(runtime.last_message_type))
+}
+
 function topPredictionsFromAllProbs(allProbs = {}, fallbackGesture = 'idle', fallbackConfidence = 0) {
   const entries = Object.entries(allProbs)
   const source = entries.length ? entries : [[fallbackGesture, fallbackConfidence / 100]]
@@ -63,7 +91,7 @@ function topPredictionsFromAllProbs(allProbs = {}, fallbackGesture = 'idle', fal
     .slice(0, 3)
 }
 
-function normalizeRestFrame({ status = {}, prediction = {}, sensors = {}, music = {} }, tick = 0) {
+function normalizeRestFrame({ status = {}, prediction = {}, sensors = {}, music = {}, piStatus = {} }, tick = 0) {
   const base = createConductorFrame(tick)
   const gesture = prediction.gesture || music.current_gesture || 'idle'
   const gestureKey = toCamelGestureKey(gesture)
@@ -73,6 +101,8 @@ function normalizeRestFrame({ status = {}, prediction = {}, sensors = {}, music 
   const rightSensor = sensors.microbit_right || {}
   const volume = toPercent(Number(music.volume), base.music.volume)
   const handCount = Number(sensors.hand_count || 0)
+  const gateway = piStatus.gateway || status.pi_gateway || {}
+  const runtime = piStatus.runtime || {}
 
   return {
     ...base,
@@ -88,6 +118,13 @@ function normalizeRestFrame({ status = {}, prediction = {}, sensors = {}, music 
       model: status.model_loaded ? 'Model Loaded' : 'Model Pending',
       backend: status.status === 'ok' ? 'REST Online' : 'REST Pending',
       uptime: Number(status.uptime_seconds || 0),
+      piGateway: formatPiGateway(gateway),
+      piGatewayConnected: Boolean(gateway.connected),
+      piGatewayRunning: Boolean(gateway.running),
+      piGatewayHost: `${gateway.listen_host || '0.0.0.0'}:${gateway.listen_port || 9000}`,
+      piLastMessage: formatPiLastMessage(runtime),
+      piMessageCounts: runtime.message_counts || {},
+      piLastError: gateway.last_error || null,
     },
     microbit: {
       left: {
@@ -95,18 +132,18 @@ function normalizeRestFrame({ status = {}, prediction = {}, sensors = {}, music 
         id: 'Micro:bit L',
         signal: status.microbit_left ? 'Online' : 'Waiting',
         motion: status.microbit_left ? 'Live sensor' : 'No live packet',
-        x: normalizeAcceleration(leftSensor.acc_x),
-        y: normalizeAcceleration(leftSensor.acc_y),
-        z: normalizeAcceleration(leftSensor.acc_z),
+        x: readAcceleration(leftSensor, 'x'),
+        y: readAcceleration(leftSensor, 'y'),
+        z: readAcceleration(leftSensor, 'z'),
       },
       right: {
         ...base.microbit.right,
         id: 'Micro:bit R',
         signal: status.microbit_right ? 'Online' : 'Waiting',
         motion: status.microbit_right ? 'Live sensor' : 'No live packet',
-        x: normalizeAcceleration(rightSensor.acc_x),
-        y: normalizeAcceleration(rightSensor.acc_y),
-        z: normalizeAcceleration(rightSensor.acc_z),
+        x: readAcceleration(rightSensor, 'x'),
+        y: readAcceleration(rightSensor, 'y'),
+        z: readAcceleration(rightSensor, 'z'),
       },
     },
     prediction: {
@@ -167,16 +204,29 @@ export function useConductorFeed(options = {}) {
     }
 
     const fetchBackendState = async () => {
+      const fetchJson = async (path) => {
+        const response = await fetch(`${restBaseUrl}${path}`)
+        if (!response.ok) throw new Error(`${path} returned ${response.status}`)
+        return response.json()
+      }
+      const fetchOptionalJson = async (path, fallback) => {
+        try {
+          return await fetchJson(path)
+        } catch {
+          return fallback
+        }
+      }
+
       const [status, prediction, sensors, music] = await Promise.all(
-        ['/api/status', '/api/gesture/current', '/api/sensors/live', '/api/music/state'].map(async (path) => {
-          const response = await fetch(`${restBaseUrl}${path}`)
-          if (!response.ok) throw new Error(`${path} returned ${response.status}`)
-          return response.json()
-        }),
+        ['/api/status', '/api/gesture/current', '/api/sensors/live', '/api/music/state'].map(fetchJson),
       )
+      const piStatus = await fetchOptionalJson('/api/pi/status', {
+        gateway: status.pi_gateway || {},
+        runtime: {},
+      })
       feedTick += 1
       setTick(feedTick)
-      setFrame(normalizeRestFrame({ status, prediction, sensors, music }, feedTick))
+      setFrame(normalizeRestFrame({ status, prediction, sensors, music, piStatus }, feedTick))
       setConnectionState('rest polling')
     }
 

@@ -55,9 +55,11 @@ GET /api/gesture/current
 GET /api/gesture/history?limit=20
 GET /api/sensors/live
 GET /api/music/state
+GET /api/pi/status
 ```
 
-The frontend adapter polls the first, second, fourth, and fifth endpoints and
+The frontend adapter polls `/api/status`, `/api/gesture/current`,
+`/api/sensors/live`, `/api/music/state`, and `/api/pi/status`, then
 normalizes them into the display frame used by the roadshow UI.
 
 Current backend shapes:
@@ -70,6 +72,13 @@ Current backend shapes:
     "microbit_left": false,
     "microbit_right": false,
     "model_loaded": false,
+    "pi_gateway": {
+      "enabled": true,
+      "running": true,
+      "connected": false,
+      "listen_host": "0.0.0.0",
+      "listen_port": 9000
+    },
     "uptime_seconds": 1
   },
   "gesture_current": {
@@ -90,6 +99,28 @@ Current backend shapes:
     "hand_count": 0,
     "timestamp": 0.0
   },
+  "pi_status": {
+    "gateway": {
+      "enabled": true,
+      "running": true,
+      "connected": false,
+      "listen_host": "0.0.0.0",
+      "listen_port": 9000,
+      "received_messages": 0,
+      "sent_messages": 0,
+      "last_error": null
+    },
+    "runtime": {
+      "last_message_type": null,
+      "last_message_at": null,
+      "message_counts": {
+        "fused_frame": 0,
+        "window_features": 0,
+        "control_event": 0,
+        "status": 0
+      }
+    }
+  },
   "music_state": {
     "playing": false,
     "bpm": 120,
@@ -99,6 +130,10 @@ Current backend shapes:
   }
 }
 ```
+
+Micro:bit acceleration values can use either frontend-friendly `acc_x`,
+`acc_y`, `acc_z` fields in g, or Pi uplink fields `ax_mg`, `ay_mg`, `az_mg`
+in mg. The adapter converts both formats to g before rendering.
 
 Optional future WebSocket mode is still supported:
 
