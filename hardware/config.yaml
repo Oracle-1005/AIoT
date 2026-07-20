@@ -1,0 +1,93 @@
+# AIoT Smart Conductor System — Configuration
+# =======================================================
+# Copy this file to your Raspberry Pi and fill in the
+# micro:bit BLE addresses found via `bluetoothctl scan`.
+# Run `python -c "from utils.config import save_default_config; save_default_config()"` to regenerate.
+
+# --- Micro:bit BLE Devices ---
+microbits:
+  - device_id: MB_LEFT
+    hand: left
+    address: ""                      # FILL IN: BLE MAC address
+  - device_id: MB_RIGHT
+    hand: right
+    address: ""                      # FILL IN: BLE MAC address
+
+microbit:
+  target_sample_rate_hz: 25
+  ble_scan_timeout_s: 5.0
+
+# --- Camera (Picamera2 + MediaPipe) ---
+camera:
+  width: 640
+  height: 480
+  fps: 30
+  max_hands: 2
+  frame_queue_size: 10
+
+# --- Fusion Parameters ---
+fusion:
+  buffer_maxlen: 500
+  buffer_max_age_s: 10.0
+
+  # Time alignment tolerances
+  max_bracket_span_ms: 100          # Max allowed span between bracketing BLE samples
+  max_sample_age_ms: 120            # Max age of BLE sample relative to camera target
+  timestamp_alignment_tolerance_ms: 50  # Acceptable sync error for valid fusion
+
+  # Clock sync
+  min_sync_points: 5                # Minimum sync points before clock_ready=true
+  max_sync_points: 20               # Maximum sync points to retain
+  initial_sync_rounds: 15           # SYNC rounds at startup
+  resync_interval_s: 15             # Periodic re-sync interval
+  sync_outlier_rtt_factor: 2.0      # RTT > this * median = outlier
+
+  # Packet loss
+  loss_window_size: 100             # Window for recent_loss_ratio
+  max_gap_interpolate: 3            # Max consecutive missing to interpolate
+
+  # Noise filtering (per micro:bit)
+  noise_filter:
+    ema_alpha_accel: 0.85           # EMA coefficient for accelerometer (higher = smoother)
+    ema_alpha_orientation: 0.90     # EMA coefficient for pitch/roll
+    median_window: 5                # Window size for outlier spike detection
+    outlier_threshold_mg: 500.0     # Deviations > this from median = outlier
+
+  # Sliding window (internal — not sent to PC, used for event detection)
+  window_ms: 800
+  hop_ms: 100
+
+  # Rule-based event detection
+  event_cooldown_ms: 200
+  jerk_threshold_g_s: 5.0
+  bpm_min: 60
+  bpm_max: 200
+
+# --- TCP Transport to PC ---
+pi_to_pc:
+  host: "192.168.1.100"             # CHANGE: PC IP address
+  port: 9000
+  reconnect_delay_s: 2.0
+  max_queue_size: 500
+  connect_timeout_s: 5.0
+  fused_frame_max_hz: 25
+  window_features_hz: 10
+  status_hz: 1
+
+# --- WS2812B LED Control ---
+led:
+  enabled: false                     # Set true when LED hardware is connected
+  gpio: 18
+  panel_count: 2
+  led_per_panel: 256
+  brightness_limit: 0.25             # 25% max for safety
+  refresh_hz: 50
+  dma_channel: 10
+  pwm_freq_hz: 800000
+
+# --- General ---
+general:
+  pi_id: "raspberrypi-01"
+  schema_version: "1.1"
+  status_interval_s: 1.0
+  log_level: "INFO"
