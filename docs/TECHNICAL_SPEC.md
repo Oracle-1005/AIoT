@@ -81,24 +81,26 @@
 
 ---
 
-## 3. PC 开发环境（模型负责人）
+## 3. PC 开发环境（模型负责人 — 手势分类 + BLE）
+
+> **注意**：MediaPipe Hands 已移至 Pi 5 端运行，PC 只做 Random Forest 分类 + BLE 接收。
 
 | 软件 | 版本/用途 |
 |------|------|
 | Python | 3.10+ |
-| MediaPipe | 0.10.x (Hand Landmarker) |
-| OpenCV | 4.x (`opencv-python`) |
-| bleak | 0.21+ (BLE 客户端) |
-| scikit-learn | 1.3+ (Random Forest) |
+| scikit-learn | 1.3+ (Random Forest 手势分类) |
 | pandas | 2.x (数据处理) |
 | NumPy | 1.24+ |
 | Matplotlib | 3.7+ (可视化) |
 | joblib | 1.3+ (模型持久化) |
-| paho-mqtt | 1.6+ (MQTT 客户端) |
+| bleak | 0.21+ (BLE 客户端，接收 Micro:bit) |
+| paho-mqtt | 1.6+ (MQTT 客户端：订阅 Pi 5 landmarks，发布 gesture 结果) |
+| OpenCV | 4.x (仅开发/调试用，非运行时依赖) |
+| MediaPipe | 0.10.x (仅训练阶段特征分析用，非运行时依赖) |
 
 ---
 
-## 4. Pi 5 部署环境（后端 + 推理）
+## 4. Pi 5 部署环境（后端 + MediaPipe + LED 驱动）
 
 | 软件 | 用途 |
 |------|------|
@@ -107,31 +109,48 @@
 | Mosquitto | MQTT Broker |
 | SQLite | 数据库 (Python 内置) |
 | paho-mqtt | MQTT Client (Python) |
+| MediaPipe | 0.10.x (Hand Landmarker — 手部 21 关键点提取) |
+| OpenCV | 4.x (Pi Camera 图像采集) |
+| rpi_ws281x | LED Matrix 直驱 |
 
-> **注意**：模型推理可以在 Pi 5 上直接跑，也可以在开发 PC 上跑，取决于性能。先按 PC 推理 → 后端同机部署开发，最终可迁移到 Pi 5。
+> **架构决策 (2026-07-20)**：MediaPipe Hands 在 Pi 5 本地运行。Pi Camera 图像不再传输到 PC，而是 Pi 5 本地提取 21 个手部关键点后，仅将 landmarks JSON 通过 MQTT 发送给 PC 做 Random Forest 手势分类。这样大幅降低网络带宽需求（~2KB/帧 vs 原始视频流）。
 
 ---
 
 ## 5. WiFi / 网络拓扑
 
 ```
-           教室 WiFi (或 Pi 5 热点)
-                    │
-        ┌───────────┼───────────┐
-        ↓           ↓           ↓
-     Pi 5         PC 开发机    Dashboard 前端
-  (Mosquitto,   (模型推理,    (Chart.js,
-   Flask API,   BLE 接收)     Web Audio API)
-   LED Matrix
-   直驱 GPIO)
-        │
-   Pi Camera
-  (排线直连)
+           教室 WiFi
+              │
+    ┌─────────┼─────────┬──────────────┐
+    ↓         ↓         ↓              ↓
+  Pi 5       PC        Dashboard     Micro:bit ×2
+ (Mosquitto, (RF 手势  前端          (BLE 直连 PC,
+  Flask API,  分类,    (Chart.js,    不经过 WiFi)
+  MediaPipe,  BLE 接收) Web Audio)
+  LED Matrix
+  直驱 GPIO)
+    │
+ Pi Camera
+(排线直连)
+```
+
+**数据流：**
+```
+Pi Camera → Pi 5 (MediaPipe Hands)
+                │
+                ↓ MQTT: pi/hand_landmarks (JSON, ~30Hz)
+                │
+           PC (Random Forest 分类) ← BLE ← Micro:bit ×2 (50Hz)
+                │
+                ↓ MQTT: model/gesture (JSON)
+                │
+           Pi 5 (Flask API → Dashboard / SQLite / LED Matrix)
 ```
 
 | 设备 | 连接方式 | 网络 |
 |------|----------|------|
-| Pi 5 ↔ PC | WiFi / Ethernet | 同一局域网 |
+| Pi 5 ↔ PC | WiFi | 同一局域网 (MQTT) |
 | PC ↔ Micro:bit ×2 | **BLE** (不经过 WiFi) | 蓝牙直连 |
 | Pi Camera ↔ Pi 5 | MIPI 排线 | 本地 |
 | LED Matrix ↔ Pi 5 | GPIO 直连 | 本地 |

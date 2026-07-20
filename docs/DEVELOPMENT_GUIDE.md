@@ -31,43 +31,46 @@ cd AIoT
 ## 1. 模型负责人（王祎哲）— 环境搭建
 
 > **开发机**：自己的 PC 笔记本  
-> **目标**：MediaPipe + Micro:bit BLE + Random Forest 完整 pipeline
+> **目标**：Random Forest 手势分类 + Micro:bit BLE 接收 + MQTT 收发  
+> **架构变更 (v1.1)**：MediaPipe Hands 已移至 Pi 5 运行，PC 端不再跑 MediaPipe。
 
 ### 1.1 安装 Python 依赖
 
 ```bash
-pip install mediapipe opencv-python bleak scikit-learn pandas numpy joblib matplotlib paho-mqtt
+# 运行时必需
+pip install scikit-learn pandas numpy joblib bleak paho-mqtt
+
+# 开发/训练用（可选）
+pip install matplotlib opencv-python mediapipe
 ```
 
-### 1.2 验证 MediaPipe（用笔记本摄像头）
+### 1.2 验证 MQTT 连通性
 
-创建 `model/test_mediapipe.py`：
+Pi 5 的 Mosquitto broker 就绪后，PC 端验证能收到 Pi 5 发来的 landmarks：
+
 ```python
-import cv2
-import mediapipe as mp
+# PC 端测试：订阅 Pi 5 的 hand landmarks
+import paho.mqtt.client as mqtt_client
 
-mp_hands = mp.solutions.hands
-hands = mp_hands.Hands(static_image_mode=False, max_num_hands=2, min_detection_confidence=0.7)
-mp_draw = mp.solutions.drawing_utils
+def on_message(client, userdata, msg):
+    print(f"收到: {len(msg.payload)} bytes on {msg.topic}")
 
-cap = cv2.VideoCapture(0)  # 笔记本摄像头 / Pi Camera 到位后也是 0
-while cap.isOpened():
-    ret, frame = cap.read()
-    if not ret: break
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    result = hands.process(rgb)
-    if result.multi_hand_landmarks:
-        for hand_landmarks in result.multi_hand_landmarks:
-            mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
-    cv2.imshow("MediaPipe Hands", frame)
-    if cv2.waitKey(1) & 0xFF == ord('q'): break
-cap.release()
-cv2.destroyAllWindows()
+client = mqtt_client.Client()
+client.connect("<Pi5-IP>", 1883)
+client.subscribe("pi/hand_landmarks", qos=0)
+client.on_message = on_message
+client.loop_forever()
 ```
 
-**验收标准**：摄像头画面显示 21 个手部关键点连线，双手同时检测，画面流畅 (30 FPS)。
+**验收标准**：终端实时打印 Pi 5 发来的 landmarks JSON，~30 msg/s。
 
-### 1.3 Micro:bit BLE 接收测试
+### 1.3 本地 MediaPipe 验证（仅开发阶段，用笔记本摄像头）
+
+Pi Camera 到位前，可用笔记本摄像头测试 MediaPipe 和理解手部关键点数据结构。创建 `model/test_mediapipe.py`（同目录已有）。
+
+> **注意**：最终部署时 MediaPipe 在 Pi 5 上运行，PC 端不需要。此步骤仅用于理解 landmarks 数据格式和开发特征提取逻辑。
+
+### 1.4 Micro:bit BLE 接收测试
 
 1. 在 [MakeCode](https://makecode.microbit.org/) 编写加速度 BLE UART 发送固件
 2. 刷入两个 Micro:bit（分别写入 device_id "L" 和 "R" 标识）
@@ -76,13 +79,13 @@ cv2.destroyAllWindows()
 
 **验收标准**：终端同时打印两台 Micro:bit 的 `acc_x, acc_y, acc_z, timestamp`。
 
-### 1.4 第一周目标
+### 1.5 第一周目标
 
-- [ ] MediaPipe 环境验证 ✅
-- [ ] 双 Micro:bit BLE 连接 + 数据接收 ✅
-- [ ] 数据采集工具（CLI 或 GUI）
-- [ ] 采集手势样本数据（拉全组帮忙录）
-- [ ] 特征提取脚本
+- [ ] PC ↔ Pi 5 MQTT 连通验证（订阅 `pi/hand_landmarks`）
+- [ ] 双 Micro:bit BLE 连接 + 数据接收
+- [ ] PC 端数据融合模块（MQTT landmarks + BLE acc → 特征向量）
+- [ ] 数据采集工具（CLI 或 GUI，保存 landmarks + acc 为带标签样本）
+- [ ] Random Forest 训练脚本
 
 ---
 
@@ -268,10 +271,10 @@ forever:
 
 ---
 
-## 5. 硬件 B（Pi 5 + LED Matrix + Camera）— 环境搭建
+## 5. 硬件 B（Pi 5 + LED Matrix + Camera + MediaPipe）— 环境搭建
 
 > **开发工具**：Pi Imager, Python  
-> **目标**：Pi 5 就绪 + Pi 5 直驱 LED Matrix + Camera 验证
+> **目标**：Pi 5 就绪 + MediaPipe Hands landmarks 提取 + MQTT 发布 + LED Matrix 直驱 + Camera 验证
 
 ### 5.1 Pi 5 初始化
 
@@ -287,10 +290,13 @@ mosquitto_sub -t "test" &
 mosquitto_pub -t "test" -m "hello"
 # 终端应打印 "hello"
 
-# 4. 固定 IP（或确认教室 IP 分配）：
+# 4. 安装 Python 依赖：
+pip install mediapipe opencv-python paho-mqtt rpi_ws281x
+
+# 5. 固定 IP（或确认教室 IP 分配）：
 # 记下 Pi 5 的 IP 地址：hostname -I
 
-# 5. 确认 Pi Camera 排线物理连接正确后：
+# 6. 确认 Pi Camera 排线物理连接正确后：
 libcamera-hello --list-cameras
 # 应列出 Pi Camera 设备
 ```
@@ -340,7 +346,89 @@ for i in range(LED_COUNT):
 strip.show()
 ```
 
-### 5.3 LED Matrix 手势反馈接口
+### 5.3 Pi 5 MediaPipe Hands + MQTT 发布 ⭐ 关键新增
+
+> **这是 v1.1 架构的核心**：Pi 5 本地运行 MediaPipe Hands 提取 21 个手部关键点，通过 MQTT 发给 PC 做手势分类。
+
+创建 `hardware/pi/landmark_publisher.py`：
+
+```python
+"""
+Pi 5 端：MediaPipe Hands landmarks 提取 + MQTT 发布
+发布 topic: pi/hand_landmarks
+频率: ~30 Hz (与 Pi Camera 帧率同步)
+"""
+import cv2
+import mediapipe as mp
+from mediapipe.tasks.python import vision
+from mediapipe.tasks.python.vision import RunningMode
+import paho.mqtt.client as mqtt_client
+import json
+import time
+import os
+
+MODEL_PATH = "hand_landmarker.task"  # 从 model/models/ 复制到本目录
+MQTT_BROKER = "localhost"
+
+# 初始化 MediaPipe
+options = vision.HandLandmarkerOptions(
+    base_options=mp.tasks.BaseOptions(model_asset_path=MODEL_PATH),
+    running_mode=RunningMode.VIDEO,
+    num_hands=2,
+    min_hand_detection_confidence=0.5,
+    min_tracking_confidence=0.3
+)
+landmarker = vision.HandLandmarker.create_from_options(options)
+
+# 初始化 MQTT
+client = mqtt_client.Client()
+client.connect(MQTT_BROKER, 1883)
+
+# 初始化摄像头
+cap = cv2.VideoCapture(0)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+frame_id = 0
+print("[OK] Pi 5 MediaPipe + MQTT publisher started")
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        continue
+
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+    result = landmarker.detect_for_video(mp_image, frame_id)
+
+    hands_data = []
+    if result.hand_landmarks:
+        for i, landmarks in enumerate(result.hand_landmarks):
+            hand = {
+                "handedness": result.handedness[i][0].category_name,
+                "score": result.handedness[i][0].score,
+                "landmarks": [
+                    {"id": j, "x": round(lm.x, 4), "y": round(lm.y, 4), "z": round(lm.z, 4)}
+                    for j, lm in enumerate(landmarks)
+                ]
+            }
+            hands_data.append(hand)
+
+    msg = json.dumps({
+        "frame_id": frame_id,
+        "pi_ts": time.time(),
+        "hands": hands_data
+    })
+    client.publish("pi/hand_landmarks", msg, qos=0)
+    frame_id += 1
+
+cap.release()
+landmarker.close()
+```
+
+**验收标准**：PC 端 `mosquitto_sub -h <Pi5-IP> -t "pi/hand_landmarks"` 能看到持续 JSON 流。
+
+### 5.5 LED Matrix 手势反馈接口
 
 Pi 5 后端直接调用 `rpi_ws281x` 控制 LED，无需 MQTT 中转：
 
@@ -360,13 +448,14 @@ LED_EFFECTS = {
 }
 ```
 
-### 5.4 第一周目标
+### 5.6 第一周目标
 
-- [ ] Pi 5 刷系统 + Mosquitto 运行 ✅
-- [ ] Pi Camera 验证 (libcamera-hello) ✅
-- [ ] Pi 5 直驱 LED Matrix 点亮 ✅
+- [ ] Pi 5 刷系统 + Mosquitto 运行
+- [ ] Pi Camera 验证 (libcamera-hello)
+- [ ] **MediaPipe Hands + MQTT landmarks 发布** ⭐ 最高优先级
+- [ ] Pi 5 性能基准测试（运行 `model/benchmark_pi.py`）
+- [ ] Pi 5 直驱 LED Matrix 点亮
 - [ ] 根据手势触发不同 LED 效果
-- [ ] 后端集成 LED 控制模块
 
 ---
 
@@ -374,12 +463,13 @@ LED_EFFECTS = {
 
 | 模块 | 检查项 | 验收方式 |
 |------|--------|----------|
-| 模型 | MediaPipe 双手检测 30FPS | 运行脚本 + 截图 |
+| 模型 | PC ↔ Pi 5 MQTT 连通 + landmarks 接收 | `mosquitto_sub` 抓包截图 |
 | 模型 | 双 Micro:bit BLE 数据流 | 终端 log 截图 |
 | 后端 | Flask 5 个端点返回 JSON | `curl` + 浏览器 |
 | 前端 | Dashboard 静态页面 + Chart.js 图表 | 浏览器截图 |
 | 硬件 A | 双 Micro:bit BLE 广播 | nRF Connect 截图 |
 | 硬件 B | Pi 5 Mosquitto + Pi Camera 驱动 | `libcamera-hello` 输出 |
+| **硬件 B** | **Pi 5 MediaPipe + MQTT landmarks 发布** ⭐ | PC `mosquitto_sub` 持续 JSON 流 |
 | 硬件 B | Pi 5 直驱 LED Matrix 点亮 | 视频/照片 |
 
 ---

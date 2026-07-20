@@ -1,7 +1,7 @@
 # Interface Contract — AIoT Smart Conducting System
 
-> **版本**: v1.0  
-> **最后更新**: 2026-07-15  
+> **版本**: v1.1  
+> **最后更新**: 2026-07-20  
 > **维护人**: 王祎哲 (模型负责 + 组长)  
 > **用途**: 定义各模块间的数据接口、传输方式、数据格式。**所有组员在开发前必须阅读对应的接口章节。**
 
@@ -11,25 +11,28 @@
 
 ```
 ┌─────────────┐     ┌──────────────────┐     ┌─────────────┐     ┌──────────────┐
-│  Micro:bit×2 │────▶│  PC (模型推理)    │────▶│  Flask 后端  │────▶│  SQLite DB   │
-│  BLE UART    │ ①   │  MediaPipe       │ ③   │  Pi 5        │ ⑤   │              │
-└─────────────┘     │  + Random Forest  │     └──────┬───────┘     └──────────────┘
-                    └──────────────────┘            │ ④
-        ┌──────────┐                               ├──────────────▶  Dashboard 前端
-        │ Pi Camera│──────────────────────────────▶│                  (Chart.js)
-        └──────────┘  ②                            │ ⑥
-                                                   └──────────────▶  Pi 5 GPIO → LED Matrix
-                                                                     (rpi_ws281x 直驱)
+│  Micro:bit×2 │────▶│  PC (手势分类)    │────▶│  Flask 后端  │────▶│  SQLite DB   │
+│  BLE UART    │ ①   │  Random Forest   │ ④   │  Pi 5        │ ⑥   │              │
+└─────────────┘     └────────┬─────────┘     └──────┬───────┘     └──────────────┘
+                             │ ③                    │ ⑤
+┌──────────┐                 │                      ├──────────────▶  Dashboard 前端
+│ Pi 5     │─────────────────┘                      │                  (Chart.js)
+│ MediaPipe│  ②                                     │ ⑦
+│ + Camera │                                        └──────────────▶  Pi 5 GPIO → LED Matrix
+└──────────┘                                                           (rpi_ws281x 直驱)
 ```
 
 | 编号 | 方向 | 传输方式 | 责任人 |
 |:--:|------|----------|--------|
 | ① | Micro:bit → PC | BLE UART (无线) | 硬件 A → 模型 |
-| ② | Pi Camera → PC | 排线 (本地) | 硬件 B → 模型 |
-| ③ | 模型 → 后端 | Python import (同进程) | 模型 → 后端 |
-| ④ | 后端 → 前端 | HTTP REST API | 后端 → 前端 |
-| ⑤ | 后端 → 数据库 | SQLite (本地文件) | 后端 |
-| ⑥ | 后端 → LED Matrix | Pi 5 GPIO 直驱 (`rpi_ws281x`) | 后端 → 硬件 B |
+| ② | Pi Camera → Pi 5 MediaPipe | MIPI 排线 (本地) | 硬件 B |
+| **③** | **Pi 5 → PC** | **MQTT** (`pi/hand_landmarks`) | **硬件 B → 模型** |
+| ④ | 模型 → 后端 | MQTT (`model/gesture`) | 模型 → 后端 |
+| ⑤ | 后端 → 前端 | HTTP REST API | 后端 → 前端 |
+| ⑥ | 后端 → 数据库 | SQLite (本地文件) | 后端 |
+| ⑦ | 后端 → LED Matrix | Pi 5 GPIO 直驱 (`rpi_ws281x`) | 后端 → 硬件 B |
+
+> **架构变更 (v1.1)**：MediaPipe Hands 从 PC 移至 **Pi 5 本地运行**。Pi 5 提取 21 个手部关键点后通过 MQTT 发送 landmarks JSON 给 PC（接口 ③），PC 完成 Random Forest 手势分类后将结果通过 MQTT 发回 Pi 5 后端（接口 ④）。
 
 ---
 
@@ -95,69 +98,162 @@ R,64,-16,-980,1234569
 
 ---
 
-## 3. 接口 ② — Pi Camera → MediaPipe (PC)
+## 3. 接口 ② + ③ — Pi 5 本地 MediaPipe → PC (MQTT)
 
-### 3.1 硬件参数
+### 3.1 处理流程
+
+```
+Pi Camera (30 FPS, 640×480)
+    │  MIPI 排线
+    ▼
+Pi 5 MediaPipe Hands (HandLandmarker, 21 关键点 × 双手)
+    │  提取归一化坐标 (x, y, z) + handedness
+    ▼
+MQTT Publish → topic: pi/hand_landmarks  (JSON, ~30 Hz)
+    │
+    ▼
+PC 订阅 pi/hand_landmarks → 特征提取 → Random Forest 分类
+```
+
+### 3.2 MQTT 传输规范
 
 | 参数 | 值 |
 |------|-----|
-| 设备 | Raspberry Pi Camera Module 3 或兼容 |
-| 分辨率 | 640×480 (可调整) |
-| 帧率 | **30 FPS** |
-| 连接 | Pi 5 排线接口 → OpenCV `cv2.VideoCapture(0)` |
+| Topic | `pi/hand_landmarks` |
+| QoS | 0 (低延迟，容忍偶尔丢帧) |
+| 频率 | ~30 Hz（与 Pi Camera 帧率同步） |
+| 数据格式 | JSON |
+| 单帧大小 | 约 1–2 KB |
 
-### 3.2 MediaPipe 输出
-
-每帧对每只手输出 **21 个关键点**（x, y, z），模型负责人封装为 Python 字典：
+### 3.3 数据格式（Pi 5 → PC）
 
 ```json
 {
   "frame_id": 1234,
-  "pc_ts": 1721052000.123000,
+  "pi_ts": 1721052000.123456,
   "hands": [
     {
       "handedness": "Left",
       "score": 0.98,
       "landmarks": [
-        {"id": 0, "x": 0.512, "y": 0.623, "z": -0.012},
-        {"id": 1, "x": 0.501, "y": 0.589, "z": -0.008},
-        "... 共 21 个 ..."
+        {"id": 0,  "x": 0.512, "y": 0.623, "z": -0.012},
+        {"id": 1,  "x": 0.501, "y": 0.589, "z": -0.008},
+        {"id": 2,  "x": 0.490, "y": 0.560, "z": -0.005},
+        {"id": 3,  "x": 0.480, "y": 0.535, "z": 0.002},
+        {"id": 4,  "x": 0.472, "y": 0.510, "z": 0.010},
+        {"id": 5,  "x": 0.530, "y": 0.520, "z": 0.005},
+        {"id": 6,  "x": 0.545, "y": 0.480, "z": 0.008},
+        {"id": 7,  "x": 0.555, "y": 0.445, "z": 0.012},
+        {"id": 8,  "x": 0.562, "y": 0.415, "z": 0.015},
+        {"id": 9,  "x": 0.510, "y": 0.505, "z": 0.003},
+        {"id": 10, "x": 0.530, "y": 0.470, "z": 0.007},
+        {"id": 11, "x": 0.542, "y": 0.440, "z": 0.011},
+        {"id": 12, "x": 0.550, "y": 0.410, "z": 0.016},
+        {"id": 13, "x": 0.490, "y": 0.510, "z": -0.002},
+        {"id": 14, "x": 0.505, "y": 0.480, "z": 0.004},
+        {"id": 15, "x": 0.515, "y": 0.452, "z": 0.009},
+        {"id": 16, "x": 0.522, "y": 0.425, "z": 0.014},
+        {"id": 17, "x": 0.470, "y": 0.520, "z": -0.005},
+        {"id": 18, "x": 0.480, "y": 0.495, "z": 0.001},
+        {"id": 19, "x": 0.488, "y": 0.470, "z": 0.006},
+        {"id": 20, "x": 0.495, "y": 0.448, "z": 0.010}
       ]
     }
   ]
 }
 ```
 
-> **前端/后端不需要直接消费此格式**。这是模型内部的中间数据，模型推理后只输出最终手势结果。
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `frame_id` | int | 帧序号（Pi 端自增，用于丢帧检测） |
+| `pi_ts` | float | Pi 5 本地时间戳（Unix seconds，用于与 PC 端 Micro:bit 数据对齐） |
+| `hands` | array | 检测到的手部列表（0–2 只手） |
+| `hands[i].handedness` | string | `"Left"` 或 `"Right"` |
+| `hands[i].score` | float (0–1) | MediaPipe 手部检测置信度 |
+| `hands[i].landmarks` | array[21] | 21 个手部关键点 |
+| `landmarks[j].id` | int | 关键点编号 (0=手腕, 1–4=拇指, 5–8=食指, 9–12=中指, 13–16=无名指, 17–20=小指) |
+| `landmarks[j].x` | float (0–1) | 归一化 X 坐标（相对于图像宽度） |
+| `landmarks[j].y` | float (0–1) | 归一化 Y 坐标（相对于图像高度） |
+| `landmarks[j].z` | float | Z 深度（相对于手腕的深度值，非归一化） |
+
+### 3.4 PC 端接收规范
+
+- 订阅 MQTT topic `pi/hand_landmarks`
+- 记录每条消息的 **PC 本地到达时间戳**（用于与 Micro:bit BLE 数据时间对齐）
+- 按 `frame_id` 检测丢帧（连续序号差值 > 1）
+- 如果 `hands` 为空（未检测到手），仍然发布消息（`"hands": []`），PC 端据此判断"无手"状态
+
+### 3.5 Pi 5 端实现要点
+
+```python
+# Pi 5 端 MediaPipe + MQTT 发布伪代码
+import paho.mqtt.client as mqtt_client
+from mediapipe.tasks.python import vision
+
+client = mqtt_client.Client()
+client.connect("localhost", 1883)  # Pi 5 本机 Mosquitto
+
+# Options: HandLandmarker, num_hands=2, running_mode=VIDEO
+landmarker = vision.HandLandmarker.create_from_options(options)
+
+frame_id = 0
+while True:
+    ret, frame = cap.read()
+    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+    result = landmarker.detect_for_video(mp_image, frame_id)
+
+    hands_data = []
+    if result.hand_landmarks:
+        for i, landmarks in enumerate(result.hand_landmarks):
+            hand = {
+                "handedness": result.handedness[i][0].category_name,
+                "score": result.handedness[i][0].score,
+                "landmarks": [
+                    {"id": j, "x": lm.x, "y": lm.y, "z": lm.z}
+                    for j, lm in enumerate(landmarks)
+                ]
+            }
+            hands_data.append(hand)
+
+    msg = json.dumps({"frame_id": frame_id, "pi_ts": time.time(), "hands": hands_data})
+    client.publish("pi/hand_landmarks", msg, qos=0)
+    frame_id += 1
+```
+
+> **前端/后端不需要直接消费此格式**。`pi/hand_landmarks` 是 Pi 5 到 PC 的内部数据流，PC 消费后只输出最终手势结果（接口 ④）。
 
 ---
 
-## 4. 接口 ③ — 模型推理 → 后端
+## 4. 接口 ④ — PC 手势分类 → Pi 5 后端 (MQTT)
 
 ### 4.1 调用方式
 
-后端 `import` 模型推理模块，直接调用函数：
+PC 端 Random Forest 分类完成后，通过 **MQTT** 将结果发布到 Pi 5 的 Mosquitto broker。Pi 5 Flask 后端订阅该 topic，收到后写入 SQLite + 触发前端更新 + 驱动 LED。
 
-```python
-from model.inference import GestureClassifier
-
-classifier = GestureClassifier(model_path="model/models/gesture_classifier.pkl")
-result = classifier.predict(window_data)
+```
+PC (Random Forest) ──MQTT──▶ Pi 5 Mosquitto Broker
+                                    │
+                            Flask 后端 (订阅 model/gesture)
+                                    │
+                    ┌───────────────┼───────────────┐
+                    ↓               ↓               ↓
+               SQLite DB       Dashboard SSE    LED Matrix
 ```
 
-### 4.2 输入格式（后端给模型）
+**MQTT 参数：**
 
-后端将当前滑动窗口数据打包为 **NumPy feature vector**（由模型负责人定义特征列）：
+| 参数 | 值 |
+|------|-----|
+| Topic | `model/gesture` |
+| QoS | 0 |
+| Broker | Pi 5 Mosquitto (`<Pi5-IP>:1883`) |
+| 频率 | 每 ~100ms（滑动窗口推理间隔） |
 
-```python
-# 特征向量 shape: (n_features,)
-# 包含: 手部空间特征(从MediaPipe提取) + acc特征(从Micro:bit提取) + 统计量
-window_data = np.array([...])  # 具体特征列表见 TECH_SPEC.md
-```
+### 4.2 输入（PC 端特征处理，内部）
 
-后端**不需要知道具体特征含义**，只需把收到的传感器数据传入推理模块即可。
+PC 端将收到的 Pi 5 landmarks 和 Micro:bit BLE 数据融合为特征向量，送入 Random Forest。特征提取细节属于模型内部实现，后端无需关心。
 
-### 4.3 输出格式（模型返回给后端） ⭐ 关键
+### 4.3 输出格式（PC → MQTT → 后端） ⭐ 关键
 
 ```json
 {
@@ -201,9 +297,31 @@ window_data = np.array([...])  # 具体特征列表见 TECH_SPEC.md
 | 6 | `tempo_up` | 加速 | BPM +5 |
 | 7 | `tempo_down` | 减速 | BPM -5 |
 
+### 4.5 Pi 5 后端接收示例
+
+```python
+# 后端 Flask app 中订阅 MQTT
+import paho.mqtt.client as mqtt_client
+
+def on_gesture(client, userdata, msg):
+    data = json.loads(msg.payload)
+    # 1. 写入 SQLite
+    db.insert_prediction(data)
+    # 2. 更新内存中的 latest_gesture（供 /api/gesture/current 查询）
+    app.config['latest_gesture'] = data
+    # 3. 触发 LED 效果
+    led_controller.trigger(data['gesture'])
+
+client = mqtt_client.Client()
+client.connect("localhost", 1883)
+client.subscribe("model/gesture", qos=0)
+client.on_message = on_gesture
+client.loop_start()
+```
+
 ---
 
-## 5. 接口 ④ — 后端 → 前端 (REST API)
+## 5. 接口 ⑤ — 后端 → 前端 (REST API)
 
 ### 5.1 基础约定
 
@@ -298,7 +416,7 @@ window_data = np.array([...])  # 具体特征列表见 TECH_SPEC.md
 
 ---
 
-## 6. 接口 ⑤ — 后端 → SQLite
+## 6. 接口 ⑥ — 后端 → SQLite
 
 ### 6.1 数据库文件
 
@@ -342,7 +460,7 @@ CREATE TABLE sessions (
 
 ---
 
-## 7. 接口 ⑥ — 后端 → LED Matrix (Pi 5 GPIO 直驱)
+## 7. 接口 ⑦ — 后端 → LED Matrix (Pi 5 GPIO 直驱)
 
 > **说明**：Pi 5 通过 GPIO18 直接驱动 WS2812B LED Matrix，无需 MQTT 中转。后端调用 `rpi_ws281x` 库控制灯光效果。
 
