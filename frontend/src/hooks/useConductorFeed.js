@@ -12,6 +12,13 @@ const gestureResponses = {
   style_switch: 'Switch style preset',
   tempo_up: 'Increase BPM',
   tempo_down: 'Decrease BPM',
+  left_wrist_strike: 'Trigger left-hand beat cue',
+  right_wrist_strike: 'Trigger right-hand downbeat cue',
+  bilateral_strike: 'Trigger synchronized accent',
+  gesture_start: 'Enter active gesture window',
+  gesture_end: 'Close gesture window',
+  stop: 'Pause playback',
+  resume: 'Resume playback',
 }
 
 const gestureSubtitles = {
@@ -23,6 +30,13 @@ const gestureSubtitles = {
   style_switch: 'Change timbre preset',
   tempo_up: 'Accelerate tempo',
   tempo_down: 'Slow down tempo',
+  left_wrist_strike: 'Left wrist strike',
+  right_wrist_strike: 'Right wrist strike',
+  bilateral_strike: 'Bilateral accent',
+  gesture_start: 'Gesture started',
+  gesture_end: 'Gesture ended',
+  stop: 'Stop playback',
+  resume: 'Resume playback',
 }
 
 function toCamelGestureKey(gesture = 'idle') {
@@ -55,14 +69,44 @@ function normalizeMilligravity(value) {
   return Number((value / 1000).toFixed(2))
 }
 
-function readAcceleration(sample = {}, axis = 'x') {
+const axisIndex = { x: 0, y: 1, z: 2 }
+
+function readAccelerationArray(source = {}, field, axis, normalize) {
+  const values = source[field]
+  const value = Array.isArray(values) ? values[axisIndex[axis]] : undefined
+  if (typeof value !== 'number' || Number.isNaN(value)) return null
+  return normalize(value)
+}
+
+function readAccelerationField(source = {}, axis = 'x') {
   const mgKey = `a${axis}_mg`
   const accKey = `acc_${axis}`
   const directKey = axis
 
-  if (typeof sample[mgKey] === 'number') return normalizeMilligravity(sample[mgKey])
-  if (typeof sample[accKey] === 'number') return normalizeAcceleration(sample[accKey])
-  if (typeof sample[directKey] === 'number') return normalizeAcceleration(sample[directKey])
+  if (typeof source[mgKey] === 'number') return normalizeMilligravity(source[mgKey])
+  if (typeof source[accKey] === 'number') return normalizeAcceleration(source[accKey])
+  if (typeof source[directKey] === 'number') return normalizeAcceleration(source[directKey])
+  return null
+}
+
+function readAcceleration(sample = {}, axis = 'x') {
+  const sources = [
+    sample,
+    sample.raw_interpolated,
+    sample.instant_features,
+  ].filter(Boolean)
+
+  for (const source of sources) {
+    const arrayMg = readAccelerationArray(source, 'acceleration_mg', axis, normalizeMilligravity)
+    if (arrayMg !== null) return arrayMg
+
+    const arrayG = readAccelerationArray(source, 'acceleration_g', axis, normalizeAcceleration)
+    if (arrayG !== null) return arrayG
+
+    const fieldValue = readAccelerationField(source, axis)
+    if (fieldValue !== null) return fieldValue
+  }
+
   return 0
 }
 
@@ -78,11 +122,53 @@ function formatPiLastMessage(runtime = {}) {
   return toTitleCase(String(runtime.last_message_type))
 }
 
+function getLastControlPayload(runtime = {}) {
+  const payload = runtime.last_control_event?.payload
+  return payload && typeof payload === 'object' ? payload : {}
+}
+
+function getMeaningfulGesture(value) {
+  if (typeof value !== 'string') return null
+  const gesture = value.trim()
+  if (!gesture || gesture === 'idle') return null
+  return gesture
+}
+
+function selectCurrentGesture({ prediction = {}, music = {}, controlPayload = {} }) {
+  const eventGesture = getMeaningfulGesture(controlPayload.event?.type)
+  const musicGesture = getMeaningfulGesture(music.current_gesture)
+  const predictionGesture = getMeaningfulGesture(prediction.gesture)
+
+  return musicGesture || eventGesture || predictionGesture || prediction.gesture || music.current_gesture || 'idle'
+}
+
+function readControlConfidence(controlPayload = {}) {
+  const confidence = Number(controlPayload.event?.confidence)
+  return Number.isFinite(confidence) ? confidence : null
+}
+
 function topPredictionsFromAllProbs(allProbs = {}, fallbackGesture = 'idle', fallbackConfidence = 0) {
   const entries = Object.entries(allProbs)
-  const source = entries.length ? entries : [[fallbackGesture, fallbackConfidence / 100]]
 
-  return source
+  if (!entries.length) {
+    const fallback = [
+      {
+        label: toTitleCase(fallbackGesture),
+        value: fallbackConfidence,
+      },
+    ]
+
+    if (fallbackGesture !== 'idle') {
+      fallback.push({
+        label: 'Idle',
+        value: Math.max(0, 100 - fallbackConfidence),
+      })
+    }
+
+    return fallback.slice(0, 3)
+  }
+
+  return entries
     .map(([label, value]) => ({
       label: toTitleCase(label),
       value: toPercent(Number(value), 0),
@@ -93,16 +179,22 @@ function topPredictionsFromAllProbs(allProbs = {}, fallbackGesture = 'idle', fal
 
 function normalizeRestFrame({ status = {}, prediction = {}, sensors = {}, music = {}, piStatus = {} }, tick = 0) {
   const base = createConductorFrame(tick)
-  const gesture = prediction.gesture || music.current_gesture || 'idle'
-  const gestureKey = toCamelGestureKey(gesture)
-  const catalogMatch = gestureCatalog.find((item) => item.key === gestureKey || item.key === gesture)
-  const confidence = toPercent(Number(prediction.confidence), base.prediction.confidence)
   const leftSensor = sensors.microbit_left || {}
   const rightSensor = sensors.microbit_right || {}
   const volume = toPercent(Number(music.volume), base.music.volume)
   const handCount = Number(sensors.hand_count || 0)
   const gateway = piStatus.gateway || status.pi_gateway || {}
   const runtime = piStatus.runtime || {}
+  const controlPayload = getLastControlPayload(runtime)
+  const gesture = selectCurrentGesture({ prediction, music, controlPayload })
+  const gestureKey = toCamelGestureKey(gesture)
+  const catalogMatch = gestureCatalog.find((item) => item.key === gestureKey || item.key === gesture)
+  const predictionConfidence = Number(prediction.confidence)
+  const eventConfidence = readControlConfidence(controlPayload)
+  const confidence = Number.isFinite(predictionConfidence) && predictionConfidence > 0
+    ? toPercent(predictionConfidence, 0)
+    : toPercent(eventConfidence ?? predictionConfidence, 0)
+  const useEventTop3 = Boolean(getMeaningfulGesture(gesture)) && gesture !== prediction.gesture
 
   return {
     ...base,
@@ -152,7 +244,7 @@ function normalizeRestFrame({ status = {}, prediction = {}, sensors = {}, music 
       zh: catalogMatch?.zh || gestureSubtitles[gesture] || toTitleCase(gesture),
       confidence,
       response: catalogMatch?.response || gestureResponses[gesture] || 'Update live state',
-      top3: topPredictionsFromAllProbs(prediction.all_probs, gesture, confidence),
+      top3: topPredictionsFromAllProbs(useEventTop3 ? {} : prediction.all_probs, gesture, confidence),
     },
     music: {
       ...base.music,

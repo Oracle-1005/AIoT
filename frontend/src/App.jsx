@@ -662,7 +662,7 @@ function DecisionFlow({ frame, connectionState }) {
         <div className="glass-panel p-5">
           <p className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
             <Wifi size={16} className="text-cyan" />
-            WebSocket-ready Payload
+            Frontend Payload Preview
           </p>
           <pre className="max-h-[430px] overflow-auto rounded-lg border border-white/10 bg-black/35 p-4 text-xs leading-5 text-slate-200">
             {JSON.stringify(
@@ -723,7 +723,7 @@ function ValidationHighlights() {
           <div className="mt-6 grid gap-3">
             {[
               ['Feature Input', 'Trajectory / Speed / Acceleration / Time Window'],
-              ['Model Output', '8 Conducting Intents + Top-3 Confidence'],
+              ['Event Output', 'Conducting Events + Confidence'],
               ['Execution Feedback', 'BPM / Volume / Energy / Style'],
               ['Data Logging', 'Raw Sensor / Feature / Prediction / Action'],
             ].map(([label, value]) => (
@@ -862,8 +862,8 @@ function AnalyticsDashboard() {
 function ArchitectureView() {
   const rows = [
     { icon: Camera, title: 'Sensing Layer', items: ['Camera', 'Micro:bit L/R', 'Hand Tracking'] },
-    { icon: Server, title: 'Network and Edge Layer', items: ['Bluetooth', 'Serial', 'WebSocket', 'Raspberry Pi 5'] },
-    { icon: Cpu, title: 'AI and Logic Layer', items: ['Feature Engine', 'Gesture Recognition Model', 'Music Mapping Engine'] },
+    { icon: Server, title: 'Network and Edge Layer', items: ['BLE', 'Serial', 'TCP JSON Lines', 'Raspberry Pi 5'] },
+    { icon: Cpu, title: 'AI and Logic Layer', items: ['Feature Engine', 'Gesture Event Engine', 'Music Mapping Engine'] },
     { icon: Music2, title: 'Music Output Layer', items: ['Browser Audio', 'Speaker', 'RGB LED Matrix'] },
     { icon: Database, title: 'Data Layer', items: ['Sensor Records', 'Predictions', 'Actions'] },
   ]

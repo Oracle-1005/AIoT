@@ -66,6 +66,27 @@ export const gestureCatalog = [
     response: 'BPM -6',
     color: '#a78bfa',
   },
+  {
+    key: 'left_wrist_strike',
+    label: 'LEFT WRIST STRIKE',
+    zh: 'Left wrist strike',
+    response: 'Trigger left-hand beat cue',
+    color: '#38bdf8',
+  },
+  {
+    key: 'right_wrist_strike',
+    label: 'RIGHT WRIST STRIKE',
+    zh: 'Right wrist strike',
+    response: 'Trigger right-hand downbeat cue',
+    color: '#f4c76b',
+  },
+  {
+    key: 'bilateral_strike',
+    label: 'BILATERAL STRIKE',
+    zh: 'Bilateral accent',
+    response: 'Trigger synchronized accent',
+    color: '#22c55e',
+  },
 ]
 
 export const assetSlots = [
@@ -94,9 +115,9 @@ export const assetSlots = [
 export const flowSteps = [
   { name: 'Camera', detail: 'Hand landmarks / trajectories', layer: 'Sensing' },
   { name: 'Micro:bit L/R', detail: '3-axis acceleration / peaks', layer: 'Sensing' },
-  { name: 'Raspberry Pi 5', detail: 'WebSocket / Serial', layer: 'Edge' },
+  { name: 'Raspberry Pi 5', detail: 'TCP JSON Lines / edge processing', layer: 'Edge' },
   { name: 'Feature Engine', detail: 'Speed / angle / time window', layer: 'AI' },
-  { name: 'Gesture Model', detail: '8 conducting intentions', layer: 'AI' },
+  { name: 'Gesture Event Engine', detail: 'Control events / confidence', layer: 'AI' },
   { name: 'Music Mapping', detail: 'BPM / volume / style', layer: 'Logic' },
   { name: 'Audio + LED', detail: 'Browser audio / lighting feedback', layer: 'Output' },
   { name: 'Database', detail: 'Raw data / predictions / actions', layer: 'Data' },
@@ -169,9 +190,9 @@ export const trainingSteps = [
 export const validationCards = [
   {
     title: 'AI Recognition Evidence',
-    claim: 'The system does not rely on a single threshold. It combines hand trajectory, speed, angle, action window, and acceleration peaks into feature vectors.',
-    evidence: 'Top-3 predictions, confidence scores, inference logs, and live feature panels reveal the model decision process.',
-    demo: 'During crescendo and downbeat gestures, watch confidence and Top-3 results shift with the movement.',
+    claim: 'The system exposes the recognition process instead of hiding it behind one final label. It combines hand landmarks, time-window features, and acceleration peaks into event evidence.',
+    evidence: 'Confidence scores, event payloads, inference logs, and live feature panels reveal the Pi-side decision process.',
+    demo: 'During wrist strikes and downbeat gestures, watch confidence, event type, BPM, and volume update together.',
   },
   {
     title: 'Sensor Fusion Value',
@@ -181,7 +202,7 @@ export const validationCards = [
   },
   {
     title: 'Real-time Performance',
-    claim: 'Local inference and WebSocket delivery keep interaction latency within the range needed for a live demonstration.',
+    claim: 'Pi-side event detection and REST polling keep interaction latency within the range needed for a live demonstration.',
     evidence: 'The live stage continuously displays FPS, response latency, BPM, and music parameter changes.',
     demo: 'Perform one downbeat and observe whether the visual pulse, BPM, and volume feedback stay synchronized.',
   },
@@ -245,7 +266,6 @@ export function createConductorFrame(tick = 0) {
       piLastMessage: 'Mock fused frame',
       piMessageCounts: {
         fused_frame: tick + 12,
-        window_features: Math.max(0, tick - 1),
         control_event: Math.floor(tick / 3),
         status: Math.floor(tick / 5) + 1,
       },

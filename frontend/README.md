@@ -5,11 +5,11 @@ Roadshow frontend for an AIoT smart conducting project. The app presents the ful
 - Camera hand tracking
 - Dual Micro:bit motion sensing
 - Raspberry Pi 5 edge processing
-- Local AI gesture recognition
+- Pi-side gesture and event recognition
 - Real-time music control
 - Database logging and historical analytics
 
-The interface is built for course demos, roadshows, and final presentations. It uses realistic mock data by default and is ready to connect to a WebSocket feed later.
+The interface is built for course demos, roadshows, and final presentations. It uses realistic mock data by default, connects to the Flask REST backend, and keeps an optional WebSocket frontend feed hook for later expansion.
 
 ## Tech Stack
 
@@ -93,8 +93,24 @@ Current backend shapes:
     }
   },
   "sensors_live": {
-    "microbit_left": { "acc_x": 0.0, "acc_y": 0.0, "acc_z": 0.0 },
-    "microbit_right": { "acc_x": 0.0, "acc_y": 0.0, "acc_z": 0.0 },
+    "microbit_left": {
+      "device_id": "MB_LEFT",
+      "hand": "left",
+      "raw_interpolated": {
+        "acceleration_mg": [84, 1164, -362],
+        "pitch_deg": 18,
+        "roll_deg": -7
+      }
+    },
+    "microbit_right": {
+      "device_id": "MB_RIGHT",
+      "hand": "right",
+      "raw_interpolated": {
+        "acceleration_mg": [-102, 1388, -418],
+        "pitch_deg": 21,
+        "roll_deg": 6
+      }
+    },
     "hand_detected": false,
     "hand_count": 0,
     "timestamp": 0.0
@@ -115,10 +131,10 @@ Current backend shapes:
       "last_message_at": null,
       "message_counts": {
         "fused_frame": 0,
-        "window_features": 0,
         "control_event": 0,
         "status": 0
-      }
+      },
+      "last_control_event": null
     }
   },
   "music_state": {
@@ -133,7 +149,17 @@ Current backend shapes:
 
 Micro:bit acceleration values can use either frontend-friendly `acc_x`,
 `acc_y`, `acc_z` fields in g, or Pi uplink fields `ax_mg`, `ay_mg`, `az_mg`
-in mg. The adapter converts both formats to g before rendering.
+in mg. The current Pi schema also supports `raw_interpolated.acceleration_mg`
+and `instant_features.acceleration_g` arrays. The adapter converts all supported
+formats to g before rendering.
+
+For live hardware, the Pi sends three uplink message types to the PC backend:
+`fused_frame`, `control_event`, and `status`. `window_features` is internal to
+the Pi-side pipeline and is not expected by the frontend.
+
+The UI treats `/api/music/state.current_gesture` and
+`/api/pi/status.runtime.last_control_event.payload.event` as the live gesture
+source when the PC-side prediction endpoint is still idle.
 
 Optional future WebSocket mode is still supported:
 
