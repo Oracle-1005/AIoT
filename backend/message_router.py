@@ -16,6 +16,7 @@ import time
 from typing import Any
 
 from database import insert_pi_message
+from sonic_pi import sonic_pi_adapter
 from state import live_state
 
 UPLINK_MESSAGE_TYPES = frozenset({
@@ -120,4 +121,8 @@ def route_uplink_message(
         live_state.apply_control_event(
             payload,
             received_at,
+        )
+        sonic_pi_adapter.publish_control_event(
+            payload,
+            live_state.get_music(),
         )

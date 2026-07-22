@@ -315,6 +315,12 @@ export function createConductorFrame(tick = 0) {
       key: 'C Major',
       style: tick % 2 === 0 ? 'Cinematic' : 'Classical',
       progress: Math.round(38 + Math.sin(phase / 2) * 15),
+      engine: 'Sonic Pi',
+      section: 'Main',
+      lastBar: Math.floor(tick / 4) + 1,
+      lastBeat: (tick % 4) + 1,
+      beatStrength: tick % 4 === 0 ? 100 : 45,
+      sonicPiConnected: false,
     },
   }
 }

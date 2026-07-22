@@ -8,6 +8,7 @@ from typing import Any
 from database import insert_prediction, insert_sensor_record
 from model_service import model_service
 from pi_gateway import pi_gateway
+from sonic_pi import sonic_pi_adapter
 from state import live_state
 
 
@@ -20,6 +21,7 @@ def run_prediction(window_data: Any) -> dict[str, Any]:
 def accept_prediction(result: dict[str, Any]) -> None:
     insert_prediction(result, latency_ms=result.get("latency_ms"))
     live_state.set_prediction(result)
+    sonic_pi_adapter.publish_prediction(result, live_state.get_music())
 
 
 def send_pi_command(message_type: str, payload: dict[str, Any], **metadata: Any) -> bool:

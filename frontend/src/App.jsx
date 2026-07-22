@@ -463,6 +463,7 @@ function MusicControlCenter({ frame }) {
     { label: 'Energy', value: frame.music.energy, icon: Zap, suffix: '%' },
     { label: 'Density', value: frame.music.density, icon: SlidersHorizontal, suffix: '%' },
   ]
+  const sonicPiStatus = frame.music.sonicPiConnected ? 'Sonic Pi Live' : 'Sonic Pi Waiting'
 
   return (
     <div className="glass-panel p-5">
@@ -471,14 +472,19 @@ function MusicControlCenter({ frame }) {
           <Music2 size={16} className="text-gold" />
           Music Control Center
         </p>
-        <span className="status-pill">{frame.music.style}</span>
+        <div className="flex flex-wrap justify-end gap-2">
+          <span className="status-pill">{frame.music.style}</span>
+          <span className={frame.music.sonicPiConnected ? 'status-pill border-emerald-400/40 text-emerald-200' : 'status-pill'}>
+            {sonicPiStatus}
+          </span>
+        </div>
       </div>
 
       <div className="rounded-lg border border-white/10 bg-black/25 p-4">
         <div className="mb-4 flex items-center justify-between gap-4">
           <div>
             <p className="text-sm font-semibold text-white">{frame.music.title}</p>
-            <p className="text-xs text-slate-400">Key: {frame.music.key} · Style: {frame.music.style}</p>
+            <p className="text-xs text-slate-400">Key: {frame.music.key} · Engine: {frame.music.engine}</p>
           </div>
           <button type="button" className="grid h-10 w-10 place-items-center rounded-md bg-gold text-slate-950" aria-label="Play demo">
             <Play size={18} />
@@ -490,6 +496,20 @@ function MusicControlCenter({ frame }) {
         <div className="mt-2 flex justify-between text-xs text-slate-400">
           <span>01:28</span>
           <span>03:42</span>
+        </div>
+        <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+          <div className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2">
+            <p className="text-slate-500">Section</p>
+            <p className="mt-1 truncate font-semibold text-white">{frame.music.section}</p>
+          </div>
+          <div className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2">
+            <p className="text-slate-500">Bar / Beat</p>
+            <p className="mt-1 font-semibold text-white">{frame.music.lastBar}.{frame.music.lastBeat}</p>
+          </div>
+          <div className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2">
+            <p className="text-slate-500">Beat Power</p>
+            <p className="mt-1 font-semibold text-white">{frame.music.beatStrength}%</p>
+          </div>
         </div>
       </div>
 

@@ -184,6 +184,7 @@ function normalizeRestFrame({ status = {}, prediction = {}, sensors = {}, music 
   const volume = toPercent(Number(music.volume), base.music.volume)
   const handCount = Number(sensors.hand_count || 0)
   const gateway = piStatus.gateway || status.pi_gateway || {}
+  const sonicPi = status.sonic_pi || {}
   const runtime = piStatus.runtime || {}
   const controlPayload = getLastControlPayload(runtime)
   const gesture = selectCurrentGesture({ prediction, music, controlPayload })
@@ -250,11 +251,20 @@ function normalizeRestFrame({ status = {}, prediction = {}, sensors = {}, music 
       ...base.music,
       bpm: Number(music.bpm || base.music.bpm),
       volume,
-      energy: Math.round(Math.max(20, Math.min(100, volume * 0.8 + confidence * 0.2))),
+      energy: toPercent(
+        Number(music.energy),
+        Math.round(Math.max(20, Math.min(100, volume * 0.8 + confidence * 0.2))),
+      ),
       density: music.playing ? base.music.density : 20,
       style: music.style ? toTitleCase(String(music.style)) : base.music.style,
       progress: music.playing ? base.music.progress : 0,
       playing: Boolean(music.playing),
+      engine: music.engine ? toTitleCase(String(music.engine)) : 'Sonic Pi',
+      section: music.section ? toTitleCase(String(music.section)) : base.music.section,
+      lastBar: Number.isFinite(Number(music.last_bar)) ? Number(music.last_bar) : base.music.lastBar,
+      lastBeat: Number.isFinite(Number(music.last_beat)) ? Number(music.last_beat) : base.music.lastBeat,
+      beatStrength: toPercent(Number(music.beat_strength), base.music.beatStrength),
+      sonicPiConnected: Boolean(music.sonic_pi_connected || sonicPi.connected),
     },
   }
 }
