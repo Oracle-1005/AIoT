@@ -1,0 +1,2 @@
+mediapipe-nightly==0.10.36rc20260523
+bleak

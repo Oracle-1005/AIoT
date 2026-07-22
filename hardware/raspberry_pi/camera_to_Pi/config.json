@@ -1,0 +1,36 @@
+{
+  "camera": {
+    "width": 640,
+    "height": 480,
+    "fps": 30.0,
+    "pixel_format": "RGB888",
+    "queue_size": 2,
+    "buffer_count": 4,
+    "horizontal_flip": false,
+    "vertical_flip": false,
+    "warmup_seconds": 1.0
+  },
+  "detector": {
+    "model_path": "models/hand_landmarker.task",
+    "num_hands": 2,
+    "min_hand_detection_confidence": 0.5,
+    "min_hand_presence_confidence": 0.5,
+    "min_tracking_confidence": 0.5,
+    "input_array_order": "BGR",
+    "swap_handedness_labels": false
+  },
+  "quality": {
+    "handedness_valid_threshold": 0.65,
+    "min_in_bounds_ratio": 0.9,
+    "ema_alpha": 0.45,
+    "max_jump_norm_per_second": 5.0,
+    "jump_base_allowance": 0.08,
+    "max_missing_frames": 2,
+    "hold_last_on_missing": true,
+    "reject_large_jumps": true
+  },
+  "clock": {
+    "window_size": 120,
+    "min_ready_samples": 10
+  }
+}
