@@ -16,13 +16,14 @@ import time
 from collections.abc import Callable
 
 from bleak import BleakScanner, BleakClient
+from bleak.backends.device import BLEDevice
 
 logger = logging.getLogger(__name__)
 
 # micro:bit UART Service UUIDs
 UART_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
-UART_TX_CHAR_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"  # RPi -> micro:bit (write)
-UART_RX_CHAR_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"  # micro:bit -> RPi (notify)
+UART_RX_CHAR_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"  # micro:bit -> RPi (notify/indicate)
+UART_TX_CHAR_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"  # RPi -> micro:bit (write)
 
 
 class BleManager:
@@ -71,10 +72,10 @@ class BleManager:
 
         # Discover devices
         discovered = await BleakScanner.discover(timeout=scan_timeout)
-        discovered_map: dict[str, str] = {}  # normalized_address -> name
+        discovered_map: dict[str, BLEDevice] = {}  # normalized_address -> device
         for d in discovered:
             addr = d.address.upper()
-            discovered_map[addr] = d.name or "unknown"
+            discovered_map[addr] = d
             logger.debug("  Found: %s [%s]", addr, d.name)
 
         # Connect to configured devices found in scan
@@ -90,9 +91,9 @@ class BleManager:
                     "[%s] Found device at %s [%s], connecting...",
                     device_id,
                     address,
-                    discovered_map[address],
+                    discovered_map[address].name or "unknown",
                 )
-                success = await self.connect_device(device_id)
+                success = await self.connect_device(device_id, discovered_map[address])
                 if success:
                     connected_count += 1
             else:
@@ -101,7 +102,7 @@ class BleManager:
         logger.info("BLE scan complete: %d/%d devices connected.", connected_count, len(self._device_cfgs))
         return connected_count
 
-    async def connect_device(self, device_id: str) -> bool:
+    async def connect_device(self, device_id: str, device: BLEDevice | None = None) -> bool:
         """Connect to a specific device by its configured address.
 
         Args:
@@ -121,7 +122,7 @@ class BleManager:
             return False
 
         try:
-            client = BleakClient(address, timeout=10.0)
+            client = BleakClient(device or address, timeout=10.0)
             await client.connect()
             logger.info("[%s] Connected to %s.", device_id, address)
 

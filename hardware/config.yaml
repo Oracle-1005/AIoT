@@ -8,13 +8,13 @@
 microbits:
   - device_id: MB_LEFT
     hand: left
-    address: ""                      # FILL IN: BLE MAC address
+    address: "E7:C8:C1:AF:21:46"     # Current verified left micro:bit
   - device_id: MB_RIGHT
     hand: right
-    address: ""                      # FILL IN: BLE MAC address
+    address: "FD:15:9A:47:7F:8F"     # Current verified right micro:bit
 
 microbit:
-  target_sample_rate_hz: 25
+  target_sample_rate_hz: 10
   ble_scan_timeout_s: 5.0
 
 # --- Camera (Picamera2 + MediaPipe) ---

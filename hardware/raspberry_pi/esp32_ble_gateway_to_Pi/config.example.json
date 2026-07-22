@@ -1,0 +1,7 @@
+{
+  "listen_host": "0.0.0.0",
+  "listen_port": 17778,
+  "allowed_hands": ["left", "right"],
+  "event_dedup_ttl_seconds": 10.0,
+  "emit_gateway_metadata": true
+}

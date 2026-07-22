@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "microbit-to-pi-receiver"
+version = "0.1.0"
+description = "Dual micro:bit BLE binary protocol receiver for Raspberry Pi"
+requires-python = ">=3.10"
+dependencies = ["bleak>=0.21"]
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[project.scripts]
+microbit-receiver = "microbit_receiver.app:main"
+
+[tool.setuptools]
+packages = ["microbit_receiver"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

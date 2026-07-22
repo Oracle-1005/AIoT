@@ -1,5 +1,6 @@
 # Python
 __pycache__/
+.pytest_cache/
 *.py[cod]
 *.so
 *.egg-info/
@@ -36,6 +37,10 @@ Thumbs.db
 # Pi
 *.img
 *.img.xz
+
+# MakeCode
+hardware/microbit/**/built/
+hardware/microbit/**/pxt_modules/
 
 # Backend local environments and runtime files
 backend/.venv/

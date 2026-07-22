@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "esp32-microbit-gateway-receiver"
+version = "0.1.0"
+description = "UDP receiver for ESP32 BLE-to-Wi-Fi micro:bit gateway"
+requires-python = ">=3.10"
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[project.scripts]
+esp32-microbit-gateway-receiver = "esp32_gateway_receiver.app:main"
+
+[tool.setuptools]
+packages = ["esp32_gateway_receiver"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

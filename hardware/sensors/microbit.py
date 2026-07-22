@@ -16,7 +16,7 @@ from dataclasses import dataclass
 
 from sensors.base import SensorSource
 from ble.ble_manager import BleManager
-from ble.packet_parser import PacketParser, ParsedPacket
+from ble.packet_parser import PacketParser, ParsedControlEvent, ParsedPacket
 from ble.clock_sync import ClockSync
 from fusion.cleaner import DataCleaner
 from fusion.noise_filter import MicrobitNoiseFilter, FilteredIMUData
@@ -314,6 +314,28 @@ class MicrobitSensor(SensorSource):
         )
         if parsed is None:
             return  # Parse error already logged
+        if isinstance(parsed, ParsedControlEvent):
+            logger.info(
+                "[%s] control_event received: %s priority=%d repeat=%d/%d",
+                self.device_id,
+                parsed.event_name,
+                parsed.priority,
+                parsed.repeat_index,
+                parsed.repeat_total,
+            )
+            return
+
+        # The MakeCode firmware sends fixed-rate sensor_state packets without
+        # replying to the older SYNC/SYNC_ACK command. Use those state packets
+        # themselves to warm up a one-way device->Pi clock mapper.
+        if not self._clock_sync.clock_ready:
+            self._clock_sync.add_sync_point(
+                parsed.pi_receive_timestamp_ns,
+                parsed.device_timestamp_ms,
+                parsed.pi_receive_timestamp_ns,
+            )
+            if self._clock_sync.clock_ready:
+                self._flush_pre_sync_cache()
 
         # Step 2: Apply noise filter (NEW — EMA + median outlier rejection)
         filtered = self._noise_filter.filter(

@@ -1,0 +1,15 @@
+{
+  "tx_characteristic_uuid": "6e400002-b5a3-f393-e0a9-e50e24dcca9e",
+  "sensor_queue_size": 256,
+  "event_dedup_ttl_seconds": 10.0,
+  "devices": [
+    {
+      "hand": "left",
+      "address": "AA:BB:CC:DD:EE:01"
+    },
+    {
+      "hand": "right",
+      "address": "AA:BB:CC:DD:EE:02"
+    }
+  ]
+}
