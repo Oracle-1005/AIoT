@@ -25,12 +25,15 @@ from utils.config import load_config, save_default_config
 from ble.ble_manager import BleManager
 from sensors.microbit import MicrobitSensor, MicrobitSample
 from sensors.camera import CameraSensor
-from fusion.engine import FusionEngine
-from fusion.ring_buffer import TimestampedSample
-from features.instant import InstantFeatureComputer
-from features.window import SlidingWindowComputer, WindowConfig
-from messages.builder import MessageBuilder
-from transport.tcp_client import TcpJsonlClient
+from pi_pc import (
+    FusionEngine,
+    TimestampedSample,
+    InstantFeatureComputer,
+    SlidingWindowComputer,
+    WindowConfig,
+    MessageBuilder,
+    TcpJsonlClient,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +128,7 @@ class AppController:
         self._ble_manager = BleManager(
             device_configs=self._config["microbits"],
             on_packet=self._on_ble_packet,
+            on_text=self._on_ble_text,
         )
 
         # ---- Micro:bit Sensors ----
@@ -271,9 +275,13 @@ class AppController:
                 if self._camera_sensor:
                     frame = self._camera_sensor.get_frame(timeout=0.02)
                     if frame is not None:
+                        # Use pi_aligned_timestamp_ns (mapped to Pi monotonic)
+                        # as the fusion time reference, so BLE and camera data
+                        # are aligned on the same clock domain.
+                        target_ns = frame.pi_aligned_timestamp_ns
                         camera_dict = {
                             "frame_id": frame.frame_id,
-                            "sensor_timestamp_ns": frame.sensor_timestamp_ns,
+                            "sensor_timestamp_ns": target_ns,
                             "width": frame.width,
                             "height": frame.height,
                             "fps": self._config["camera"]["fps"],
@@ -357,7 +365,7 @@ class AppController:
     # ---- Callbacks ----
 
     def _on_ble_packet(self, device_id: str, raw_data: bytearray, pi_receive_ns: int) -> None:
-        """Called by BleManager on every BLE notification.
+        """Called by BleManager on every binary BLE notification.
 
         Routes the raw packet to the appropriate MicrobitSensor.
 
@@ -372,6 +380,23 @@ class AppController:
             return
 
         sensor.handle_raw_packet(raw_data, pi_receive_ns)
+
+    def _on_ble_text(self, device_id: str, text: str, pi_receive_ns: int) -> None:
+        """Called by BleManager on text BLE notifications (SYNC_ACK etc.).
+
+        Routes the text to the appropriate MicrobitSensor's clock sync handler.
+
+        Args:
+            device_id: Logical device ID.
+            text: Decoded text from BLE notification.
+            pi_receive_ns: Pi monotonic_ns when notification arrived.
+        """
+        sensor = self._microbit_sensors.get(device_id)
+        if sensor is None:
+            logger.warning("Received text for unknown device: %s", device_id)
+            return
+
+        sensor.handle_sync_ack(text, pi_receive_ns)
 
     def _on_microbit_sample(self, sample: MicrobitSample) -> None:
         """Called by MicrobitSensor when a valid sample is ready.
@@ -493,6 +518,8 @@ class AppController:
             "dropped_frames": 0,
             "last_frame_age_ms": 0.0,
             "processing_latency_ms": 0.0,
+            "clock_ready": False,
+            "clock_points": 0,
         }
         if self._camera_sensor:
             camera_status = self._camera_sensor.get_status()

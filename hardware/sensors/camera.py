@@ -14,7 +14,7 @@ import queue
 import time
 from dataclasses import dataclass, field
 
-from fusion.noise_filter import LandmarkSmoother
+from pi_pc import LandmarkSmoother, CameraClockSync
 
 logger = logging.getLogger(__name__)
 
@@ -27,11 +27,13 @@ class CameraFrame:
     """A single processed camera frame with MediaPipe hand landmarks."""
 
     frame_id: int
-    sensor_timestamp_ns: int
+    sensor_timestamp_ns: int        # Raw camera SensorTimestamp
+    pi_aligned_timestamp_ns: int    # Mapped to Pi monotonic_ns (via CameraClockSync)
     width: int
     height: int
     hands: list[dict]        # List of hand dicts per the fused_frame schema
     processing_latency_ms: float = 0.0
+    clock_ready: bool = False  # Whether CameraClockSync is ready
 
 
 class CameraSensor:
@@ -83,6 +85,14 @@ class CameraSensor:
 
         # Landmark temporal smoother (reduces MediaPipe jitter)
         self._landmark_smoother = LandmarkSmoother(min_cutoff_hz=1.5, beta=0.05)
+
+        # Camera clock sync: maps SensorTimestamp → Pi monotonic_ns
+        # Same linear-regression pattern as BLE ClockSync
+        self._camera_clock = CameraClockSync(
+            min_points=10,
+            max_points=60,
+            outlier_offset_factor=3.0,
+        )
 
     # ---- Public API ----
 
@@ -164,6 +174,8 @@ class CameraSensor:
             "dropped_frames": self._dropped_frames,
             "last_frame_age_ms": round(last_frame_age_ms, 1),
             "processing_latency_ms": round(self._processing_latency_ms, 1),
+            "clock_ready": self._camera_clock.clock_ready,
+            "clock_points": self._camera_clock.point_count,
         }
 
     # ---- Internal: Initialization ----
@@ -256,6 +268,14 @@ class CameraSensor:
                 metadata = self._picam2.capture_metadata()
                 sensor_ts_ns = metadata.get("SensorTimestamp", time.monotonic_ns())
 
+                # Record Pi receive time immediately after capture for clock sync.
+                # The offset (pi_receive_ns - sensor_ts_ns) = camera clock offset
+                # + pipeline latency.  CameraClockSync models this with linear
+                # regression, same pattern as BLE ClockSync.
+                pi_receive_ns = time.monotonic_ns()
+                self._camera_clock.add_frame(sensor_ts_ns, pi_receive_ns)
+                aligned_ns = self._camera_clock.sensor_to_pi_ns(sensor_ts_ns)
+
                 # Run MediaPipe inference
                 mp_image = self._mp.Image(
                     image_format=self._mp.ImageFormat.SRGB,
@@ -277,10 +297,12 @@ class CameraSensor:
                 frame = CameraFrame(
                     frame_id=self._frame_counter,
                     sensor_timestamp_ns=sensor_ts_ns,
+                    pi_aligned_timestamp_ns=aligned_ns,
                     width=self._width,
                     height=self._height,
                     hands=hands_data,
                     processing_latency_ms=latency_ms,
+                    clock_ready=self._camera_clock.clock_ready,
                 )
 
                 # Push to queue

@@ -1,18 +1,13 @@
 """BLE communication layer for micro:bit devices.
 
-Hardware-independent modules (packet_parser, clock_sync) are imported eagerly.
-Hardware-dependent modules (ble_manager, requiring bleak) are imported lazily
-to allow testing on non-Linux platforms.
+Packet parsing and clock sync have moved to pi_pc.  This package now
+only exports BleManager (BLE connection management requiring bleak).
 """
 
-from .packet_parser import PacketParser, ParsedPacket, PACKET_SIZE
-
-# clock_sync requires numpy — only import if available
-try:
-    from .clock_sync import ClockSync, SyncPoint
-except ImportError:
-    ClockSync = None  # type: ignore
-    SyncPoint = None  # type: ignore
+# Re-export from pi_pc for backward compatibility
+from pi_pc import PacketParser, ParsedPacket
+from pi_pc.packet_parser import PACKET_SIZE
+from pi_pc import ClockSync, SyncPoint
 
 # ble_manager requires bleak — only import if available
 try:
