@@ -8,7 +8,7 @@
 microbits:
   - device_id: MB_LEFT
     hand: left
-    address: ""                      # FILL IN: BLE MAC address
+    address: "E7:C8:C1:AF:21:46"                      # FILL IN: BLE MAC address
   - device_id: MB_RIGHT
     hand: right
     address: ""                      # FILL IN: BLE MAC address
