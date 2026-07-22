@@ -516,3 +516,178 @@ esp32_firmware/
 ├── imu_driver.cpp                       # 新建: IMU 驱动
 └── README.md                            # 新建: 烧录说明 + 接线图
 ```
+
+---
+
+## 七、Sonic Pi 音乐联动技术路线
+
+### 7.1 总览
+
+每个手势通过 **PC 后端 → OSC → Sonic Pi Time State → live_loop** 这条链路影响音乐。下表按手势逐一说明 Sonic Pi 端的实现方法。
+
+### 7.2 手势→Sonic Pi 实现路线表
+
+| gesture_code | 手势 | OSC 命令 | Sonic Pi 接收端 | 参数传递方式 | 音乐效果实现机制 | 当前状态 |
+|:---:|------|---------|----------------|-------------|----------------|:---:|
+| **0** | Idle | 不发送 | — | — | 保持所有 `current_*` 值不变，音乐持续播放。`live_loop :parameter_smoother` 维持最后的目标值 | ✅ 已有 |
+| **1** | Downbeat | `/conductor/accent` | `live_loop :osc_accent_receiver` → `cue :manual_accent` | `strength` (0-1.2), `accent_type` (string) | `live_loop :manual_accent_player` 收到 cue 后播放镲片 (`:drum_cymbal_open`) + 低音鼓 (`:bd_haus`)，音量 = `strength × main_amp`。如果是 wrist_strike 类型额外叠加 `:tb303` 合成器低音 | ✅ 已有 |
+| **2** | Crescendo | `/conductor/state` | `live_loop :osc_state_receiver` | `master_amp` ↑, `energy` ↑, `melody_amp` ↑ | 1) `set :target_master_amp` 等目标值升高；2) `live_loop :parameter_smoother` 每 0.25s EMA 逼近目标（`approach` 函数，系数 0.25）；3) 鼓/贝斯/和声/旋律四个 `live_loop` 每次发声前读取 `get(:master_amp)` 等当前值，音量自然渐强 | ✅ 已有 |
+| **3** | Decrescendo | `/conductor/state` | `live_loop :osc_state_receiver` | `master_amp` ↓, `energy` ↓, `melody_amp` ↓ | 与 Crescendo 机制完全相同，目标值降低，EMA 平滑衰减。下限由 `clamp` 保护（master_amp 不低于 0） | ✅ 已有 |
+| **4** | Cutoff | `/conductor/transport` | `live_loop :osc_transport_receiver` | `action="cutoff"` | `set :playing, false` → 所有音频 `live_loop` 的 `playable?` 检查返回 false → 立即停止发声。Sonic Pi 不产生新音符，但 Time State 保留，恢复时可继续 | ✅ 已有 |
+| **5** | Style Switch | `/conductor/state`（扩展） | `live_loop :osc_state_receiver`（复用） | `style` 字段 + 对应效果参数 (`reverb_mix`, `cutoff`, `energy`) | **需新增**：1) 扩展 `osc_state_receiver` 解析 style 字段；2) 新增 `live_loop :style_switcher`，检测 style 变化时执行过渡；3) 各音频 `live_loop` 根据 style 切换合成器音色、鼓采样、效果链；4) 风格预设见 §7.3 | ❌ 待实现 |
+| **6** | Tempo Up | `/conductor/bpm` | `live_loop :osc_bpm_receiver` | `bpm` (目标值, e.g. 120) | `set :target_bpm` 升高 → `live_loop :parameter_smoother` EMA 平滑 → `live_loop :beat_clock` 的 `use_bpm get(:current_bpm)` 感知变化 → 所有依赖 beat 的 `live_loop` 节奏加快。BPM 变化速度由 `approach` 系数 0.18 控制（约 1-2 秒达到目标） | ✅ 已有 |
+| **7** | Tempo Down | `/conductor/bpm` | `live_loop :osc_bpm_receiver` | `bpm` (目标值, e.g. 80) | 同 Tempo Up，目标值降低。BPM 下限由 `clamp(bpm, 72, 148)` 保护 | ✅ 已有 |
+| **8** | Emergency Stop | `/conductor/transport` | `live_loop :osc_transport_receiver` | `action="cutoff"` | 同 Cutoff，`set :playing, false`。区别在于 PC 端会额外触发 LED 红色快闪 + ESP32 蜂鸣器长鸣 | ✅ 已有 |
+| **9** | Start | `/conductor/transport` | `live_loop :osc_transport_receiver` | `action="start"` | `set :playing, true` → `play_transport_start_now` 播放启动提示音（鼓点+E4 音符）→ 所有音频 `live_loop` 恢复发声 → 上报 `report_music_state` 通知 PC | ✅ 已有 |
+| **10** | Pause | `/conductor/transport` | `live_loop :osc_transport_receiver` | `action="pause"` | `set :playing, false` → 所有音频 `live_loop` 停止发声，但保留 Time State（BPM、音量等不重置），与 Cutoff 行为相同 | ✅ 已有 |
+
+### 7.3 Style Switch — Sonic Pi 实现细节（待实现）
+
+这是唯一需要新增的核心功能。4 种风格对应不同的音色和效果配置：
+
+| 风格 | 旋律合成器 | 和声合成器 | 贝斯合成器 | 鼓组风格 | reverb_mix | cutoff | energy |
+|------|----------|----------|----------|---------|:---:|:---:|:---:|
+| **warm_classical** | `:blade` | `:prophet` | `:fm` | 原声感（bd_haus + sn_dub） | 0.35 | 100 | 0.60 |
+| **cool_electronic** | `:tb303` | `:supersaw` | `:subpulse` | 电子感（bd_tek + sn_zome） | 0.15 | 120 | 0.80 |
+| **minimal_piano** | `:beep` | `:hollow` | `:sine` | 轻打击（drum_cymbal_closed only） | 0.50 | 80 | 0.40 |
+| **dramatic** | `:prophet` | `:dark_ambience` | `:tb303` | 强打击（bd_boom + sn_dolf） | 0.70 | 130 | 0.95 |
+
+**Sonic Pi 代码变更**（在现有 `ode_to_joy.rb` 基础上新增）：
+
+```ruby
+# 1. 新增 Time State 变量
+set :current_style, :warm_classical
+set :target_style, :warm_classical
+
+# 2. 扩展 osc_state_receiver，解析 style 参数
+# (在现有接收逻辑末尾加入)
+live_loop :osc_state_receiver do
+  use_real_time
+  command_id, bpm, master_amp, drum_amp, drum_density,
+    bass_amp, harmony_amp, melody_amp, energy,
+    reverb_mix, cutoff = sync "/osc*/conductor/state"
+  # ... 现有参数设置 ...
+  # 新增：检测 style 变化
+  new_style = get(:target_style)  # 由 PC 端额外发送
+  if new_style != get(:current_style)
+    cue :style_change, old: get(:current_style), new: new_style
+  end
+end
+
+# 3. 新增风格切换过渡 loop
+live_loop :style_transition do
+  data = sync :style_change
+  # 500ms 交叉淡入淡出过渡
+  10.times do |i|
+    set :style_blend, i / 10.0
+    sleep 0.05
+  end
+  set :current_style, data[:new]
+  set :style_blend, 1.0
+end
+
+# 4. 修改各音频 live_loop，根据 current_style 选择音色
+
+# 以旋律为例：
+live_loop :melody do
+  use_bpm get(:current_bpm)
+  note_value = melody_notes.tick(:melody)
+  style = get(:current_style)
+  
+  if playable? && note_value
+    # 根据风格选择合成器
+    synth_name = case style
+      when :warm_classical then :blade
+      when :cool_electronic then :tb303
+      when :minimal_piano then :beep
+      when :dramatic then :prophet
+    end
+    
+    use_synth synth_name
+    # ... 播放逻辑 ...
+  end
+  sleep 0.5
+end
+
+# 鼓组同理：
+live_loop :drums do
+  data = sync :beat
+  style = get(:current_style)
+  
+  if playable?
+    # 根据风格选择鼓采样
+    kick = case style
+      when :warm_classical then :bd_haus
+      when :cool_electronic then :bd_tek
+      when :minimal_piano then :bd_haus
+      when :dramatic then :bd_boom
+    end
+    sample kick, amp: ...
+  end
+end
+```
+
+### 7.4 PC → Sonic Pi 的完整 OSC 发送时序
+
+以一次从 **Crescendo 切换到 Downbeat 再到 Cutoff** 的完整指挥过程为例：
+
+```
+t=0ms    指挥开始 Crescendo
+t=35ms   AI 识别: crescendo, confidence=0.88
+t=36ms   PC 计算: target_volume = current_volume + 0.05 = 0.85
+t=36ms   PC → OSC: /conductor/state cmd-001 108 0.85 0.75 0.7 0.55 0.45 0.85 0.70 0.25 95
+t=37ms   Sonic Pi: set :target_master_amp, 0.85; set :target_energy, 0.70
+t=37ms   parameter_smoother: 开始逐帧平滑逼近
+         (每 0.25s 步进一次，约 1-2s 达到目标 → 听感上自然渐强)
+
+t=800ms  指挥右手下击 (Downbeat)
+t=835ms  AI 识别: downbeat, confidence=0.91
+t=836ms  PC → OSC: /conductor/accent cmd-002 0.91 right_downbeat
+t=837ms  Sonic Pi: osc_accent_receiver → cue :manual_accent
+t=837ms  manual_accent_player: 镲片 + 低音鼓 即时响 (零延迟)
+
+t=1500ms 指挥双手合拢 (Cutoff)
+t=1535ms AI 识别: cutoff, confidence=0.95
+t=1536ms PC → OSC: /conductor/transport cmd-003 cutoff
+t=1537ms Sonic Pi: set :playing, false → 所有音符立即停止
+
+关键设计:
+  - 连续参数 (crescendo/decrescendo/tempo): EMA 平滑，避免跳变
+  - 离散事件 (downbeat/cutoff): cue 机制，零延迟即时响应
+  - 风格切换: 交叉淡入淡出过渡，避免突兀
+```
+
+### 7.5 各手势的 Sonic Pi 代码修改量评估
+
+| 手势 | 需要改动的 Sonic Pi 代码 | 工作量 |
+|------|------------------------|:---:|
+| Idle / Downbeat / Cutoff / Start / Pause / Emergency Stop | 无 | 0 |
+| Crescendo / Decrescendo | 无（仅参数值变化） | 0 |
+| Tempo Up / Tempo Down | 无（仅参数值变化） | 0 |
+| **Style Switch** | 新增 1 个 `live_loop` + 修改 4 个音频 `live_loop`（鼓/贝斯/和声/旋律） | ~50 行代码 |
+
+### 7.6 后端对接要点（罗子超）
+
+`backend/sonic_pi.py` 当前已支持 `send_transport`、`send_bpm`、`send_accent`、`send_state_from_music`。Style Switch 对接方式：
+
+```python
+# 在 GestureDispatcher 中，style_switch 触发时:
+def _handle_style_switch(self):
+    global _current_style_index
+    _current_style_index = (_current_style_index + 1) % len(STYLES)
+    next_style = STYLES[_current_style_index]
+    
+    # 直接复用 send_state_from_music，带上 style 对应的参数
+    preset = STYLE_PRESETS[next_style]
+    self.sp.send_state_from_music(
+        self.music_state,
+        overrides={
+            "style": next_style,         # Sonic Pi 端解析此字段
+            "reverb_mix": preset["reverb_mix"],
+            "cutoff": preset["cutoff"],
+            "energy": preset["energy"],
+        }
+    )
+```
+
+无需新增 OSC 路径，直接在现有的 `/conductor/state` 消息中携带 style 参数即可。Sonic Pi 端在 `osc_state_receiver` 中检测 style 变化并触发过渡。
