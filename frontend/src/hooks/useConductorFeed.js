@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { createConductorFrame, gestureCatalog, makeInferenceLog } from '../data/conductorData'
 
 const BACKEND_REST_DEFAULT = 'http://localhost:5000'
+const REST_POLL_INTERVAL_MS = 250
 
 const gestureResponses = {
   idle: 'Maintain current playback state',
@@ -275,6 +276,7 @@ function normalizeRestFrame({ status = {}, prediction = {}, sensors = {}, music 
         music.performance_elapsed_seconds,
         base.music.performanceElapsedSeconds,
       ),
+      uiReceivedAt: Date.now() / 1000,
       playing: Boolean(music.playing),
       engine: music.engine ? toTitleCase(String(music.engine)) : 'Sonic Pi',
       section: music.section ? toTitleCase(String(music.section)) : base.music.section,
@@ -301,13 +303,60 @@ export function useConductorFeed(options = {}) {
   const [frame, setFrame] = useState(() => createConductorFrame(0))
   const [connectionState, setConnectionState] = useState(wsUrl ? 'connecting websocket' : 'connecting rest')
   const sendSonicPiTransport = async (action) => {
+    const actionText = String(action)
+    const optimisticPlaying = ['start', 'resume', 'play', 'reset'].includes(actionText)
+    const optimisticStopped = ['pause', 'stop', 'cutoff'].includes(actionText)
+    setFrame((current) => ({
+      ...current,
+      music: {
+        ...current.music,
+        playing: optimisticStopped ? false : optimisticPlaying ? true : current.music.playing,
+        elapsedSeconds: actionText === 'reset' ? 0 : current.music.elapsedSeconds,
+        progress: actionText === 'reset' ? 0 : current.music.progress,
+        uiReceivedAt: Date.now() / 1000,
+      },
+    }))
+
     const response = await fetch(`${restBaseUrl}/api/sonic-pi/transport`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action }),
+      body: JSON.stringify({ action: actionText }),
     })
     if (!response.ok) throw new Error(`Sonic Pi transport returned ${response.status}`)
-    return response.json()
+    const payload = await response.json()
+    if (payload.music) {
+      const music = payload.music
+      setFrame((current) => ({
+        ...current,
+        music: {
+          ...current.music,
+          title: music.title || current.music.title,
+          key: music.key || current.music.key,
+          bpm: Number(music.bpm || current.music.bpm),
+          volume: toPercent(Number(music.volume), current.music.volume),
+          energy: toPercent(Number(music.energy), current.music.energy),
+          style: music.style ? toTitleCase(String(music.style)) : current.music.style,
+          progress: clamp(toNumber(music.progress, current.music.progress), 0, 100),
+          elapsedSeconds: toNumber(music.elapsed_seconds, current.music.elapsedSeconds),
+          durationSeconds: toNumber(music.duration_seconds, current.music.durationSeconds),
+          performanceElapsedSeconds: toNumber(
+            music.performance_elapsed_seconds,
+            current.music.performanceElapsedSeconds,
+          ),
+          playing: Boolean(music.playing),
+          engine: music.engine ? toTitleCase(String(music.engine)) : current.music.engine,
+          section: music.section ? toTitleCase(String(music.section)) : current.music.section,
+          lastBar: Number.isFinite(Number(music.last_bar)) ? Number(music.last_bar) : current.music.lastBar,
+          lastBeat: Number.isFinite(Number(music.last_beat)) ? Number(music.last_beat) : current.music.lastBeat,
+          beatStrength: toPercent(Number(music.beat_strength), current.music.beatStrength),
+          sonicPiConnected: Boolean(
+            music.sonic_pi_connected || payload.sonic_pi?.connected || current.music.sonicPiConnected,
+          ),
+          uiReceivedAt: Date.now() / 1000,
+        },
+      }))
+    }
+    return payload
   }
 
   useEffect(() => {
@@ -368,7 +417,7 @@ export function useConductorFeed(options = {}) {
             fetchBackendState().catch(() => {
               if (!cancelled) startMockFeed()
             })
-          }, 750)
+          }, REST_POLL_INTERVAL_MS)
         })
         .catch(() => {
           if (!cancelled) startMockFeed()

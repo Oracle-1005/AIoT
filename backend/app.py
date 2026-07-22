@@ -121,7 +121,13 @@ def create_app() -> Flask:
                 "error": "action must be one of start, resume, play, pause, stop, cutoff, reset"
             }), 400
         sent = sonic_pi_adapter.send_transport(action)
-        return jsonify({"sent": sent, "sonic_pi": sonic_pi_adapter.status()}), 200 if sent else 503
+        if sent:
+            live_state.apply_sonic_pi_transport_intent(action, time.time())
+        return jsonify({
+            "sent": sent,
+            "music": live_state.get_music(),
+            "sonic_pi": sonic_pi_adapter.status(),
+        }), 200 if sent else 503
 
     @app.post("/api/sonic-pi/state")
     def sonic_pi_state():

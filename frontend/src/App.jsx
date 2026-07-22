@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Activity,
@@ -465,6 +465,7 @@ function AiPredictionCard({ frame }) {
 
 function MusicControlCenter({ frame, onTransport }) {
   const [transportPending, setTransportPending] = useState(false)
+  const [clockNow, setClockNow] = useState(() => Date.now())
   const metrics = [
     { label: 'BPM', value: frame.music.bpm, icon: Activity, suffix: '' },
     { label: 'Volume', value: frame.music.volume, icon: Volume2, suffix: '%' },
@@ -475,6 +476,41 @@ function MusicControlCenter({ frame, onTransport }) {
   const TransportIcon = frame.music.playing ? Pause : Play
   const transportAction = frame.music.playing ? 'pause' : 'start'
   const transportLabel = frame.music.playing ? 'Pause Sonic Pi' : 'Start Sonic Pi'
+  const uiReceivedAt = Number(frame.music.uiReceivedAt) || clockNow / 1000
+  const secondsSinceFrame = frame.music.playing
+    ? Math.max(0, Math.min(clockNow / 1000 - uiReceivedAt, 1.25))
+    : 0
+  const loopDuration = Math.max(0, Number(frame.music.durationSeconds) || 0)
+  const rawLoopElapsed = loopDuration
+    ? (Number(frame.music.elapsedSeconds || 0) + secondsSinceFrame) % loopDuration
+    : Number(frame.music.elapsedSeconds || 0)
+  const [displayLoopElapsed, setDisplayLoopElapsed] = useState(rawLoopElapsed)
+  const progressWidth = loopDuration
+    ? Math.min(100, Math.max(0, (displayLoopElapsed / loopDuration) * 100))
+    : frame.music.progress
+
+  useEffect(() => {
+    if (!frame.music.playing) {
+      setClockNow(Date.now())
+      return undefined
+    }
+    const timer = window.setInterval(() => setClockNow(Date.now()), 100)
+    return () => window.clearInterval(timer)
+  }, [frame.music.playing])
+
+  useEffect(() => {
+    setDisplayLoopElapsed((previous) => {
+      if (!frame.music.playing || !loopDuration) return rawLoopElapsed
+
+      const nearLoopEnd = previous >= loopDuration - 1.5
+      const wrappedToStart = nearLoopEnd && rawLoopElapsed <= 1.5
+      const movedBackward = rawLoopElapsed + 0.35 < previous
+
+      if (wrappedToStart) return rawLoopElapsed
+      if (movedBackward) return previous
+      return rawLoopElapsed
+    })
+  }, [frame.music.playing, loopDuration, rawLoopElapsed])
 
   const handleTransport = async () => {
     if (!onTransport || transportPending) return
@@ -521,11 +557,11 @@ function MusicControlCenter({ frame, onTransport }) {
           </button>
         </div>
         <div className="h-2 overflow-hidden rounded-full bg-white/10">
-          <motion.div className="h-full bg-gradient-to-r from-cyan to-gold" animate={{ width: `${frame.music.progress}%` }} />
+          <motion.div className="h-full bg-gradient-to-r from-cyan to-gold" animate={{ width: `${progressWidth}%` }} />
         </div>
-        <div className="mt-2 flex justify-between text-xs text-slate-400">
-          <span>{formatDuration(frame.music.elapsedSeconds)}</span>
-          <span>Loop {formatDuration(frame.music.durationSeconds)}</span>
+        <div className="mt-2 flex justify-between text-xs text-slate-400 tabular-nums">
+          <span className="w-12 font-mono">{formatDuration(displayLoopElapsed)}</span>
+          <span className="w-20 text-right font-mono">Loop {formatDuration(loopDuration)}</span>
         </div>
         <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
           <div className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2">

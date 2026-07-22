@@ -10,14 +10,19 @@ The piece is a Sonic Pi arrangement of the public-domain melody "Ode to Joy".
 It is suitable for the project because it is recognizable, stable for live demos,
 and easy to control with conducting gestures.
 
+The current roadshow version is a 24-bar loop. At the default 108 BPM it lasts
+about 53 seconds and moves through Intro, Theme, Build, and Finale sections.
+
 ## How To Run
 
 1. Open Sonic Pi on the PC.
 2. Open `aiot_conductor_ode_to_joy.rb` in a text editor.
 3. Copy the full script into a Sonic Pi buffer.
 4. Press `Run`.
+5. Use the frontend Music Control Center to pause or resume it during the demo.
 
-The script plays by itself, so it can be tested before the backend OSC adapter is ready.
+The script starts immediately after `Run` so the team can confirm that Sonic Pi
+audio is working before testing frontend control.
 
 ## Future Backend Control
 
