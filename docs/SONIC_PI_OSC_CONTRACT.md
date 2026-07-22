@@ -1,0 +1,156 @@
+# Sonic Pi OSC Contract
+
+This document defines the only extra interface required when the project uses
+Sonic Pi as the live music execution engine.
+
+Scope:
+
+- No frontend REST field is removed.
+- No existing Pi, Micro:bit, model, database, or LED protocol is changed.
+- The backend only needs an additional OSC adapter after gesture recognition.
+
+## Runtime Topology
+
+```text
+Camera + Micro:bit
+        |
+        v
+Backend gesture pipeline
+        |
+        +--> REST/WebSocket state for frontend display
+        |
+        +--> OSC commands to Sonic Pi
+```
+
+Sonic Pi and the backend should run on the same PC during the roadshow.
+
+| Direction | Protocol | Address | Purpose |
+|---|---|---|---|
+| Backend -> Sonic Pi | OSC over UDP | `127.0.0.1:4560` | Send transport, BPM, accent, and music state commands |
+| Sonic Pi -> Backend | OSC over UDP | `127.0.0.1:4561` | Send beat, bar, current state, and command acknowledgements |
+
+## Backend To Sonic Pi
+
+### `/conductor/transport`
+
+Transport controls playback.
+
+```text
+/conductor/transport command_id action
+```
+
+| Field | Type | Example | Notes |
+|---|---|---|---|
+| `command_id` | string | `cmd-0001` | Backend-generated id for ack matching |
+| `action` | string | `start` | Supported: `start`, `resume`, `play`, `pause`, `stop`, `cutoff`, `reset` |
+
+### `/conductor/state`
+
+Bulk state update for continuous parameters.
+
+```text
+/conductor/state command_id bpm master_amp drum_amp drum_density bass_amp harmony_amp melody_amp energy reverb_mix cutoff
+```
+
+| Field | Range | Notes |
+|---|---:|---|
+| `bpm` | `72..148` | Target tempo; Sonic Pi smooths toward it |
+| `master_amp` | `0.0..1.3` | Overall output level |
+| `drum_amp` | `0.0..1.3` | Drum layer level |
+| `drum_density` | `0.0..1.0` | Percussion activity and hi-hat intensity |
+| `bass_amp` | `0.0..1.2` | Bass layer level |
+| `harmony_amp` | `0.0..1.2` | Chord layer level |
+| `melody_amp` | `0.0..1.3` | Main melody level |
+| `energy` | `0.0..1.0` | Overall performance intensity |
+| `reverb_mix` | `0.0..0.9` | Reverb mix |
+| `cutoff` | `55..130` | Synth filter cutoff |
+
+### `/conductor/bpm`
+
+Single-parameter BPM update.
+
+```text
+/conductor/bpm command_id bpm
+```
+
+Use this for `tempo_up`, `tempo_down`, or live beat-rate estimates.
+
+### `/conductor/accent`
+
+Triggers a one-shot accent, usually from a downbeat or wrist strike.
+
+```text
+/conductor/accent command_id strength type
+```
+
+| Field | Type | Example |
+|---|---|---|
+| `strength` | float | `0.9` |
+| `type` | string | `right_wrist_strike` |
+
+## Sonic Pi To Backend
+
+The provided Sonic Pi script sends these feedback paths.
+
+| OSC path | Arguments | Purpose |
+|---|---|---|
+| `/music/beat` | `bar, beat, bpm, beat_strength` | Beat-accurate feedback for frontend/LED display |
+| `/music/bar` | `bar, section` | Section and bar counter |
+| `/music/state` | `playing, bpm, section, energy` | Actual music execution state |
+| `/music/ack` | `command_id, result` | Command acknowledgement |
+
+The backend should use `/music/state` as the most reliable source for the final
+displayed BPM after Sonic Pi is connected. Before Sonic Pi is connected, the
+frontend may keep using the backend-estimated value.
+
+## Gesture Mapping Recommendation
+
+| Gesture or event | Backend action |
+|---|---|
+| `downbeat`, `left_wrist_strike`, `right_wrist_strike` | Send `/conductor/accent`; set `playing=true` |
+| `tempo_up` | Increase target BPM and send `/conductor/bpm` |
+| `tempo_down` | Decrease target BPM and send `/conductor/bpm` |
+| `crescendo` | Increase `master_amp`, `melody_amp`, and `energy`; send `/conductor/state` |
+| `decrescendo` | Decrease `master_amp` and `energy`; send `/conductor/state` |
+| `cutoff`, `stop`, `gesture_end` | Send `/conductor/transport ... cutoff` or `pause` |
+| `resume`, `gesture_start` | Send `/conductor/transport ... start` |
+
+## Frontend Contract
+
+The frontend does not talk to Sonic Pi directly. It should continue to consume
+backend state through REST polling or WebSocket.
+
+Minimum frontend music state:
+
+```json
+{
+  "playing": true,
+  "bpm": 108,
+  "volume": 0.8,
+  "style": "sonic_pi",
+  "current_gesture": "downbeat"
+}
+```
+
+Optional fields after the OSC adapter is added:
+
+```json
+{
+  "energy": 0.62,
+  "section": "main",
+  "sonic_pi_connected": true,
+  "last_beat": 3,
+  "last_bar": 12
+}
+```
+
+## Roadshow Script
+
+Use:
+
+```text
+music/sonic_pi/aiot_conductor_ode_to_joy.rb
+```
+
+Paste the full Ruby script into Sonic Pi and press `Run`. The script can play
+standalone before backend OSC integration is ready.
