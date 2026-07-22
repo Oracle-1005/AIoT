@@ -58,6 +58,15 @@ function toPercent(value, fallback = 0) {
   return Math.round(value <= 1 ? value * 100 : value)
 }
 
+function toNumber(value, fallback = 0) {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : fallback
+}
+
+function clamp(value, low, high) {
+  return Math.min(high, Math.max(low, value))
+}
+
 function normalizeAcceleration(value) {
   if (typeof value !== 'number' || Number.isNaN(value)) return 0
   const normalized = Math.abs(value) > 16 ? value / 1000 : value
@@ -249,6 +258,8 @@ function normalizeRestFrame({ status = {}, prediction = {}, sensors = {}, music 
     },
     music: {
       ...base.music,
+      title: music.title || base.music.title,
+      key: music.key || base.music.key,
       bpm: Number(music.bpm || base.music.bpm),
       volume,
       energy: toPercent(
@@ -257,7 +268,13 @@ function normalizeRestFrame({ status = {}, prediction = {}, sensors = {}, music 
       ),
       density: music.playing ? base.music.density : 20,
       style: music.style ? toTitleCase(String(music.style)) : base.music.style,
-      progress: music.playing ? base.music.progress : 0,
+      progress: clamp(toNumber(music.progress, music.playing ? base.music.progress : 0), 0, 100),
+      elapsedSeconds: toNumber(music.elapsed_seconds, base.music.elapsedSeconds),
+      durationSeconds: toNumber(music.duration_seconds, base.music.durationSeconds),
+      performanceElapsedSeconds: toNumber(
+        music.performance_elapsed_seconds,
+        base.music.performanceElapsedSeconds,
+      ),
       playing: Boolean(music.playing),
       engine: music.engine ? toTitleCase(String(music.engine)) : 'Sonic Pi',
       section: music.section ? toTitleCase(String(music.section)) : base.music.section,
@@ -283,6 +300,15 @@ export function useConductorFeed(options = {}) {
   const [tick, setTick] = useState(0)
   const [frame, setFrame] = useState(() => createConductorFrame(0))
   const [connectionState, setConnectionState] = useState(wsUrl ? 'connecting websocket' : 'connecting rest')
+  const sendSonicPiTransport = async (action) => {
+    const response = await fetch(`${restBaseUrl}/api/sonic-pi/transport`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action }),
+    })
+    if (!response.ok) throw new Error(`Sonic Pi transport returned ${response.status}`)
+    return response.json()
+  }
 
   useEffect(() => {
     let restTimer
@@ -385,5 +411,6 @@ export function useConductorFeed(options = {}) {
     tick,
     connectionState,
     logs: makeInferenceLog(frame),
+    sendSonicPiTransport,
   }
 }

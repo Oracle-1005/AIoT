@@ -179,9 +179,14 @@ def main() -> None:
     music = live_state.get_music()
     assert music["sonic_pi_connected"] is True
     assert music["bpm"] == 122
+    assert music["title"] == "Ode to Joy Conductor Mix"
+    assert music["key"] == "C Major"
     assert music["section"] == "main"
     assert music["last_bar"] == 4
     assert music["last_beat"] == 2
+    assert music["duration_seconds"] > 0
+    assert music["elapsed_seconds"] >= 0
+    assert 0 <= music["progress"] <= 100
 
     pi_state = live_state.get_pi_state()
     assert (

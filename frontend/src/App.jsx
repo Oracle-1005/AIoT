@@ -101,6 +101,13 @@ function StatusDot({ tone = 'cyan' }) {
   return <span className={`h-2 w-2 rounded-full ${colors[tone]}`} />
 }
 
+function formatDuration(seconds = 0) {
+  const safeSeconds = Number.isFinite(Number(seconds)) ? Math.max(0, Math.floor(Number(seconds))) : 0
+  const minutes = Math.floor(safeSeconds / 60)
+  const remainder = safeSeconds % 60
+  return `${minutes.toString().padStart(2, '0')}:${remainder.toString().padStart(2, '0')}`
+}
+
 function AssetPlaceholder({ title, path, note, type = 'video' }) {
   const Icon = type === 'video' ? Video : Upload
   return (
@@ -317,7 +324,7 @@ function ConductorSignalScene({ frame, compact = false }) {
   )
 }
 
-function LiveStage({ frame, logs }) {
+function LiveStage({ frame, logs, onTransport }) {
   return (
     <section id="live-stage" className="section-shell">
       <SectionHeader
@@ -330,7 +337,7 @@ function LiveStage({ frame, logs }) {
       <div className="grid gap-4 xl:grid-cols-[1.35fr_0.95fr_0.9fr]">
         <CameraGesturePanel frame={frame} />
         <AiPredictionCard frame={frame} />
-        <MusicControlCenter frame={frame} />
+        <MusicControlCenter frame={frame} onTransport={onTransport} />
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
@@ -456,7 +463,8 @@ function AiPredictionCard({ frame }) {
   )
 }
 
-function MusicControlCenter({ frame }) {
+function MusicControlCenter({ frame, onTransport }) {
+  const [transportPending, setTransportPending] = useState(false)
   const metrics = [
     { label: 'BPM', value: frame.music.bpm, icon: Activity, suffix: '' },
     { label: 'Volume', value: frame.music.volume, icon: Volume2, suffix: '%' },
@@ -464,6 +472,21 @@ function MusicControlCenter({ frame }) {
     { label: 'Density', value: frame.music.density, icon: SlidersHorizontal, suffix: '%' },
   ]
   const sonicPiStatus = frame.music.sonicPiConnected ? 'Sonic Pi Live' : 'Sonic Pi Waiting'
+  const TransportIcon = frame.music.playing ? Pause : Play
+  const transportAction = frame.music.playing ? 'pause' : 'start'
+  const transportLabel = frame.music.playing ? 'Pause Sonic Pi' : 'Start Sonic Pi'
+
+  const handleTransport = async () => {
+    if (!onTransport || transportPending) return
+    setTransportPending(true)
+    try {
+      await onTransport(transportAction)
+    } catch (error) {
+      console.error(error)
+    } finally {
+      setTransportPending(false)
+    }
+  }
 
   return (
     <div className="glass-panel p-5">
@@ -484,18 +507,25 @@ function MusicControlCenter({ frame }) {
         <div className="mb-4 flex items-center justify-between gap-4">
           <div>
             <p className="text-sm font-semibold text-white">{frame.music.title}</p>
-            <p className="text-xs text-slate-400">Key: {frame.music.key} · Engine: {frame.music.engine}</p>
+            <p className="text-xs text-slate-400">Key: {frame.music.key} | Engine: {frame.music.engine}</p>
           </div>
-          <button type="button" className="grid h-10 w-10 place-items-center rounded-md bg-gold text-slate-950" aria-label="Play demo">
-            <Play size={18} />
+          <button
+            type="button"
+            className="grid h-10 w-10 place-items-center rounded-md bg-gold text-slate-950 transition hover:bg-[#ffe08a] disabled:cursor-wait disabled:opacity-60"
+            aria-label={transportLabel}
+            title={transportLabel}
+            disabled={transportPending}
+            onClick={handleTransport}
+          >
+            <TransportIcon size={18} />
           </button>
         </div>
         <div className="h-2 overflow-hidden rounded-full bg-white/10">
           <motion.div className="h-full bg-gradient-to-r from-cyan to-gold" animate={{ width: `${frame.music.progress}%` }} />
         </div>
         <div className="mt-2 flex justify-between text-xs text-slate-400">
-          <span>01:28</span>
-          <span>03:42</span>
+          <span>{formatDuration(frame.music.elapsedSeconds)}</span>
+          <span>Loop {formatDuration(frame.music.durationSeconds)}</span>
         </div>
         <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
           <div className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2">
@@ -1134,7 +1164,7 @@ function PresentationMode({ open, onClose, frame }) {
 }
 
 function App() {
-  const { frame, logs, connectionState } = useConductorFeed()
+  const { frame, logs, connectionState, sendSonicPiTransport } = useConductorFeed()
   const [presentationOpen, setPresentationOpen] = useState(false)
 
   const openPresentation = () => {
@@ -1156,7 +1186,7 @@ function App() {
       <TopNav onPresentation={openPresentation} connectionState={connectionState} />
       <main>
         <HeroSection frame={frame} onPresentation={openPresentation} />
-        <LiveStage frame={frame} logs={logs} />
+        <LiveStage frame={frame} logs={logs} onTransport={sendSonicPiTransport} />
         <DecisionFlow frame={frame} connectionState={connectionState} />
         <ValidationHighlights />
         <AnalyticsDashboard />

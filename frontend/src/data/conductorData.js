@@ -307,7 +307,7 @@ export function createConductorFrame(tick = 0) {
       top3: predictionSets[tick % predictionSets.length],
     },
     music: {
-      title: 'Demo Symphony No.1',
+      title: 'Ode to Joy Conductor Mix',
       bpm,
       volume: Math.max(0, Math.min(100, volume)),
       energy: Math.round(48 + Math.abs(Math.sin(phase)) * 36),
@@ -315,6 +315,9 @@ export function createConductorFrame(tick = 0) {
       key: 'C Major',
       style: tick % 2 === 0 ? 'Cinematic' : 'Classical',
       progress: Math.round(38 + Math.sin(phase / 2) * 15),
+      elapsedSeconds: Math.round((tick % 8) * 2.2),
+      durationSeconds: 18,
+      performanceElapsedSeconds: Math.round(tick * 1.8),
       engine: 'Sonic Pi',
       section: 'Main',
       lastBar: Math.floor(tick / 4) + 1,
