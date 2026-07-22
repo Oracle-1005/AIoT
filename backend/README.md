@@ -7,6 +7,7 @@ PC-side Flask + SQLite backend using the confirmed Pi ↔ PC architecture:
 - Uplink types: `fused_frame`, `window_features`, `control_event`, `status`.
 - Internal `payload` fields remain flexible until the hardware schema is final.
 - LED/system commands are sent back over the same TCP connection.
+- Sonic Pi is controlled through OSC on the local PC.
 - MQTT is no longer part of the active architecture.
 
 ## Run
@@ -22,6 +23,7 @@ The PC listens on:
 
 - Flask: `0.0.0.0:5000`
 - Pi gateway: `0.0.0.0:9000`
+- Sonic Pi feedback OSC: `127.0.0.1:4561`
 
 ## Pi uplink envelope
 
@@ -50,6 +52,9 @@ Added:
 - `GET /api/pi/status`
 - `GET /api/pi/messages?message_type=status&limit=50`
 - `POST /api/pi/send`
+- `GET /api/sonic-pi/status`
+- `POST /api/sonic-pi/transport`
+- `POST /api/sonic-pi/state`
 
 Downlink example:
 
@@ -66,6 +71,28 @@ Downlink example:
 
 Allowed downlink types are `led_command`, `led_state`, `led_config`,
 `system_command`, and `time_sync`.
+
+## Sonic Pi integration
+
+Open Sonic Pi, paste and run:
+
+```text
+../music/sonic_pi/aiot_conductor_ode_to_joy.rb
+```
+
+The backend sends OSC commands to Sonic Pi at `127.0.0.1:4560` and listens for
+Sonic Pi feedback on `127.0.0.1:4561`.
+
+Control events automatically map to Sonic Pi:
+
+- `downbeat`, `left_wrist_strike`, `right_wrist_strike`: accent + start
+- `tempo_up`, `tempo_down`: BPM update
+- `crescendo`, `decrescendo`: volume/energy state update
+- `cutoff`, `stop`, `gesture_end`: cutoff/pause
+
+The frontend still reads `/api/music/state`; once Sonic Pi returns
+`/music/state` or `/music/beat`, the same endpoint includes the actual BPM,
+section, beat, and Sonic Pi connection state.
 
 ## Model integration
 

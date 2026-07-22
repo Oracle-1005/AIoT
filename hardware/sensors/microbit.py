@@ -16,10 +16,15 @@ from dataclasses import dataclass
 
 from sensors.base import SensorSource
 from ble.ble_manager import BleManager
-from ble.packet_parser import PacketParser, ParsedControlEvent, ParsedPacket
-from ble.clock_sync import ClockSync
-from fusion.cleaner import DataCleaner
-from fusion.noise_filter import MicrobitNoiseFilter, FilteredIMUData
+from pi_pc import (
+    PacketParser,
+    ParsedControlEvent,
+    ParsedPacket,
+    ClockSync,
+    DataCleaner,
+    MicrobitNoiseFilter,
+    FilteredIMUData,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +128,9 @@ class MicrobitSensor(SensorSource):
 
         # Pre-sync sample cache
         self._pre_sync_cache: deque[ParsedPacket] = deque(maxlen=500)
+
+        # Pending SYNC_ACK tracking: sync_id → (t0_ns, asyncio.Event)
+        self._pending_syncs: dict[int, tuple[int, asyncio.Event]] = {}
 
     # ---- SensorSource interface ----
 
@@ -233,8 +241,13 @@ class MicrobitSensor(SensorSource):
     async def _do_one_sync_round(self) -> bool:
         """Execute one SYNC/SYNC_ACK round-trip.
 
+        Sends a SYNC command to the micro:bit and waits for the SYNC_ACK
+        text response. The ACK arrives as a BLE text notification over the
+        same UART RX characteristic as binary sensor data, and is routed
+        via BleManager → on_text → handle_sync_ack().
+
         Returns:
-            True if sync point was successfully recorded.
+            True if the sync point was successfully recorded.
         """
         self._sync_id_counter += 1
         sync_id = self._sync_id_counter
@@ -247,32 +260,21 @@ class MicrobitSensor(SensorSource):
             logger.debug("[%s] SYNC command failed to send.", self.device_id)
             return False
 
-        # Wait for the SYNC_ACK notification. The ACK arrives as a BLE notification
-        # and is processed by the packet parser. For now, we use a simple wait.
-        # In a real implementation, the SYNC_ACK would need to be captured from
-        # the notification stream. For the initial sync, we use the round-trip
-        # time as an approximation.
-        #
-        # The SYNC_ACK arrives as a text notification over the same UART RX
-        # characteristic. Format: "SYNC_ACK,<sync_id>,<device_timestamp_ms>"
-        # Since we set up raw binary notification, the ACK comes through our
-        # binary handler. The micro:bit firmware should send the ACK as a
-        # separate UART TX message.
-        #
-        # We wait up to 500ms for the ACK to arrive.
-        await asyncio.sleep(0.2)  # Give BLE time to round-trip
+        # Register a pending sync and wait for the SYNC_ACK to arrive.
+        # handle_sync_ack() is called from BleManager's notification callback
+        # when the text response arrives, and calls event.set().
+        event = asyncio.Event()
+        self._pending_syncs[sync_id] = (t0_ns, event)
 
-        t2_ns = time.monotonic_ns()
-
-        # Without capturing the actual device_timestamp_ms from the SYNC_ACK,
-        # we can't create a proper sync point yet. The actual implementation
-        # requires the SYNC_ACK data to be captured from the notification.
-        #
-        # For now, this is a placeholder that logs the RTT.
-        rtt_ms = (t2_ns - t0_ns) / 1_000_000.0
-        logger.debug("[%s] SYNC round RTT=%.1fms (need SYNC_ACK capture)", self.device_id, rtt_ms)
-
-        return False  # Until SYNC_ACK capture is implemented
+        try:
+            await asyncio.wait_for(event.wait(), timeout=0.5)
+            logger.debug("[%s] SYNC_ACK received for sync_id=%d", self.device_id, sync_id)
+            return True
+        except asyncio.TimeoutError:
+            logger.debug("[%s] SYNC_ACK timeout for sync_id=%d", self.device_id, sync_id)
+            return False
+        finally:
+            self._pending_syncs.pop(sync_id, None)
 
     async def _periodic_resync(self) -> None:
         """Background task: periodically re-sync clock to maintain accuracy."""
@@ -444,6 +446,50 @@ class MicrobitSensor(SensorSource):
                 pass
 
         logger.info("[%s] Cache flush complete.", self.device_id)
+
+    def handle_sync_ack(self, text: str, pi_receive_ns: int) -> None:
+        """Parse a SYNC_ACK text notification and record the sync point.
+
+        Called from BleManager's on_text callback when a text notification
+        starting with b"SYNC_ACK" arrives. Parses the format:
+        "SYNC_ACK,<sync_id>,<device_timestamp_ms>" and feeds the result to
+        ClockSync.add_sync_point() for linear regression fitting.
+
+        Args:
+            text: The decoded text payload (e.g. "SYNC_ACK,5,73452").
+            pi_receive_ns: Pi monotonic_ns when the ACK notification arrived.
+        """
+        # Parse: "SYNC_ACK,<sync_id>,<device_timestamp_ms>"
+        parts = text.split(",")
+        if len(parts) != 3 or parts[0] != "SYNC_ACK":
+            logger.debug("[%s] Ignoring non-SYNC_ACK text: %s", self.device_id, text[:50])
+            return
+
+        try:
+            sync_id = int(parts[1])
+            device_ms = int(parts[2])
+        except (ValueError, IndexError):
+            logger.warning("[%s] Malformed SYNC_ACK: %s", self.device_id, text)
+            return
+
+        # Look up the pending sync request
+        pending = self._pending_syncs.get(sync_id)
+        if pending is None:
+            # Could be a stale/delayed ACK from a previous round — ignore
+            logger.debug(
+                "[%s] SYNC_ACK for unknown sync_id=%d (stale or already timed out).",
+                self.device_id, sync_id,
+            )
+            return
+
+        t0_ns, event = pending
+        t2_ns = pi_receive_ns
+
+        # Record the sync point — this triggers linear regression refit
+        self._clock_sync.add_sync_point(t0_ns, device_ms, t2_ns)
+
+        # Wake the waiting _do_one_sync_round() coroutine
+        event.set()
 
     @property
     def clock_ready(self) -> bool:

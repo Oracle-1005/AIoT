@@ -13,6 +13,7 @@ from database import (
     insert_prediction,
 )
 from message_router import normalize_uplink_message, route_uplink_message
+from sonic_pi import sonic_pi_adapter
 from state import live_state
 
 
@@ -154,6 +155,38 @@ def main() -> None:
     assert music["playing"] is True
     assert music["bpm"] == 118
     assert music["volume"] == 0.73
+    assert music["energy"] == 0.81
+
+    sonic_pi_status = sonic_pi_adapter.status()
+    assert sonic_pi_status["attempted_messages"] >= 2
+    assert sonic_pi_status["last_sent_command"]["path"] == "/conductor/accent"
+
+    live_state.apply_sonic_pi_state(
+        playing=1,
+        bpm=121.7,
+        section="main",
+        energy=0.66,
+        received_at=time.time(),
+    )
+    live_state.apply_sonic_pi_beat(
+        bar=4,
+        beat=2,
+        bpm=121.7,
+        beat_strength=0.45,
+        received_at=time.time(),
+    )
+
+    music = live_state.get_music()
+    assert music["sonic_pi_connected"] is True
+    assert music["bpm"] == 122
+    assert music["title"] == "Ode to Joy Conductor Mix"
+    assert music["key"] == "C Major"
+    assert music["section"] == "main"
+    assert music["last_bar"] == 4
+    assert music["last_beat"] == 2
+    assert music["duration_seconds"] > 0
+    assert music["elapsed_seconds"] >= 0
+    assert 0 <= music["progress"] <= 100
 
     pi_state = live_state.get_pi_state()
     assert (
@@ -171,6 +204,7 @@ def main() -> None:
         "/api/gesture/history?limit=5",
         "/api/sensors/live",
         "/api/music/state",
+        "/api/sonic-pi/status",
     )
 
     for endpoint in endpoints:
@@ -194,6 +228,32 @@ def main() -> None:
     assert any(
         record["id"] == inserted_id
         for record in get_prediction_history(limit=5)
+    )
+
+    manual_state = client.post(
+        "/api/sonic-pi/state",
+        json={
+            "bpm": 126,
+            "volume": 0.76,
+            "energy": 0.72,
+        },
+    )
+    assert manual_state.status_code == 200
+    assert (
+        manual_state.get_json()["sonic_pi"]["last_sent_command"]["path"]
+        == "/conductor/state"
+    )
+
+    manual_transport = client.post(
+        "/api/sonic-pi/transport",
+        json={
+            "action": "pause",
+        },
+    )
+    assert manual_transport.status_code == 200
+    assert (
+        manual_transport.get_json()["sonic_pi"]["last_sent_command"]["path"]
+        == "/conductor/transport"
     )
 
     recorded_types = {

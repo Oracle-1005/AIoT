@@ -21,6 +21,7 @@ from database import DB_PATH, get_pi_message_history, get_prediction_history, in
 from message_router import UPLINK_MESSAGE_TYPES, route_uplink_message
 from model_service import model_service
 from pi_gateway import PI_GATEWAY_ENABLED, PI_GATEWAY_HOST, PI_GATEWAY_PORT, pi_gateway
+from sonic_pi import sonic_pi_adapter
 from state import live_state
 
 DOWNLINK_MESSAGE_TYPES = frozenset({"led_command", "led_state", "led_config", "system_command", "time_sync"})
@@ -33,6 +34,7 @@ def create_app() -> Flask:
     model_service.load()
     pi_gateway.set_handler(route_uplink_message)
     pi_gateway.start()
+    sonic_pi_adapter.start()
 
     @app.get("/api/status")
     def status():
@@ -43,6 +45,7 @@ def create_app() -> Flask:
             "microbit_right": live_state.microbit_right_connected,
             "model_loaded": model_service.loaded,
             "pi_gateway": pi_gateway.status(),
+            "sonic_pi": sonic_pi_adapter.status(),
             "uptime_seconds": live_state.uptime_seconds(),
         })
 
@@ -104,6 +107,39 @@ def create_app() -> Flask:
     @app.get("/api/music/state")
     def music_state(): return jsonify(live_state.get_music())
 
+    @app.get("/api/sonic-pi/status")
+    def sonic_pi_status(): return jsonify(sonic_pi_adapter.status())
+
+    @app.post("/api/sonic-pi/transport")
+    def sonic_pi_transport():
+        body = request.get_json(silent=True) or {}
+        if not isinstance(body, dict):
+            return jsonify({"error": "request body must be a JSON object"}), 400
+        action = str(body.get("action", "")).strip()
+        if action not in {"start", "resume", "play", "pause", "stop", "cutoff", "reset"}:
+            return jsonify({
+                "error": "action must be one of start, resume, play, pause, stop, cutoff, reset"
+            }), 400
+        sent = sonic_pi_adapter.send_transport(action)
+        if sent:
+            live_state.apply_sonic_pi_transport_intent(action, time.time())
+        return jsonify({
+            "sent": sent,
+            "music": live_state.get_music(),
+            "sonic_pi": sonic_pi_adapter.status(),
+        }), 200 if sent else 503
+
+    @app.post("/api/sonic-pi/state")
+    def sonic_pi_state():
+        body = request.get_json(silent=True) or {}
+        if not isinstance(body, dict):
+            return jsonify({"error": "request body must be a JSON object"}), 400
+        sent = sonic_pi_adapter.send_state_from_music(
+            live_state.get_music(),
+            body,
+        )
+        return jsonify({"sent": sent, "sonic_pi": sonic_pi_adapter.status()}), 200 if sent else 503
+
     @app.errorhandler(404)
     def not_found(_error): return jsonify({"error": "Endpoint not found"}), 404
 
@@ -120,6 +156,7 @@ def create_app() -> Flask:
 
 app = create_app()
 atexit.register(pi_gateway.stop)
+atexit.register(sonic_pi_adapter.stop)
 
 if __name__ == "__main__":
     debug = os.getenv("FLASK_DEBUG", "1").lower() in {"1", "true", "yes", "on"}

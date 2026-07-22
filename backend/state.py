@@ -26,6 +26,11 @@ GESTURES = (
     "resume",
 )
 
+SONIC_PI_TRACK_TITLE = "Ode to Joy Conductor Mix"
+SONIC_PI_TRACK_KEY = "C Major"
+SONIC_PI_TRACK_TOTAL_BARS = 24
+SONIC_PI_BEATS_PER_BAR = 4
+
 
 class LiveState:
     def __init__(self) -> None:
@@ -58,11 +63,30 @@ class LiveState:
         }
 
         self.music_state: dict[str, Any] = {
+            "title": SONIC_PI_TRACK_TITLE,
+            "key": SONIC_PI_TRACK_KEY,
             "playing": False,
-            "bpm": 120,
+            "bpm": 108,
             "volume": 0.8,
-            "style": "piano",
+            "style": "sonic_pi",
+            "engine": "sonic_pi",
+            "energy": 0.62,
+            "section": "main",
+            "total_bars": SONIC_PI_TRACK_TOTAL_BARS,
+            "beats_per_bar": SONIC_PI_BEATS_PER_BAR,
+            "duration_seconds": _loop_duration_seconds(108),
+            "elapsed_seconds": 0.0,
+            "performance_elapsed_seconds": 0.0,
+            "progress": 0,
             "current_gesture": "idle",
+            "sonic_pi_connected": False,
+            "last_beat": None,
+            "last_bar": None,
+            "last_beat_feedback_at": None,
+            "beat_strength": 0.0,
+            "last_sonic_pi_feedback_at": None,
+            "last_sonic_pi_ack": None,
+            "last_sonic_pi_error": None,
         }
 
         self.pi_state: dict[str, Any] = {
@@ -231,6 +255,21 @@ class LiveState:
                     except (TypeError, ValueError):
                         pass
 
+                intensity = music_control.get("intensity", music_control.get("energy"))
+                if intensity is not None:
+                    try:
+                        normalized_energy = round(float(intensity), 2)
+                        self.music_state["energy"] = min(
+                            1.0,
+                            max(0.0, normalized_energy),
+                        )
+                    except (TypeError, ValueError):
+                        pass
+
+                style = music_control.get("style")
+                if style:
+                    self.music_state["style"] = str(style)
+
     def update_sensors(
         self,
         *,
@@ -262,7 +301,146 @@ class LiveState:
 
     def get_music(self) -> dict[str, Any]:
         with self._lock:
+            self._update_music_timing_locked(now=time.time())
             return copy.deepcopy(self.music_state)
+
+    def apply_sonic_pi_transport_intent(self, action: Any, requested_at: float) -> None:
+        action_text = str(action).strip().lower()
+        with self._lock:
+            if action_text in {"start", "resume", "play"}:
+                self.music_state["playing"] = True
+                if self.music_state.get("last_bar") is None:
+                    self.music_state["last_bar"] = 0
+                if self.music_state.get("last_beat") is None:
+                    self.music_state["last_beat"] = 1
+                self.music_state["last_beat_feedback_at"] = requested_at
+            elif action_text in {"pause", "stop", "cutoff"}:
+                self.music_state["playing"] = False
+            elif action_text == "reset":
+                self.music_state["playing"] = True
+                self.music_state["last_bar"] = 0
+                self.music_state["last_beat"] = 1
+                self.music_state["last_beat_feedback_at"] = requested_at
+            self._update_music_timing_locked(now=requested_at)
+
+    def apply_sonic_pi_state(
+        self,
+        *,
+        playing: Any,
+        bpm: Any,
+        section: Any,
+        energy: Any,
+        received_at: float,
+    ) -> None:
+        with self._lock:
+            self.music_state["playing"] = _truthy(playing)
+            self.music_state["bpm"] = _bounded_int(bpm, 40, 220, self.music_state["bpm"])
+            self.music_state["section"] = str(section)
+            self.music_state["energy"] = _bounded_float(
+                energy,
+                0.0,
+                1.0,
+                self.music_state["energy"],
+            )
+            self.music_state["sonic_pi_connected"] = True
+            self.music_state["last_sonic_pi_feedback_at"] = received_at
+            self._update_music_timing_locked()
+
+    def apply_sonic_pi_beat(
+        self,
+        *,
+        bar: Any,
+        beat: Any,
+        bpm: Any,
+        beat_strength: Any,
+        received_at: float,
+    ) -> None:
+        with self._lock:
+            self.music_state["last_bar"] = _bounded_int(bar, 0, 999999, 0)
+            self.music_state["last_beat"] = _bounded_int(beat, 1, 16, 1)
+            self.music_state["bpm"] = _bounded_int(bpm, 40, 220, self.music_state["bpm"])
+            self.music_state["beat_strength"] = _bounded_float(
+                beat_strength,
+                0.0,
+                1.2,
+                0.0,
+            )
+            self.music_state["sonic_pi_connected"] = True
+            self.music_state["last_sonic_pi_feedback_at"] = received_at
+            self.music_state["last_beat_feedback_at"] = received_at
+            self._update_music_timing_locked()
+
+    def apply_sonic_pi_bar(
+        self,
+        *,
+        bar: Any,
+        section: Any,
+        received_at: float,
+    ) -> None:
+        with self._lock:
+            # Beat messages are the single timing source. Bar messages can
+            # arrive between beats, so using them for timing causes visible
+            # progress regressions in the frontend.
+            self.music_state["section"] = str(section)
+            self.music_state["sonic_pi_connected"] = True
+            self.music_state["last_sonic_pi_feedback_at"] = received_at
+
+    def apply_sonic_pi_ack(
+        self,
+        *,
+        command_id: Any,
+        result: Any,
+        received_at: float,
+    ) -> None:
+        with self._lock:
+            self.music_state["last_sonic_pi_ack"] = {
+                "command_id": str(command_id),
+                "result": str(result),
+                "received_at": received_at,
+            }
+            self.music_state["sonic_pi_connected"] = True
+            self.music_state["last_sonic_pi_feedback_at"] = received_at
+
+    def apply_sonic_pi_error(
+        self,
+        *,
+        code: Any,
+        message: Any,
+        received_at: float,
+    ) -> None:
+        with self._lock:
+            self.music_state["last_sonic_pi_error"] = {
+                "code": str(code),
+                "message": str(message),
+                "received_at": received_at,
+            }
+            self.music_state["sonic_pi_connected"] = True
+            self.music_state["last_sonic_pi_feedback_at"] = received_at
+
+    def _update_music_timing_locked(self, now: float | None = None) -> None:
+        bpm = _bounded_float(self.music_state["bpm"], 40.0, 220.0, 120.0)
+        bar = _bounded_int(self.music_state.get("last_bar"), 0, 999999, 0)
+        beat = _bounded_int(self.music_state.get("last_beat"), 1, SONIC_PI_BEATS_PER_BAR, 1)
+
+        total_beats = SONIC_PI_TRACK_TOTAL_BARS * SONIC_PI_BEATS_PER_BAR
+        absolute_beat = max(0, bar * SONIC_PI_BEATS_PER_BAR + (beat - 1))
+        seconds_per_beat = 60.0 / bpm
+        duration_seconds = total_beats * seconds_per_beat
+        absolute_seconds = absolute_beat * seconds_per_beat
+
+        last_beat_feedback_at = self.music_state.get("last_beat_feedback_at")
+        if (
+            now is not None
+            and self.music_state.get("playing")
+            and isinstance(last_beat_feedback_at, (int, float))
+        ):
+            absolute_seconds += max(0.0, min(seconds_per_beat * 1.25, now - last_beat_feedback_at))
+
+        elapsed_seconds = absolute_seconds % duration_seconds if duration_seconds else 0.0
+        self.music_state["duration_seconds"] = round(duration_seconds, 1)
+        self.music_state["elapsed_seconds"] = round(elapsed_seconds, 1)
+        self.music_state["performance_elapsed_seconds"] = round(absolute_seconds, 1)
+        self.music_state["progress"] = int(round((elapsed_seconds / duration_seconds) * 100)) if duration_seconds else 0
 
     def _apply_music_effect(self, gesture: str) -> None:
         self.music_state["current_gesture"] = gesture
@@ -323,6 +501,37 @@ def _online(value: Any) -> bool:
         }
 
     return bool(value)
+
+
+def _truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.lower() in {"1", "true", "yes", "on", "playing", "play"}
+    return bool(value)
+
+
+def _bounded_int(value: Any, low: int, high: int, default: int) -> int:
+    try:
+        number = int(round(float(value)))
+    except (TypeError, ValueError):
+        return default
+    return min(high, max(low, number))
+
+
+def _bounded_float(value: Any, low: float, high: float, default: float) -> float:
+    try:
+        number = round(float(value), 2)
+    except (TypeError, ValueError):
+        return default
+    return min(high, max(low, number))
+
+
+def _loop_duration_seconds(bpm: float) -> float:
+    total_beats = SONIC_PI_TRACK_TOTAL_BARS * SONIC_PI_BEATS_PER_BAR
+    return round(total_beats * 60.0 / max(1.0, float(bpm)), 1)
 
 
 live_state = LiveState()

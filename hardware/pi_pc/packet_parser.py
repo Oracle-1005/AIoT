@@ -161,9 +161,13 @@ class PacketParser:
             return None
 
         if message_type is MessageType.SENSOR_STATE:
-            return PacketParser._parse_sensor_state(device_id, packet_hand, raw_data, pi_receive_ns)
+            return PacketParser._parse_sensor_state(
+                device_id, packet_hand, raw_data, pi_receive_ns
+            )
         if message_type is MessageType.CONTROL_EVENT:
-            return PacketParser._parse_control_event(device_id, packet_hand, raw_data, pi_receive_ns)
+            return PacketParser._parse_control_event(
+                device_id, packet_hand, raw_data, pi_receive_ns
+            )
 
         logger.warning("[%s] Unsupported message type: %s", device_id, message_type)
         return None
@@ -200,10 +204,19 @@ class PacketParser:
             return None
 
         if any(not -8000 <= value <= 8000 for value in (ax_mg, ay_mg, az_mg)):
-            logger.warning("[%s] Accelerometer out of range: %s", device_id, (ax_mg, ay_mg, az_mg))
+            logger.warning(
+                "[%s] Accelerometer out of range: %s",
+                device_id,
+                (ax_mg, ay_mg, az_mg),
+            )
             return None
         if not -180 <= pitch_deg <= 180 or not -180 <= roll_deg <= 180:
-            logger.warning("[%s] Orientation out of range: pitch=%d roll=%d", device_id, pitch_deg, roll_deg)
+            logger.warning(
+                "[%s] Orientation out of range: pitch=%d roll=%d",
+                device_id,
+                pitch_deg,
+                roll_deg,
+            )
             return None
 
         return ParsedPacket(
@@ -258,7 +271,12 @@ class PacketParser:
 
         rule = EVENT_RULES.get((hand, event_code))
         if rule is None:
-            logger.warning("[%s] Event %s is not allowed for %s hand.", device_id, event_name, hand)
+            logger.warning(
+                "[%s] Event %s is not allowed for %s hand.",
+                device_id,
+                event_name,
+                hand,
+            )
             return None
 
         expected_priority, mapped_candidate = rule

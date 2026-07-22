@@ -43,12 +43,23 @@ class BleManager:
         self,
         device_configs: list[dict],
         on_packet: Callable[[str, bytearray, int], None],
+        on_text: Callable[[str, str, int], None] | None = None,
     ):
+        """Initialize the BLE manager.
+
+        Args:
+            device_configs: List of dicts with keys: device_id, hand, address
+            on_packet: Callback(device_id, raw_bytes, pi_receive_ns) for binary
+                       sensor data packets.
+            on_text: Optional callback(device_id, text, pi_receive_ns) for text
+                     notifications (e.g. SYNC_ACK responses).
+        """
         self._device_cfgs: dict[str, dict] = {}
         for cfg in device_configs:
             self._device_cfgs[cfg["device_id"]] = cfg
 
         self._on_packet = on_packet
+        self._on_text = on_text
         self._clients: dict[str, BleakClient] = {}
         self._rssi_cache: dict[str, int] = {}
         self._reconnect_tasks: dict[str, asyncio.Task] = {}
@@ -242,15 +253,27 @@ class BleManager:
         """Create a Bleak notification callback closure for a specific device.
 
         The callback receives (sender_handle, data) from Bleak. We record
-        the Pi receive timestamp and forward the raw bytearray to on_packet.
+        the Pi receive timestamp and route by content type:
+
+        - Text notifications starting with b"SYNC_ACK" → on_text callback
+          (used for clock synchronization responses).
+        - Everything else → on_packet callback (binary sensor data).
+
+        SYNC_ACK format: "SYNC_ACK,<sync_id>,<device_timestamp_ms>\\r\\n"
         """
 
         def handler(_sender: int, data: bytearray) -> None:
             pi_receive_ns = time.monotonic_ns()
             try:
-                self._on_packet(device_id, data, pi_receive_ns)
+                # Detect text SYNC_ACK responses (clock sync protocol).
+                # Binary sensor packets start with version=1 (0x01), never 'S'.
+                if data.startswith(b"SYNC_ACK") and self._on_text is not None:
+                    text = data.decode("utf-8", errors="replace").strip()
+                    self._on_text(device_id, text, pi_receive_ns)
+                else:
+                    self._on_packet(device_id, data, pi_receive_ns)
             except Exception as e:
-                logger.error("[%s] on_packet callback error: %s", device_id, e, exc_info=True)
+                logger.error("[%s] notification handler error: %s", device_id, e, exc_info=True)
 
         return handler
 
