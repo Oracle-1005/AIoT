@@ -52,3 +52,6 @@ backend/*.log
 
 # MediaPipe model (downloadable)
 *.task
+
+# Session state (working notes live outside the repo)
+session-summary.md
