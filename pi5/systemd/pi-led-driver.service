@@ -1,0 +1,38 @@
+[Unit]
+Description=AIoT Pi 5 LED Matrix Driver — MQTT Gesture → WS2812B Effects
+Documentation=https://github.com/your-org/aiot-conducting
+After=network-online.target mosquitto.service
+Wants=network-online.target mosquitto.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/pi/aiot/pi5
+Environment="PYTHONUNBUFFERED=1"
+Environment="MQTT_BROKER=localhost"
+Environment="MQTT_PORT=1883"
+Environment="LED_GPIO_PIN=18"
+Environment="LED_BRIGHTNESS=64"
+Environment="LED_DMA_CHANNEL=10"
+
+# Use the venv Python (needs root for GPIO via rpi_ws281x)
+ExecStartPre=/bin/sleep 8
+ExecStart=/home/pi/aiot/pi5/venv/bin/python -u /home/pi/aiot/pi5/pi_led_driver.py
+
+# Restart on failure
+Restart=always
+RestartSec=5
+StartLimitInterval=120
+StartLimitBurst=5
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pi-led-driver
+
+# GPIO requires root
+NoNewPrivileges=no
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

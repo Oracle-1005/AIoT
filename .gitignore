@@ -49,3 +49,6 @@ backend/__pycache__/
 backend/**/__pycache__/
 backend/data/*.db
 backend/*.log
+
+# MediaPipe model (downloadable)
+*.task

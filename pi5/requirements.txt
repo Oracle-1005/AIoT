@@ -1,0 +1,21 @@
+# Pi 5 — AIoT Smart Conducting System
+# Core
+paho-mqtt>=2.0
+bleak>=0.22
+numpy>=1.24
+
+# Camera + MediaPipe
+opencv-python>=4.8
+mediapipe>=0.10
+picamera2; sys_platform == "linux"
+
+# Flask + Dashboard
+flask>=3.0
+flask-cors>=4.0
+flask-socketio>=5.3
+
+# LED Matrix (only on Pi)
+rpi_ws281x>=5.0; sys_platform == "linux"
+
+# Utilities
+joblib>=1.3

@@ -1,0 +1,40 @@
+[Unit]
+Description=AIoT Pi 5 Landmarks Publisher — Pi Camera → MediaPipe → MQTT
+Documentation=https://github.com/your-org/aiot-conducting
+After=network-online.target mosquitto.service
+Wants=network-online.target mosquitto.service
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/aiot/pi5
+Environment="PYTHONUNBUFFERED=1"
+Environment="MQTT_BROKER=localhost"
+Environment="MQTT_PORT=1883"
+Environment="PI_CAMERA_ID=0"
+Environment="PI_CAMERA_WIDTH=640"
+Environment="PI_CAMERA_HEIGHT=480"
+Environment="PI_CAMERA_FPS=30"
+
+# Use the venv Python
+ExecStartPre=/bin/sleep 5
+ExecStart=/home/pi/aiot/pi5/venv/bin/python -u /home/pi/aiot/pi5/pi_landmarks_publisher.py
+
+# Restart on failure
+Restart=always
+RestartSec=5
+StartLimitInterval=120
+StartLimitBurst=5
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pi-landmarks
+
+# Hardware access
+DeviceAllow=/dev/video0 rw
+DeviceAllow=/dev/media0 rw
+SupplementaryGroups=video
+
+[Install]
+WantedBy=multi-user.target

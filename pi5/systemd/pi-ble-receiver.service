@@ -1,0 +1,37 @@
+[Unit]
+Description=AIoT Pi 5 BLE Receiver — Micro:bit → MQTT
+Documentation=https://github.com/your-org/aiot-conducting
+After=network-online.target mosquitto.service bluetooth.service
+Wants=network-online.target mosquitto.service bluetooth.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/pi/aiot/pi5
+Environment="PYTHONUNBUFFERED=1"
+Environment="MQTT_BROKER=localhost"
+Environment="MQTT_PORT=1883"
+Environment="BLE_SCAN_TIMEOUT=15"
+Environment="BLE_RECONNECT_DELAY=3"
+
+# Use the venv Python
+ExecStartPre=/bin/sleep 10
+ExecStart=/home/pi/aiot/pi5/venv/bin/python -u /home/pi/aiot/pi5/pi_ble_receiver.py
+
+# Restart on failure
+Restart=always
+RestartSec=5
+StartLimitInterval=120
+StartLimitBurst=5
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pi-ble-receiver
+
+# Security (relaxed for BLE/GPIO access)
+PrivateTmp=yes
+NoNewPrivileges=no
+
+[Install]
+WantedBy=multi-user.target
