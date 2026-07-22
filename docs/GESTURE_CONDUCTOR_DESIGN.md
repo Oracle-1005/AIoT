@@ -9,6 +9,8 @@
 
 | # | 决策 | 说明 |
 |---|------|------|
+| **左手设备** | ESP32 WiFi IMU（替代 Micro:bit BLE） | 每个手腕一个 ESP32，WiFi TCP 通信 |
+| **右手设备** | ESP32 WiFi IMU（替代 Micro:bit BLE） | 自带 IMU + GPIO（蜂鸣器、小灯带） |
 | **音乐输出** | Sonic Pi OSC | 沿用现有 `backend/sonic_pi.py` + `music/sonic_pi/` 架构 |
 | **LED 连接** | 树莓派 GPIO18 有线直驱 | 2 块 8×32 WS2812B，路演场景指挥者站立位置固定 |
 | **手势识别** | **AI 模型（核心）** | MediaPipe 做关键点提取（AI 1）+ 训练手势分类模型（AI 2） |
@@ -54,17 +56,19 @@
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                         指挥者 (Conductor)                          │
-│  左手: Micro:bit (BLE IMU) + 8×32 LED 灯带                          │
-│  右手: Micro:bit (BLE IMU) + 8×32 LED 灯带                          │
+│  左手: ESP32 (WiFi IMU) + 8×32 LED 灯带                              │
+│  右手: ESP32 (WiFi IMU) + 8×32 LED 灯带                              │
 │  + Pi Camera (CSI, 手部关键点)                                       │
 └────────────────────────────────┬────────────────────────────────────┘
                                  │
                     ┌────────────▼────────────┐
                     │   树莓派 5 (边缘节点)    │
-                    │  • 数据采集与时间同步    │
-                    │  • 即时特征提取          │
-                    │  • TCP JSON Lines 上行   │
-                    │  • LED 灯效渲染执行      │◄── 接收 PC 灯效指令
+                    │  • 摄像头采集 + MediaPipe  │
+                    │  • ESP32 IMU 数据接收(WiFi)│
+                    │  • 时间同步 + 特征提取     │
+                    │  • TCP JSON Lines 上行     │
+                    │  • LED 灯效渲染执行       │◄── 接收 PC 灯效指令
+                    │  • ESP32 指令转发(WiFi)   │
                     └────────────┬────────────┘
                                  │ TCP :9000
                     ┌────────────▼────────────┐
@@ -154,7 +158,7 @@
 │  ├── 双手距离                                         │
 │  └── 双手高度差                                       │
 │                                                         │
-│  Micro:bit 特征（BLE IMU）                              │
+│  ESP32 特征（WiFi IMU）                              │
 │  ├── 左手：ax, ay, az (g), pitch, roll, jerk, energy  │
 │  └── 右手：同上                                       │
 │                                                         │
@@ -233,8 +237,8 @@
 |------|------|------|
 | **离散手势识别**（downbeat/crescendo/cutoff/style_switch） | **AI 模型** | 模式复杂、个体差异大、规则难以覆盖 |
 | **连续参数估计**（BPM/音量/能量） | **特征工程 + 回归/公式** | 有明确的物理含义，公式可直接映射 |
-| **紧急停止**（BLE B 长按） | **规则** | 必须零延迟、100% 可靠，不能用概率模型 |
-| **BLE 按键控制**（开始/暂停/校准） | **规则** | 确定性操作，无需 AI |
+| **紧急停止**（ESP32 按键长按） | **规则** | 必须零延迟、100% 可靠，不能用概率模型 |
+| **ESP32 按键控制**（开始/暂停/校准） | **规则** | 确定性操作，无需 AI |
 | **安全限幅**（参数裁剪、冲突仲裁） | **规则** | 保护性逻辑，必须确定 |
 
 ```
@@ -246,7 +250,7 @@
               │                             │
               ▼                             ▼
     ┌──────────────────┐        ┌──────────────────┐
-    │  滑动窗口聚合     │        │  BLE 按键解析     │
+    │  滑动窗口聚合     │        │  ESP32 按键解析   │
     │  (window.py)     │        │  (packet_parser)  │
     └────────┬─────────┘        └────────┬─────────┘
              │                           │
@@ -286,7 +290,7 @@ class BPMEstimator:
         zero_crossings = count_zero_crossings(vy_sequence)
         estimated_bpm = (zero_crossings / 2) * (60 / 0.8)  # 每拍2次过零
         
-        # 方法2：Micro:bit 加速度幅值的主频
+        # 方法2：ESP32 加速度幅值的主频
         acc_magnitudes = window_features["right_microbit"]["acc_magnitude_sequence"]
         dominant_freq = find_dominant_frequency(acc_magnitudes, sample_rate=25)
         bpm_from_imu = dominant_freq * 60
@@ -318,10 +322,10 @@ class IntensityEstimator:
 
 ```
 优先级从高到低:
-  1. Emergency Stop (BLE B 长按)        — 规则，不可覆盖
+  1. Emergency Stop (ESP32 按键长按)     — 规则，不可覆盖
   2. Cutoff (AI 识别或规则辅助)          — 覆盖所有音乐操作
   3. Downbeat (AI 识别)                — 节拍锚点
-  4. Style Switch (AI 识别或 BLE 按键)  — 段落切换
+  4. Style Switch (AI 识别或 ESP32 按键)— 段落切换
   5. Tempo Up/Down (BPM 趋势)          — 连续 BPM 调整
   6. Crescendo/Decrescendo (连续参数)   — 音量渐变
   7. Idle                              — 默认状态
@@ -350,14 +354,14 @@ class IntensityEstimator:
          │  树莓派（执行器）    │  │  Sonic Pi (PC本地)│
          │                      │  │  音乐合成          │
          │  代号 → LED指令(GPIO)│  └──────────────────┘
-         │  代号 → BLE指令(UART)│
+         │  代号 → WiFi指令  │
          └──────┬───────┬───────┘
                 │       │
-         GPIO18 │       │ BLE UART TX
+         GPIO18 │       │ WiFi TCP
                 ▼       ▼
          ┌──────────┐ ┌──────────────────┐
-         │左右手灯带 │ │ 左右手 Micro:bit  │
-         │8×32 WS2812│ │ 5×5 LED + 蜂鸣器 │
+         │左右手灯带 │ │ 左右手 ESP32     │
+         │8×32 WS2812│ │ NeoPixel + 蜂鸣器 │
          └──────────┘ └──────────────────┘
          └──────────────────┘
 ```
@@ -382,9 +386,9 @@ gesture_code  |  手势名称       |  触发方式            |  方向
      5        |  style_switch   |  AI 模型识别/按钮    |  双手
      6        |  tempo_up       |  BPM 趋势检测        |  右手
      7        |  tempo_down     |  BPM 趋势检测        |  右手
-     8        |  emergency_stop |  BLE B 长按(规则)    |  -
-     9        |  start_signal   |  BLE A 键(规则)      |  -
-    10        |  pause_signal   |  BLE B 短按(规则)    |  -
+     8        |  emergency_stop |  ESP32 按键长按(规则) |  -
+     9        |  start_signal   |  ESP32 按键(规则)     |  -
+    10        |  pause_signal   |  ESP32 按键(规则)     |  -
 ```
 
 ### 3.2 PC 端数据库映射表（SQLite）
@@ -620,7 +624,7 @@ class GestureDispatcher:
 时间线：一次 Downbeat 手势从发生到反馈的全过程
 
 t=0ms   指挥者右手下击
-t=15ms  摄像头捕捉帧 + Micro:bit 检测到 jerk 尖峰
+t=15ms  摄像头捕捉帧 + ESP32 检测到 jerk 尖峰
 t=25ms  树莓派融合引擎生成 fused_frame
 t=30ms  TCP JSON Lines 到达 PC 后端（上行）
 t=32ms  滑动窗口累积完成 → 特征向量提取
@@ -632,11 +636,11 @@ t=36ms  GestureDispatcher.dispatch(gesture_code=1)
         │               ├── GESTURE_EFFECT_MAP[1] → LED 灯带 accent_flash
         │               │   t=39ms  LedController 全白闪烁 ← 用户看到灯带
         │               │   t=160ms 闪烁衰减 → breathing
-        │               └── GESTURE_BLE_MAP[1] → BLE 指令
-        │                   t=39ms  发 "LED,FLASH,100" → 右手 Micro:bit
-        │                   t=40ms  右手 Micro:bit 5×5 LED 全亮 ← 手腕确认
-        │                   t=39ms  发 "LED,FLASH,60" → 左手 Micro:bit
-        │                   t=39ms  发 "BEEP,800,50" → 蜂鸣器短鸣
+        │               └── GESTURE_ESP32_MAP[1] → WiFi 下行
+        │                   t=39ms  发 LED,FLASH→右手 ESP32 NeoPixel
+        │                   t=40ms  右手 NeoPixel 灯环全亮 ← 手腕确认
+        │                   t=39ms  发 LED,FLASH→左手 ESP32 NeoPixel
+        │                   t=39ms  发 BEEP→ESP32 蜂鸣器短鸣
         │
         └── 信号 2 (OSC → Sonic Pi): /conductor/accent cmd-xxx 0.92 downbeat
                t=37ms  Sonic Pi 收到 → cue :manual_accent
@@ -646,9 +650,9 @@ t=36ms  GestureDispatcher.dispatch(gesture_code=1)
 **关键延迟指标**：
 - 手势发生 → AI 识别完成：~35ms
 - AI 识别 → LED 灯带响应：~5ms（PC→Pi TCP + GPIO 渲染）
-- AI 识别 → Micro:bit 响应：~6ms（PC→Pi TCP + Pi→Micro:bit BLE UART）
+- AI 识别 → ESP32 响应：~6ms（PC→Pi TCP + Pi→ESP32 WiFi）
 - AI 识别 → 音乐响应：~2ms（PC→Sonic Pi localhost OSC）
-- **总延迟（手势→灯光+Micro:bit+音乐）：~40ms，人无法感知**
+- **总延迟（手势→灯光+ESP32+音乐）：~40ms，人无法感知**
 
 ### 3.7 TCP 双向通信实现要点
 
@@ -695,145 +699,206 @@ def _handle_downlink(self, msg: dict):
             )
 ```
 
-### 3.8 树莓派 → Micro:bit BLE 下行指令
+### 3.8 树莓派 → ESP32 WiFi 下行指令
 
-PC 的 gesture_code 到达树莓派后，除了驱动 LED 灯带，还可以通过 BLE UART TX 向 Micro:bit 发送指令，利用 Micro:bit 的 5×5 LED 矩阵或外接蜂鸣器提供手腕级的即时反馈。
+PC 的 gesture_code 到达树莓派后，除了驱动 LED 灯带，同时通过 **WiFi TCP** 向左右手腕的 ESP32 发送指令，利用 ESP32 控制外接的蜂鸣器和 NeoPixel 灯环，提供手腕级的即时反馈。
 
 #### 3.8.1 通信架构
 
 ```
-PC (gesture_code) ──TCP──→ 树莓派 ──BLE UART TX──→ Micro:bit (左手)
-                           │                        ├── 5×5 LED 矩阵
-                           └──BLE UART TX──→ Micro:bit (右手)
-                                                    ├── 5×5 LED 矩阵
-                                                    └── GPIO 蜂鸣器(可选)
+PC (gesture_code) ──TCP──→ 树莓派 ──WiFi TCP──→ ESP32 (左手)
+                           │                      ├── NeoPixel 灯环 (8-16 LED)
+                           │                      └── GPIO 蜂鸣器
+                           │
+                           └──WiFi TCP──→ ESP32 (右手)
+                                                  ├── NeoPixel 灯环 (8-16 LED)
+                                                  └── GPIO 蜂鸣器
 ```
 
-**已有基础**：
-- `BleManager.send_command(device_id, command)` — 发送文本指令
-- `PacketParser.build_command_packet(command)` — UTF-8 + `\r\n` 编码
-- Micro:bit MakeCode 固件中 UART 读取已有框架
+**ESP32 规格**（每手腕一个）：
+- 芯片：ESP32-S3 或 ESP32-C3
+- 通信：WiFi 802.11n，TCP Client 连接树莓派
+- 传感器：板载 IMU（MPU6050 / MPU9250），替代原 Micro:bit 加速度计
+- 输出：GPIO 接蜂鸣器 + NeoPixel 灯环（8-16 灯珠）
+- 协议：与上行共享同一 TCP 长连接，双向 JSON Lines
 
 **需新增**：
-- Micro:bit 端解析命令并执行（LED 矩阵 / 蜂鸣器）
-- 树莓派端根据 gesture_code 查表发送对应 BLE 指令
+- 树莓派端 ESP32 TCP 管理器（连接管理 + 上下行复用）
+- ESP32 端固件（Arduino / MicroPython）：解析指令并执行
+- 树莓派端根据 gesture_code 查表发送 WiFi 下行指令
 
 #### 3.8.2 指令格式
 
-```
-<CMD>,<param1>,<param2>,...
+下行沿用 JSON Lines 格式（与整体架构统一）：
+
+```json
+{"type":"led","pattern":"FLASH","brightness":100}
+{"type":"beep","freq_hz":800,"duration_ms":50}
+{"type":"state","code":1}
+{"type":"stop"}
 ```
 
-统一以 `\r\n` 结尾，UTF-8 编码。每条约 10-30 字节，BLE 延迟 < 10ms。
-
-| 指令 | 格式 | 示例 | 说明 |
+| type | 字段 | 示例 | 说明 |
 |------|------|------|------|
-| **LED 矩阵图案** | `LED,<pattern>,<brightness>` | `LED,FLASH,80` | Micro:bit 5×5 LED 显示指定图案 |
-| **蜂鸣器** | `BEEP,<freq_hz>,<duration_ms>` | `BEEP,1000,100` | 外接蜂鸣器发声（如无可忽略） |
-| **状态同步** | `STATE,<code>` | `STATE,1` | 通知 Micro:bit 当前系统状态 |
-| **停止/复位** | `STOP` | `STOP` | 停止 LED 显示和蜂鸣器 |
+| **led** | `pattern`, `brightness` | `{"type":"led","pattern":"FLASH","brightness":80}` | ESP32 控制 NeoPixel 灯环 |
+| **beep** | `freq_hz`, `duration_ms` | `{"type":"beep","freq_hz":1000,"duration_ms":100}` | GPIO 蜂鸣器 PWM |
+| **state** | `code` | `{"type":"state","code":1}` | 同步系统状态 |
+| **stop** | — | `{"type":"stop"}` | 停止 LED 和蜂鸣器 |
 
 #### 3.8.3 Pattern 定义
 
-Micro:bit 端预置 LED 图案（在 MakeCode 固件中实现）：
+ESP32 固件中预置 NeoPixel 灯环图案：
 
-| pattern | 说明 | Micro:bit 5×5 显示 |
-|---------|------|---------------------|
-| `FLASH` | 全亮白光，快速衰减 | █████████████████████████ |
-| `ARROW_UP` | ↑ 箭头 | ··█·· ·███· █·█·█ ··█·· ··█·· |
-| `ARROW_DN` | ↓ 箭头 | ··█·· ··█·· █·█·█ ·███· ··█·· |
-| `HEART` | 心形 | ·█·█· █████ █████ ·███· ··█·· |
-| `CROSS` | X 形（切断） | █···█ ·█·█· ··█·· ·█·█· █···█ |
-| `SQUARE` | 方框 | █████ █···█ █···█ █···█ █████ |
-| `BREATHING` | 慢速明灭 | 亮度正弦 0→100→0 |
-| `OFF` | 全灭 | ························· |
+| pattern | 说明 | 灯环效果 |
+|---------|------|---------|
+| `FLASH` | 全环白光，快速衰减 | 全部灯珠 #FFFFFF → 指数衰减 |
+| `ARROW_UP` | ↑ 方向指示 | 顶部灯珠亮起，两侧渐变暗 |
+| `ARROW_DN` | ↓ 方向指示 | 底部灯珠亮起，两侧渐变暗 |
+| `HEART` | 心跳脉冲 | 双脉冲（lub-dub）节奏 |
+| `CROSS` | 红光 X（切断） | 全环红色快闪 2 次 |
+| `SQUARE` | 方框循环 | 四个方向依次点亮 |
+| `BREATHING` | 慢速呼吸明灭 | 正弦 0→100→0 |
+| `PULSE` | 单次脉冲 | 亮度瞬时 100% → 指数衰减 |
+| `OFF` | 全灭 | 全部灯珠熄灭 |
 
-#### 3.8.4 gesture_code → BLE 指令映射表
+#### 3.8.4 gesture_code → ESP32 下行指令映射表
 
-树莓派收到 PC 的 gesture_code 后，除了驱动 LED 灯带，同时通过 BLE 向对应手的 Micro:bit 发指令：
-
-| gesture_code | 左手 Micro:bit | 右手 Micro:bit | 蜂鸣器 |
-|:-----------:|---------------|---------------|:-----:|
-| 0 (idle) | `LED,BREATHING,30` | `LED,BREATHING,30` | — |
-| 1 (downbeat) | `LED,FLASH,60` | **`LED,FLASH,100`** | `BEEP,800,50` |
-| 2 (crescendo) | **`LED,ARROW_UP,80`** | `LED,BREATHING,40` | — |
-| 3 (decrescendo) | **`LED,ARROW_DN,80`** | `LED,BREATHING,40` | — |
-| 4 (cutoff) | `LED,CROSS,100` | `LED,CROSS,100` | — |
-| 5 (style_switch) | `LED,SQUARE,70` | `LED,SQUARE,70` | `BEEP,1200,30` |
-| 6 (tempo_up) | `LED,BREATHING,50` | **`LED,ARROW_UP,70`** | `BEEP,1000,30` |
-| 7 (tempo_down) | `LED,BREATHING,50` | **`LED,ARROW_DN,70`** | `BEEP,600,30` |
-| 8 (emergency) | `LED,FLASH,100` | `LED,FLASH,100` | `BEEP,2000,200` |
-| 9 (start) | `LED,HEART,80` | `LED,HEART,80` | `BEEP,800,100` |
-| 10 (pause) | `LED,BREATHING,30` | `LED,BREATHING,30` | — |
+| gesture_code | 左手 ESP32 | 右手 ESP32 | 蜂鸣器 |
+|:-----------:|-----------|-----------|:-----:|
+| 0 (idle) | `led,BREATHING,30` | `led,BREATHING,30` | — |
+| 1 (downbeat) | `led,FLASH,60` | **`led,FLASH,100`** | `beep,800,50` |
+| 2 (crescendo) | **`led,ARROW_UP,80`** | `led,BREATHING,40` | — |
+| 3 (decrescendo) | **`led,ARROW_DN,80`** | `led,BREATHING,40` | — |
+| 4 (cutoff) | `led,CROSS,100` | `led,CROSS,100` | — |
+| 5 (style_switch) | `led,SQUARE,70` | `led,SQUARE,70` | `beep,1200,30` |
+| 6 (tempo_up) | `led,BREATHING,50` | **`led,ARROW_UP,70`** | `beep,1000,30` |
+| 7 (tempo_down) | `led,BREATHING,50` | **`led,ARROW_DN,70`** | `beep,600,30` |
+| 8 (emergency) | `led,FLASH,100` | `led,FLASH,100` | `beep,2000,200` |
+| 9 (start) | `led,HEART,80` | `led,HEART,80` | `beep,800,100` |
+| 10 (pause) | `led,BREATHING,30` | `led,BREATHING,30` | — |
 
 **设计原则**：
-- 右手（节拍手）的 LED 亮度高于左手 — `FLASH,100` vs `FLASH,60`
-- 力度变化时只有左手的 Micro:bit 显示方向箭头
-- BPM 变化时只有右手的 Micro:bit 显示方向箭头
-- 蜂鸣器做节拍提示音，不替代 Sonic Pi 音乐
+- 右手（节拍手）亮度 > 左手 — `FLASH,100` vs `FLASH,60`
+- 力度变化 → 左手 NeoPixel 显示方向
+- BPM 变化 → 右手 NeoPixel 显示方向
+- 蜂鸣器做节拍提示音，不替代 Sonic Pi
 
 #### 3.8.5 树莓派端实现
 
 ```python
-# hardware/pi_pc/ble_downlink.py — 新增文件
+# hardware/pi_pc/esp32_manager.py — 新增文件
 
-GESTURE_BLE_MAP = {
-    0:  {"left": "LED,BREATHING,30",    "right": "LED,BREATHING,30",   "beep": None},
-    1:  {"left": "LED,FLASH,60",        "right": "LED,FLASH,100",      "beep": "BEEP,800,50"},
-    2:  {"left": "LED,ARROW_UP,80",     "right": "LED,BREATHING,40",   "beep": None},
-    3:  {"left": "LED,ARROW_DN,80",     "right": "LED,BREATHING,40",   "beep": None},
-    4:  {"left": "LED,CROSS,100",       "right": "LED,CROSS,100",      "beep": None},
-    5:  {"left": "LED,SQUARE,70",       "right": "LED,SQUARE,70",      "beep": "BEEP,1200,30"},
-    6:  {"left": "LED,BREATHING,50",    "right": "LED,ARROW_UP,70",    "beep": "BEEP,1000,30"},
-    7:  {"left": "LED,BREATHING,50",    "right": "LED,ARROW_DN,70",    "beep": "BEEP,600,30"},
-    8:  {"left": "LED,FLASH,100",       "right": "LED,FLASH,100",      "beep": "BEEP,2000,200"},
-    9:  {"left": "LED,HEART,80",        "right": "LED,HEART,80",       "beep": "BEEP,800,100"},
-    10: {"left": "LED,BREATHING,30",    "right": "LED,BREATHING,30",   "beep": None},
+GESTURE_ESP32_MAP = {
+    0:  {"left": {"type":"led","pattern":"BREATHING","brightness":30},
+         "right": {"type":"led","pattern":"BREATHING","brightness":30}},
+    1:  {"left": {"type":"led","pattern":"FLASH","brightness":60},
+         "right": {"type":"led","pattern":"FLASH","brightness":100},
+         "beep": {"type":"beep","freq_hz":800,"duration_ms":50}},
+    2:  {"left": {"type":"led","pattern":"ARROW_UP","brightness":80},
+         "right": {"type":"led","pattern":"BREATHING","brightness":40}},
+    3:  {"left": {"type":"led","pattern":"ARROW_DN","brightness":80},
+         "right": {"type":"led","pattern":"BREATHING","brightness":40}},
+    4:  {"left": {"type":"led","pattern":"CROSS","brightness":100},
+         "right": {"type":"led","pattern":"CROSS","brightness":100}},
+    5:  {"left": {"type":"led","pattern":"SQUARE","brightness":70},
+         "right": {"type":"led","pattern":"SQUARE","brightness":70},
+         "beep": {"type":"beep","freq_hz":1200,"duration_ms":30}},
+    6:  {"left": {"type":"led","pattern":"BREATHING","brightness":50},
+         "right": {"type":"led","pattern":"ARROW_UP","brightness":70},
+         "beep": {"type":"beep","freq_hz":1000,"duration_ms":30}},
+    7:  {"left": {"type":"led","pattern":"BREATHING","brightness":50},
+         "right": {"type":"led","pattern":"ARROW_DN","brightness":70},
+         "beep": {"type":"beep","freq_hz":600,"duration_ms":30}},
+    8:  {"left": {"type":"led","pattern":"FLASH","brightness":100},
+         "right": {"type":"led","pattern":"FLASH","brightness":100},
+         "beep": {"type":"beep","freq_hz":2000,"duration_ms":200}},
+    9:  {"left": {"type":"led","pattern":"HEART","brightness":80},
+         "right": {"type":"led","pattern":"HEART","brightness":80},
+         "beep": {"type":"beep","freq_hz":800,"duration_ms":100}},
+    10: {"left": {"type":"led","pattern":"BREATHING","brightness":30},
+         "right": {"type":"led","pattern":"BREATHING","brightness":30}},
 }
 
-class BleDownlinkDispatcher:
-    """树莓派收到 PC gesture_code 后，通过 BLE 向 Micro:bit 发送指令"""
+
+class Esp32Manager:
+    """管理树莓派与左右手 ESP32 之间的 WiFi TCP 双向连接
     
-    def __init__(self, ble_manager):
-        self.ble = ble_manager
+    ESP32 作为 TCP Client 连接树莓派 TCP Server。
+    上行：ESP32 → Pi (IMU 传感器数据)
+    下行：Pi → ESP32 (LED + 蜂鸣器指令)
+    """
     
-    async def dispatch(self, gesture_code: int):
-        """根据 gesture_code 向左右手 Micro:bit 发 BLE 指令"""
-        mapping = GESTURE_BLE_MAP.get(gesture_code)
+    def __init__(self, host: str = "0.0.0.0", port: int = 9001):
+        self._host = host
+        self._port = port
+        self._server = None
+        self._clients: dict[str, asyncio.StreamWriter] = {}  # device_id → writer
+    
+    async def start(self):
+        """启动 TCP Server，等待 ESP32 连接"""
+        self._server = await asyncio.start_server(
+            self._handle_esp32_connection, self._host, self._port
+        )
+    
+    async def dispatch_gesture(self, gesture_code: int):
+        """根据 gesture_code 向左右手 ESP32 发下行指令"""
+        mapping = GESTURE_ESP32_MAP.get(gesture_code)
         if mapping is None:
             return
         
-        # 并行发送给左右手
         tasks = []
-        for hand, device_id in [("left", "MB_LEFT"), ("right", "MB_RIGHT")]:
-            cmd = mapping[hand]
-            if cmd:
-                tasks.append(self.ble.send_command(device_id, cmd))
+        for hand in ("left", "right"):
+            device_id = f"ESP32_{hand.upper()}"
+            writer = self._clients.get(device_id)
+            if writer and hand in mapping:
+                msg = json.dumps(mapping[hand]) + "\n"
+                tasks.append(self._send_to(writer, msg))
+        
+        # 蜂鸣器发到右手 ESP32（如不可用则发左手）
+        if "beep" in mapping:
+            beep_msg = json.dumps(mapping["beep"]) + "\n"
+            for device_id in ("ESP32_RIGHT", "ESP32_LEFT"):
+                writer = self._clients.get(device_id)
+                if writer:
+                    tasks.append(self._send_to(writer, beep_msg))
+                    break
         
         if tasks:
             await asyncio.gather(*tasks)
+    
+    async def _send_to(self, writer, msg: str):
+        """发送 JSON Lines 到指定 ESP32"""
+        try:
+            writer.write(msg.encode())
+            await writer.drain()
+        except Exception:
+            pass  # 容忍发送失败，不阻塞主流程
 ```
 
-#### 3.8.6 Micro:bit 端（MakeCode 固件）需新增的逻辑
+#### 3.8.6 ESP32 端固件（MicroPython / Arduino）需实现
 
 ```
-蓝牙 UART 收到数据时:
-  读取一行文本 (以 \r\n 结尾)
-  解析: 按逗号分割 → cmd, param1, param2
+WiFi 连接:
+  连接同一局域网 → TCP Client 连接树莓派 9001 端口
+
+上行 (周期性, ~50Hz):
+  读取 IMU 数据 (加速度/陀螺仪) → JSON Lines → TCP 发送
+
+下行 (中断接收):
+  TCP 收到 JSON 行 → 解析 type:
   
-  如果 cmd == "LED":
-      pattern = param1, brightness = param2
-      根据 pattern 显示对应图案 (FLASH/ARROW_UP/HEART/...)
+  type == "led":
+      在 NeoPixel 灯环上执行 pattern 动画
+      FLASH: 全部灯珠白亮 + 指数衰减
+      ARROW_UP/DN: 方向指示
+      HEART: 双脉冲
+      BREATHING: 正弦明灭
       
-  如果 cmd == "BEEP":
-      freq = param1, duration = param2
-      在 P0 引脚输出 PWM 信号驱动蜂鸣器
+  type == "beep":
+      GPIO 引脚 PWM 输出指定频率和时长
       
-  如果 cmd == "STATE":
-      更新内部状态变量
-      
-  如果 cmd == "STOP":
-      关闭 LED 和蜂鸣器
+  type == "stop":
+      关闭灯环 + 停止蜂鸣器
 ```
 
 ### 3.9 Style Switch 循环切换逻辑
@@ -886,7 +951,7 @@ def _handle_style_switch(self):
 | minimal_piano | 0.50 | 80 | 0.40 | 钢琴独奏 |
 | dramatic | 0.70 | 130 | 0.95 | 电影配乐 |
 
-### 3.9 MusicControlState 完整定义
+### 3.10 MusicControlState 完整定义
 
 这是 PC 端维护的音乐状态对象，每次 AI 识别出结果后更新，发送 OSC 时从此对象取值：
 
@@ -1388,7 +1453,7 @@ class GestureClassifier:
             cm.get("motion_intensity", 0),
         ])
         
-        # === Micro:bit 特征（per-device）===
+        # === ESP32 特征（per-device）===
         mb = window_data.get("microbit_features", {})
         for dev in ["left_hand", "right_hand"]:
             mf = mb.get(dev, {})
@@ -1644,10 +1709,10 @@ class IntentMapper:
 |------|------|---------|
 | 灯光延迟过大（Pi→PC→Pi 来回） | LED 与音乐不同步 | led_state 以 10Hz 高频发送；beat flash 可设 offset 补偿 |
 | 手势误识别（非指挥动作触发） | 音乐混乱 | 冷却时间 + 置信度阈值 + 连续 N 帧确认 |
-| 左右手数据混淆 | 方向性灯效错误 | Micro:bit 绑定 hand 字段 + 摄像头 handedness 确认 |
+| 左右手数据混淆 | 方向性灯效错误 | ESP32 绑定 hand 字段 + 摄像头 handedness 确认 |
 | 灯光太亮刺眼 | 用户体验差 | 全局亮度上限 25%（硬件限制）+ 可远程调整 |
 | Sonic Pi 未启动 | 无音乐输出 | 后端检测 Sonic Pi 在线状态，降级到仅 LED 模式 |
-| BLE 断连导致数据缺失 | 手势检测中断 | 摄像头独立检测（降级方案）+ 自动重连 |
+| WiFi 断连导致数据缺失 | 手势检测中断 | 摄像头独立检测（降级方案）+ 自动重连 |
 
 ---
 
