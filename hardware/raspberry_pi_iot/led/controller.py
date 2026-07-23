@@ -1,7 +1,12 @@
-"""WS2812B LED controller via rpi_ws281x.
+"""WS2812B LED controller — dual backend.
 
-Controls two 8x32 WS2812B panels directly from a Raspberry Pi PWM GPIO
-(default GPIO19, physical pin 35; GPIO18 also supported).
+Controls two 8x32 WS2812B panels directly from a Raspberry Pi.
+Backend is auto-detected at init:
+- Pi 5: kernel ws2812-pio driver via /dev/leds0 (preferred; rpi_ws281x
+  cannot drive the RP1 PWM). Enable with:
+  dtoverlay=ws2812-pio,gpio=19,num_leds=512,brightness=0
+- Pi 3/4: rpi_ws281x userspace library on a PWM GPIO (default 19).
+
 LED control is entirely local — no serial protocol or network dependency.
 
 Panel layout:
@@ -29,9 +34,62 @@ map onto base patterns —
 
 import logging
 import math
+import os
 import time
 
 logger = logging.getLogger(__name__)
+
+# Pi 5 kernel driver device (ws2812-pio overlay). If present it is used
+# instead of rpi_ws281x, which does not support the Pi 5's RP1 PWM.
+_LEDS0_PATH = "/dev/leds0"
+
+
+class _Leds0Strip:
+    """PixelStrip-compatible adapter for the Pi 5 ws2812-pio kernel driver.
+
+    The driver exposes /dev/leds0 with 4 bytes per pixel in memory order
+    R, G, B, W (W unused for WS2812B). A full-buffer write refreshes the
+    whole strip; writing a single byte at offset 0 sets driver-side
+    brightness (left unused — this class does all scaling in software,
+    so the overlay should be loaded with brightness=0 / pass-through).
+
+    Writes must use pwrite() at offset 0: the device does not support
+    lseek (ESPIPE), and plain write() advances the file position so the
+    second frame would hit the end of the driver's pixel buffer (ENOSPC).
+    pwrite() leaves the position untouched — every call replaces the
+    whole frame. A 1-byte pwrite at offset 0 sets driver-side brightness
+    (left unused — this class does all scaling in software, so the
+    overlay should be loaded with brightness=0 / pass-through).
+
+    Colors accepted by setPixelColor use the rpi_ws281x packing 0xRRGGBB.
+    """
+
+    def __init__(self, path: str, num_leds: int):
+        # O_BINARY avoids Windows text-mode translation (harmless on Linux)
+        self._fd = os.open(path, os.O_WRONLY | getattr(os, "O_BINARY", 0))
+        self._buf = bytearray(num_leds * 4)
+
+    def setPixelColor(self, i: int, color: int) -> None:
+        o = i * 4
+        self._buf[o] = (color >> 16) & 0xFF      # R
+        self._buf[o + 1] = (color >> 8) & 0xFF   # G
+        self._buf[o + 2] = color & 0xFF          # B
+        # byte o+3 (white) stays 0
+
+    def _write_at_zero(self, data: bytes) -> None:
+        if hasattr(os, "pwrite"):
+            os.pwrite(self._fd, data, 0)
+        else:  # fallback for non-POSIX (offline testing only)
+            os.lseek(self._fd, 0, os.SEEK_SET)
+            os.write(self._fd, data)
+
+    def show(self) -> None:
+        """Push the whole frame; the driver DMAs it out to the strip."""
+        self._write_at_zero(self._buf)
+
+    def setBrightness(self, brightness: int) -> None:
+        """Driver-side global brightness (1-byte write at offset 0)."""
+        self._write_at_zero(bytes([max(0, min(255, int(brightness)))]))
 
 
 # Gesture name → base pattern. Chinese labels come from the RF model's
@@ -119,6 +177,24 @@ class LedController:
         self._right_weight = 0.5
         self._connected = False
         self._error = None
+        self._backend = "none"
+
+        try:
+            if os.path.exists(_LEDS0_PATH):
+                # Pi 5: kernel ws2812-pio driver (rpi_ws281x can't drive RP1 PWM)
+                self._strip = _Leds0Strip(_LEDS0_PATH, self._total_leds)
+                self._connected = True
+                self._backend = "ws2812-pio"
+                logger.info(
+                    "LED controller: %s, %d LEDs via kernel ws2812-pio driver, "
+                    "brightness_limit=%.0f%%",
+                    _LEDS0_PATH, self._total_leds, brightness_limit * 100,
+                )
+                return
+        except Exception as e:
+            self._error = f"ws2812-pio open failed: {e}"
+            logger.error("LED init failed: %s", self._error)
+            return
 
         try:
             from rpi_ws281x import PixelStrip, Color
@@ -134,6 +210,7 @@ class LedController:
             )
             self._strip.begin()
             self._connected = True
+            self._backend = "rpi_ws281x"
             self._Color = Color
             logger.info(
                 "LED controller initialized: %d LEDs on GPIO%d, brightness_limit=%.0f%%",
@@ -251,7 +328,7 @@ class LedController:
         """Return LED status for the status message."""
         return {
             "connected": self._connected,
-            "backend": "rpi_ws281x",
+            "backend": self._backend,
             "gpio": self._gpio,
             "panel_count": self._panel_count,
             "total_leds": self._total_leds,
