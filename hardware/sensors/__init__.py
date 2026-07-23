@@ -1,27 +1,23 @@
-"""Sensor abstraction layer with pluggable sensor sources.
+"""Sensor abstraction layer.
 
-Hardware-independent base class is imported eagerly. Hardware-dependent
-sensors (BLE, camera) are imported lazily.
+  - base.SensorSource: abstract interface
+  - camera.CameraSensor: Picamera2 + MediaPipe Hand Landmarker
+
+The old microbit.MicrobitSensor (direct BLE GATT connection) has been
+removed.  micro:bit data now arrives via the ESP32 UDP gateway and is
+processed by fusion_pipeline/gateway_adapter.py.
 """
 
 from .base import SensorSource
 
 try:
-    from .microbit import MicrobitSensor, MicrobitSample
-except ImportError:
-    MicrobitSensor = None  # type: ignore
-    MicrobitSample = None  # type: ignore
-
-try:
     from .camera import CameraSensor, CameraFrame
 except ImportError:
-    CameraSensor = None  # type: ignore
-    CameraFrame = None  # type: ignore
+    CameraSensor = None  # type: ignore[assignment]
+    CameraFrame = None   # type: ignore[assignment]
 
 __all__ = [
     "SensorSource",
-    "MicrobitSensor",
-    "MicrobitSample",
     "CameraSensor",
     "CameraFrame",
 ]

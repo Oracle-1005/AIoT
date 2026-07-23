@@ -1,0 +1,50 @@
+# ── Fusion Pipeline Configuration ───────────────────────────────────────
+# ESP32 BLE Gateway → Raspberry Pi multi-sensor fusion → PC backend
+# Per: hardware/raspberry_pi/MICROBIT_ESP32_CAMERA_DATA_FLOW.md
+
+# ── ESP32 Gateway UDP ───────────────────────────────────────────────────
+gateway:
+  listen_host: "0.0.0.0"
+  listen_port: 17778
+  allowed_hands: ["left", "right"]
+  event_dedup_ttl_s: 10.0
+
+  # Noise filter (EMA + median outlier rejection)
+  noise_filter:
+    ema_alpha_accel: 0.85
+    ema_alpha_orientation: 0.90
+    median_window: 5
+    outlier_threshold_mg: 500.0
+
+# ── Camera (Picamera2 + MediaPipe Hand Landmarker) ──────────────────────
+camera:
+  width: 640
+  height: 480
+  fps: 30
+  max_hands: 2
+  frame_queue_size: 10
+  buffer_max_age_s: 10.0
+  clock_min_points: 10
+  clock_max_points: 60
+
+# ── Sensor Fusion ───────────────────────────────────────────────────────
+fusion:
+  max_age_ms: 120            # Max age of micro:bit sample relative to camera target
+  buffer_max_age_s: 10.0     # Max age of buffered samples before pruning
+  jitter_buffer_ms: 250      # Fixed fusion delay — lets late BLE samples arrive (200ms period + 50ms headroom)
+
+# ── TCP Transport to PC ─────────────────────────────────────────────────
+tcp:
+  host: "192.168.43.209"      # CHANGE: PC IP address
+  port: 9000
+  reconnect_delay_s: 2.0
+  max_queue_size: 500
+  connect_timeout_s: 5.0
+
+# ── General ─────────────────────────────────────────────────────────────
+general:
+  pi_id: "raspberrypi-01"
+  schema_version: "1.0"
+  log_level: "INFO"
+  status_interval_s: 1.0
+  fusion_poll_interval_s: 0.005  # ~200 Hz poll for camera frames
