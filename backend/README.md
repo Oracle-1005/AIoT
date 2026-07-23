@@ -13,10 +13,11 @@ PC-side Flask + SQLite backend using the confirmed Pi ↔ PC architecture:
 ## Run
 
 ```powershell
-cd backend
-C:\AIoT\backend\.venv\Scripts\python.exe -m pip install -r requirements.txt
-C:\AIoT\backend\.venv\Scripts\python.exe test_backend.py
-C:\AIoT\backend\.venv\Scripts\python.exe app.py
+cd G:\code\AIoT\AIoT
+python -m venv backend\.venv
+backend\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+backend\.venv\Scripts\python.exe backend\test_backend.py
+backend\.venv\Scripts\python.exe backend\app.py
 ```
 
 The PC listens on:
@@ -24,6 +25,37 @@ The PC listens on:
 - Flask: `0.0.0.0:5000`
 - Pi gateway: `0.0.0.0:9000`
 - Sonic Pi feedback OSC: `127.0.0.1:4561`
+
+## Verify live Pi data
+
+After starting `backend/app.py` and the Raspberry Pi `fusion_pipeline`, run:
+
+```powershell
+cd G:\code\AIoT\AIoT
+backend\.venv\Scripts\python.exe backend\tools\verify_pi_stream.py --duration 30
+```
+
+The verifier polls:
+
+- `GET /api/status`
+- `GET /api/pi/status`
+- `GET /api/sensors/live`
+
+It prints the TCP gateway connection state, Pi message counters, camera status,
+left/right micro:bit status, and the latest control event. A successful run
+should show:
+
+- `gateway_running=yes`
+- `pi_connected=yes`
+- `status` counter increasing
+- `fused_frame` counter increasing when the camera fusion service is running
+- `control_event` counter increasing after pressing a micro:bit button
+
+For a stricter check that requires both fused camera frames and button events:
+
+```powershell
+backend\.venv\Scripts\python.exe backend\tools\verify_pi_stream.py --duration 60 --require status --require fused_frame --require control_event
+```
 
 ## Pi uplink envelope
 

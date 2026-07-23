@@ -21,7 +21,7 @@ Architecture
       │                                     ▼
       │                            TcpJsonlClient (:9000)  ──→  PC backend
       │
-      └── 3 JSON Lines message types: fused_frame, microbit_control_event, status
+      └── 3 JSON Lines message types: fused_frame, control_event, status
 
 Usage
 -----

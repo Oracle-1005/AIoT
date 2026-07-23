@@ -42,6 +42,14 @@ from pi_pc.noise_filter import MicrobitNoiseFilter, FilteredIMUData
 
 logger = logging.getLogger(__name__)
 
+CONTROL_EVENT_GESTURE_MAP = {
+    "start_or_resume": "resume",
+    "pause": "cutoff",
+    "style_switch": "style_switch",
+    "emergency_stop": "stop",
+    "recalibrate": "gesture_start",
+}
+
 
 @dataclass
 class MicrobitSample:
@@ -343,13 +351,14 @@ class GatewayAdapter:
             )
             return
 
-        # Build event dict
-        event = packet.to_dict(duplicate=False)
-        event["gateway"] = {
+        # Build backend-compatible event dict.
+        raw_event = packet.to_dict(duplicate=False)
+        gateway = {
             "source_ip": addr[0],
             "ble_rssi": frame.ble_rssi,
             "flags": frame.flags,
         }
+        event = self._build_backend_control_event(raw_event, gateway)
 
         # Fast path: emit immediately via callback
         if self._on_control_event:
@@ -357,3 +366,37 @@ class GatewayAdapter:
                 self._on_control_event(event)
             except Exception:
                 logger.exception("on_control_event callback failed")
+
+    @staticmethod
+    def _build_backend_control_event(raw_event: dict, gateway: dict) -> dict:
+        """Convert the micro:bit protocol event into backend control_event.
+
+        backend.message_router accepts "control_event" and state.py expects the
+        gesture name at payload.event.type.
+        """
+        candidate = str(raw_event.get("mapped_candidate", "")).strip()
+        gesture = CONTROL_EVENT_GESTURE_MAP.get(candidate, candidate)
+        source = str(raw_event.get("source", "")).strip()
+
+        return {
+            "type": "control_event",
+            "schema_version": "1.0",
+            "source": source,
+            "event_sequence": raw_event.get("event_sequence", 0),
+            "pi_rx_monotonic_ns": raw_event.get("pi_rx_monotonic_ns", 0),
+            "payload": {
+                "event": {
+                    "type": gesture,
+                    "source": source,
+                    "code": raw_event.get("event_code", ""),
+                    "candidate": candidate,
+                    "priority": raw_event.get("priority", 0),
+                    "repeat_index": raw_event.get("repeat_index", 0),
+                    "repeat_total": raw_event.get("repeat_total", 0),
+                    "strength": 1.0,
+                },
+                "music_control": {},
+                "microbit": raw_event,
+                "gateway": gateway,
+            },
+        }

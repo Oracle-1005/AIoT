@@ -13,6 +13,7 @@ import threading
 import queue
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from pi_pc import LandmarkSmoother, CameraClockSync
 
@@ -211,42 +212,46 @@ class CameraSensor:
 
             self._mp = mp
 
-            # Create HandLandmarker
-            base_options = mp_python.BaseOptions(
-                model_asset_path="hand_landmarker.task"
-            )
-            # Try bundled model first, fall back to downloading
-            try:
-                options = vision.HandLandmarkerOptions(
-                    base_options=base_options,
-                    num_hands=self._max_hands,
-                    min_hand_detection_confidence=0.5,
-                    min_hand_presence_confidence=0.5,
-                    min_tracking_confidence=0.5,
+            model_path = self._find_hand_landmarker_model()
+            if model_path is None:
+                raise RuntimeError(
+                    "hand_landmarker.task not found. Expected it under "
+                    "models/ or camera_to_Pi/models/ in the project root."
                 )
-                self._hand_landmarker = vision.HandLandmarker.create_from_options(options)
-            except Exception:
-                # Model file not found — use default
-                logger.warning(
-                    "hand_landmarker.task not found locally. "
-                    "Attempting to download... (this may take a moment)"
-                )
-                options = vision.HandLandmarkerOptions(
-                    base_options=mp_python.BaseOptions(
-                        model_asset_buffer=open(
-                            mp_python.BaseOptions._get_model_path("hand_landmarker.task"), "rb"
-                        ).read()
-                    ),
-                    num_hands=self._max_hands,
-                )
-                self._hand_landmarker = vision.HandLandmarker.create_from_options(options)
 
-            logger.info("MediaPipe HandLandmarker initialized.")
+            options = vision.HandLandmarkerOptions(
+                base_options=mp_python.BaseOptions(model_asset_path=str(model_path)),
+                running_mode=vision.RunningMode.VIDEO,
+                num_hands=self._max_hands,
+                min_hand_detection_confidence=0.5,
+                min_hand_presence_confidence=0.5,
+                min_tracking_confidence=0.5,
+            )
+            self._hand_landmarker = vision.HandLandmarker.create_from_options(options)
+
+            logger.info("MediaPipe HandLandmarker initialized: %s", model_path)
 
         except ImportError:
             raise RuntimeError("mediapipe not installed. Run: pip install mediapipe")
         except Exception as e:
             raise RuntimeError(f"MediaPipe init failed: {e}")
+
+    @staticmethod
+    def _find_hand_landmarker_model() -> Path | None:
+        """Locate the MediaPipe hand landmarker model in known project paths."""
+        here = Path(__file__).resolve()
+        project_root = here.parents[2]
+        candidates = [
+            Path.cwd() / "hand_landmarker.task",
+            Path.cwd() / "models" / "hand_landmarker.task",
+            project_root / "models" / "hand_landmarker.task",
+            project_root / "camera_to_Pi" / "models" / "hand_landmarker.task",
+            project_root / "hardware" / "raspberry_pi" / "camera_to_Pi" / "models" / "hand_landmarker.task",
+        ]
+        for candidate in candidates:
+            if candidate.is_file():
+                return candidate
+        return None
 
     # ---- Internal: Capture Loop (runs in background thread) ----
 

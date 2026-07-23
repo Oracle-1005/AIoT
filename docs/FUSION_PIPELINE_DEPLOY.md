@@ -1,4 +1,4 @@
-# AIoT 融合管线部署与验证指南
+﻿# AIoT 融合管线部署与验证指南
 
 **版本**: 1.1
 **日期**: 2026-07-23
@@ -10,8 +10,8 @@
 |------|-----|
 | 树莓派 IP | `192.168.43.221` |
 | 树莓派用户 | `ag1_client` |
-| 树莓派项目根目录 | `/home/ag1_client/aiot_project/` |
-| 树莓派 venv | `/home/ag1_client/aiot_project/venv/bin/python` |
+| 树莓派项目根目录 | `/home/ag1_client/aiot_conductor/project/` |
+| 树莓派 venv | `/home/ag1_client/aiot_conductor/project/camera_to_Pi/.venv/bin/python` |
 | PC 后端 IP | `192.168.43.209` |
 | PC 后端端口 | `9000` |
 
@@ -50,7 +50,7 @@
 | type | 频率 | 触发源 |
 |------|------|--------|
 | `fused_frame` | ~30 Hz | 摄像头帧驱动，jitter buffer 延迟 250ms 后输出 |
-| `microbit_control_event` | 事件驱动 | micro:bit 按键，快速通道，不等融合 |
+| `control_event` | 事件驱动 | micro:bit 按键，快速通道，不等融合 |
 | `status` | 1 Hz | 链路健康，含 micro:bit age/rssi、camera fps、jitter buffer |
 
 ---
@@ -77,7 +77,7 @@
 ## 3. 目录结构
 
 ```
-aiot_project/                          # Pi 上项目根目录
+aiot_conductor/project/                          # Pi 上项目根目录
 ├── hardware/
 │   ├── fusion_pipeline/              # ★ 新融合管线
 │   │   ├── main.py                   #     入口
@@ -126,7 +126,7 @@ aiot_project/                          # Pi 上项目根目录
 # 在开发机上执行
 PI_IP=192.168.43.221
 PI_USER=ag1_client
-PI_ROOT=/home/ag1_client/aiot_project
+PI_ROOT=/home/ag1_client/aiot_conductor/project
 
 # 使用 rsync 同步（排除 microbit/esp32 固件）
 sshpass -p '123123' rsync -avz \
@@ -151,16 +151,16 @@ sudo apt install sshpass  # Linux
 
 ```bash
 ssh ag1_client@192.168.43.221
-cd /home/ag1_client/aiot_project
+cd /home/ag1_client/aiot_conductor/project
 
 # 确认 venv 存在
-ls venv/bin/python
+ls camera_to_Pi/.venv/bin/python
 
 # 安装额外依赖
-venv/bin/pip install pyyaml
+camera_to_Pi/.venv/bin/pip install pyyaml
 
 # 验证导入链
-venv/bin/python -c "
+camera_to_Pi/.venv/bin/python -c "
 import sys
 sys.path.insert(0, 'hardware')
 sys.path.insert(0, 'hardware/raspberry_pi/esp32_ble_gateway_to_Pi')
@@ -173,7 +173,7 @@ print('OK — all imports work')
 ### 4.3 配置融合管线
 
 ```bash
-nano /home/ag1_client/aiot_project/hardware/fusion_pipeline/config.yaml
+nano /home/ag1_client/aiot_conductor/project/hardware/fusion_pipeline/config.yaml
 ```
 
 关键配置项：
@@ -205,17 +205,9 @@ general:
 ### 4.4 安装 systemd 服务
 
 ```bash
-# 复制并修正路径
-sudo cp /home/ag1_client/aiot_project/hardware/fusion_pipeline/pi-fusion.service \
+# 复制已修正路径的服务文件
+sudo cp /home/ag1_client/aiot_conductor/project/hardware/fusion_pipeline/pi-fusion.service \
     /etc/systemd/system/
-
-# 修正用户名和路径（如果需要）
-sudo sed -i 's|/home/pi/aiot|/home/ag1_client/aiot_project|g' \
-    /etc/systemd/system/pi-fusion.service
-sudo sed -i 's|User=pi|User=ag1_client|g' \
-    /etc/systemd/system/pi-fusion.service
-sudo sed -i 's|pi5/venv|venv|g' \
-    /etc/systemd/system/pi-fusion.service
 
 # 重载并启用
 sudo systemctl daemon-reload
@@ -226,16 +218,16 @@ sudo systemctl enable pi-fusion
 ```bash
 grep ExecStart /etc/systemd/system/pi-fusion.service
 # 应输出:
-# ExecStart=/home/ag1_client/aiot_project/venv/bin/python -u \
-#   /home/ag1_client/aiot_project/hardware/fusion_pipeline/main.py \
+# ExecStart=/home/ag1_client/aiot_conductor/project/camera_to_Pi/.venv/bin/python -u \
+#   /home/ag1_client/aiot_conductor/project/hardware/fusion_pipeline/main.py \
 #   --config config.yaml
 ```
 
 ### 4.5 运行端到端测试（可选，无需硬件）
 
 ```bash
-cd /home/ag1_client/aiot_project/hardware/fusion_pipeline
-/home/ag1_client/aiot_project/venv/bin/python test_e2e.py
+cd /home/ag1_client/aiot_conductor/project/hardware/fusion_pipeline
+/home/ag1_client/aiot_conductor/project/camera_to_Pi/.venv/bin/python test_e2e.py
 
 # 预期: 🎉 ALL CHECKS PASSED
 ```
@@ -264,7 +256,7 @@ cd /home/ag1_client/aiot_project/hardware/fusion_pipeline
 ```bash
 # 在 PC (192.168.43.209) 上
 cd ~/aiot_conductor/backend
-source venv/bin/activate
+source camera_to_Pi/.venv/bin/activate
 python app.py
 
 # 预期输出:
@@ -279,8 +271,8 @@ curl http://127.0.0.1:8787/health
 # 预期: {"status": "live", ...}
 
 # Pi 端 — 确认 micro:bit 数据到达 ESP32
-cd /home/ag1_client/aiot_project/hardware/raspberry_pi/esp32_ble_gateway_to_Pi
-/home/ag1_client/aiot_project/venv/bin/python \
+cd /home/ag1_client/aiot_conductor/project/hardware/raspberry_pi/esp32_ble_gateway_to_Pi
+/home/ag1_client/aiot_conductor/project/camera_to_Pi/.venv/bin/python \
     -m esp32_gateway_receiver.app --config config.example.json 2>/dev/null | head -3
 # 预期: {"type":"microbit_sensor_state","source":"left",...}
 ```
@@ -311,7 +303,7 @@ sudo journalctl -u pi-fusion -f
 
 ```bash
 # PC 端
-curl -s http://localhost:5000/api/pi-gateway/status | python3 -m json.tool
+curl -s http://localhost:5000/api/pi/status | python3 -m json.tool
 ```
 
 预期输出：
@@ -354,8 +346,8 @@ sudo journalctl -u pi-fusion -n 20
 ```bash
 # Pi 端 — 模拟测试（不需要硬件，融合管线需先停止）
 sudo systemctl stop pi-fusion
-cd /home/ag1_client/aiot_project/hardware/fusion_pipeline
-/home/ag1_client/aiot_project/venv/bin/python test_e2e.py
+cd /home/ag1_client/aiot_conductor/project/hardware/fusion_pipeline
+/home/ag1_client/aiot_conductor/project/camera_to_Pi/.venv/bin/python test_e2e.py
 
 # 预期: 🎉 ALL CHECKS PASSED
 sudo systemctl start pi-fusion   # 恢复服务
@@ -382,10 +374,10 @@ sudo journalctl -u pi-fusion -f | grep B_LONG_PRESS
 | 2 | Pi UDP 监听 | `sudo journalctl -u pi-fusion \| grep Gateway` | `listening on 0.0.0.0:17778` |
 | 3 | Pi TCP 连接 | `sudo journalctl -u pi-fusion \| grep "TCP connected"` | `TCP connected to 192.168.43.209:9000` |
 | 4 | Pi 无错误 | `sudo journalctl -u pi-fusion -n 10` | 无 ERROR |
-| 5 | PC 端连接 | `curl localhost:5000/api/pi-gateway/status` | `"connected": true` |
+| 5 | PC 端连接 | `curl localhost:5000/api/pi/status` | `"connected": true` |
 | 6 | 消息到达 | 同上 | `"received_messages" > 0` 且持续增长 |
 | 7 | 控制事件 | 长按 micro:bit B 键 | 后端收到 `emergency_stop` |
-| 8 | 端到端测试 | `venv/bin/python test_e2e.py` | ALL CHECKS PASSED |
+| 8 | 端到端测试 | `camera_to_Pi/.venv/bin/python test_e2e.py` | ALL CHECKS PASSED |
 
 ---
 
@@ -402,8 +394,8 @@ sudo journalctl -u pi-fusion -n 50 -f
 
 # 手动运行（调试模式，先停止服务）
 sudo systemctl stop pi-fusion
-cd /home/ag1_client/aiot_project/hardware/fusion_pipeline
-/home/ag1_client/aiot_project/venv/bin/python main.py --config config.yaml
+cd /home/ag1_client/aiot_conductor/project/hardware/fusion_pipeline
+/home/ag1_client/aiot_conductor/project/camera_to_Pi/.venv/bin/python main.py --config config.yaml
 # Ctrl+C 停止，然后恢复服务: sudo systemctl start pi-fusion
 ```
 
@@ -504,7 +496,7 @@ sudo systemctl is-active pi-fusion
 # === 在开发机上 ===
 PI_IP=192.168.43.221
 PI_USER=ag1_client
-PI_ROOT=/home/ag1_client/aiot_project
+PI_ROOT=/home/ag1_client/aiot_conductor/project
 
 # 1. 同步代码
 sshpass -p '123123' rsync -avz \
@@ -515,14 +507,11 @@ sshpass -p '123123' rsync -avz \
 
 # 2. 安装依赖
 sshpass -p '123123' ssh ${PI_USER}@${PI_IP} \
-    "${PI_ROOT}/venv/bin/pip install pyyaml -q"
+    "${PI_ROOT}/camera_to_Pi/.venv/bin/pip install pyyaml -q"
 
 # 3. 安装 systemd 服务（首次部署）
 sshpass -p '123123' ssh ${PI_USER}@${PI_IP} "
     sudo cp ${PI_ROOT}/hardware/fusion_pipeline/pi-fusion.service /etc/systemd/system/ &&
-    sudo sed -i 's|/home/pi/aiot|${PI_ROOT}|g' /etc/systemd/system/pi-fusion.service &&
-    sudo sed -i 's|User=pi|User=${PI_USER}|g' /etc/systemd/system/pi-fusion.service &&
-    sudo sed -i 's|pi5/venv|venv|g' /etc/systemd/system/pi-fusion.service &&
     sudo systemctl daemon-reload &&
     sudo systemctl enable pi-fusion
 "

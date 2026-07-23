@@ -6,7 +6,7 @@ Connection failures trigger automatic reconnection with exponential backoff.
 
 Output message types (per the technical document):
   - fused_frame
-  - microbit_control_event
+  - control_event
   - status
 """
 

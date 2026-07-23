@@ -2,11 +2,12 @@
 
 Three output types:
   - fused_frame: camera-triggered sensor fusion (per camera frame)
-  - microbit_control_event: micro:bit button events (fast path, event-driven)
+  - control_event: micro:bit button events (fast path, event-driven)
   - status: system health (1 Hz)
 
 Format is aligned with backend expectations:
   - fused_frame.payload.microbits[] — list with "hand" field
+  - control_event.payload.event.type — backend gesture/control name
   - status.payload.microbits.left / .right — nested per-side
 """
 
@@ -35,24 +36,32 @@ FUSED_FRAME_TEMPLATE = {
     },
 }
 
-# ── microbit_control_event ─────────────────────────────────────────────────
+# ── control_event ──────────────────────────────────────────────────────────
 
 CONTROL_EVENT_TEMPLATE = {
-    "type": "microbit_control_event",
+    "type": "control_event",
+    "schema_version": "1.0",
     "source": "",
     "event_sequence": 0,
-    "device_timestamp_ms": 0,
     "pi_rx_monotonic_ns": 0,
-    "event_code": "",
-    "priority": 0,
-    "repeat_index": 0,
-    "repeat_total": 0,
-    "duplicate": False,
-    "mapped_candidate": "",
-    "gateway": {
-        "source_ip": "",
-        "ble_rssi": 0,
-        "flags": 0,
+    "payload": {
+        "event": {
+            "type": "",
+            "source": "",
+            "code": "",
+            "candidate": "",
+            "priority": 0,
+            "repeat_index": 0,
+            "repeat_total": 0,
+            "strength": 1.0,
+        },
+        "music_control": {},
+        "microbit": {},
+        "gateway": {
+            "source_ip": "",
+            "ble_rssi": 0,
+            "flags": 0,
+        },
     },
 }
 

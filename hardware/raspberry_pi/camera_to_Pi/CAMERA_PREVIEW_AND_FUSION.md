@@ -16,7 +16,7 @@ source .venv/bin/activate
 - CSI 摄像头采集：`picamera2`
 - 手部关键点识别：`mediapipe-nightly`
 - 图像处理和可视化：`opencv`
-- micro:bit BLE 接收：`bleak`
+- micro:bit ESP32 UDP 网关接收与协议解析
 
 后续 micro:bit -> Pi、camera -> Pi、Pi -> PC 三段链路都应继续在这个 `.venv` 中运行，避免多个 Python 环境之间出现依赖不一致。
 
@@ -93,6 +93,8 @@ python main.py --config config.json
 
 工程中提供了 `visual_verify.py`，用于浏览器实时查看摄像头画面、手部骨架、FPS、延迟、丢帧数和时钟状态。
 
+摄像头预览方式在目录统一后没有变化，仍从 `~/aiot_conductor/project/camera_to_Pi` 启动。但该预览会占用 Pi Camera，不能与 `pi-fusion.service` 或 `hardware/fusion_pipeline/main.py` 同时运行。
+
 启动可视预览服务：
 
 ```bash
@@ -133,10 +135,14 @@ hostname -I
 curl http://127.0.0.1:8765/status
 ```
 
+如果是前台启动，按 `Ctrl+C` 关闭预览。
+
 停止后台服务：
 
 ```bash
-kill $(cat /tmp/camera_visual_verify.pid)
+kill "$(cat /tmp/camera_visual_verify.pid)" 2>/dev/null || true
+pkill -f visual_verify.py 2>/dev/null || true
+ss -ltnp | grep ':8765' || echo "camera preview stopped"
 ```
 
 查看后台日志：
@@ -243,12 +249,18 @@ camera_landmark_frame
 
 ## 7. micro:bit 侧输入预留
 
-双 micro:bit 通过 BLE Notify 向树莓派发送两类包：
+当前推荐链路不再让树莓派直接通过 BLE GATT 连接两块 micro:bit。双 micro:bit 先通过 BLE 广播发给 ESP32，ESP32 再将数据还原为项目原始 micro:bit 包，并通过 UDP `17778` 发给树莓派：
+
+```text
+micro:bit L/R -> BLE advertising -> ESP32 -> UDP:17778 -> Raspberry Pi
+```
+
+ESP32 还原后的 micro:bit payload 仍分为两类：
 
 - `sensor_state`：25-50 Hz 周期发送，17 B。
 - `control_event`：事件确认后立即重复发送，11 B。
 
-树莓派收到 BLE Notify 后应立即记录：
+树莓派收到 ESP32 UDP 网关帧后应立即记录：
 
 ```text
 pi_rx_monotonic_ns = time.monotonic_ns()
@@ -305,7 +317,7 @@ pi_rx_monotonic_ns = time.monotonic_ns()
 (source, event_sequence)
 ```
 
-重复包只用于提高 BLE 送达概率，不应重复触发系统动作。
+重复控制包只用于提高广播送达概率，不应重复触发系统动作。当前 fusion 管线会将 micro:bit 原始事件转换为后端接受的 `control_event`，字段位置为 `payload.event.type`。
 
 ## 8. 时间同步策略
 
@@ -320,8 +332,8 @@ pi_rx_monotonic_ns = time.monotonic_ns()
 micro:bit 时间字段：
 
 - `device_timestamp_ms`：micro:bit 启动后的毫秒时间，必须是采样或事件确认时刻。
-- `pi_rx_monotonic_ns`：树莓派收到 BLE Notify 时立即记录的 Pi 单调时间。
-- `pi_aligned_timestamp_ns`：后续由 `MicrobitClockMapper` 映射得到。
+- `pi_rx_monotonic_ns`：树莓派收到 ESP32 UDP 网关帧时立即记录的 Pi 单调时间。
+- `pi_aligned_timestamp_ns`：后续可由映射器推导得到；当前融合管线优先使用 `pi_rx_monotonic_ns` 做最近邻对齐。
 
 初始同步方式可使用滑动窗口偏移估计：
 
@@ -330,7 +342,7 @@ offset = median(pi_rx_monotonic_ns - device_timestamp_ms * 1_000_000)
 pi_aligned_timestamp_ns = device_timestamp_ms * 1_000_000 + offset
 ```
 
-但 BLE 包可能被控制事件延迟，因此只有稳定周期到达的 `sensor_state` 适合更新时钟偏移。明显延迟的状态包、重复事件包和重连后的异常包不应直接用于更新偏移。
+但广播包可能丢失或被控制事件延迟，因此只有稳定周期到达的 `sensor_state` 适合更新时钟偏移。明显延迟的状态包、重复事件包和设备重启后的异常包不应直接用于更新偏移。
 
 后续如果观察到设备时钟漂移，应将 mapper 升级为线性回归：
 
@@ -460,7 +472,7 @@ Pi -> PC 建议使用 JSON Lines，每行一个完整 JSON 对象。预留三类
 ## 10. 集成顺序建议
 
 1. 摄像头链路单独稳定运行：`main.py` 和 `visual_verify.py` 都能连续输出。
-2. micro:bit BLE 接收单独稳定运行：左右手 `sensor_state` 25-50 Hz，`control_event` 可去重。
+2. micro:bit ESP32 广播网关单独稳定运行：左右手 `sensor_state` 持续刷新，`control_event` 可去重。
 3. 分别实现 `CameraClockMapper`、`LeftMicrobitClockMapper`、`RightMicrobitClockMapper`。
 4. 建立三个按 `pi_aligned_timestamp_ns` 排序的短窗口缓存。
 5. `SensorSynchronizer` 以固定融合频率取最近样本或短时保持，生成 `fused_frame`。

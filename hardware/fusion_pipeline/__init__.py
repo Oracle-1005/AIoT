@@ -7,7 +7,7 @@ Raspberry Pi camera + sensor fusion data path, per the technical document:
 
 Three message types are produced and sent to PC via TCP JSON Lines:
   - fused_frame: camera-triggered synchronized sensor fusion
-  - microbit_control_event: micro:bit button events (fast path, no fusion)
+  - control_event: micro:bit button events (fast path, no fusion)
   - status: system health (1 Hz)
 """
 

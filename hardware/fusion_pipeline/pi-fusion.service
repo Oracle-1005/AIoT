@@ -7,14 +7,14 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=ag1_client
-WorkingDirectory=/home/ag1_client/aiot_project/hardware/fusion_pipeline
+WorkingDirectory=/home/ag1_client/aiot_conductor/project/hardware/fusion_pipeline
 
 # Pi monotonic clock (time.monotonic_ns) for sensor fusion
 Environment="PYTHONUNBUFFERED=1"
 
 # Use the existing venv
 ExecStartPre=/bin/sleep 5
-ExecStart=/home/ag1_client/aiot_project/venv/bin/python -u /home/ag1_client/aiot_project/hardware/fusion_pipeline/main.py --config config.yaml
+ExecStart=/home/ag1_client/aiot_conductor/project/camera_to_Pi/.venv/bin/python -u /home/ag1_client/aiot_conductor/project/hardware/fusion_pipeline/main.py --config config.yaml
 
 # Restart on failure (ESP32 may take time to reconnect)
 Restart=always
@@ -27,10 +27,9 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=pi-fusion
 
-# Hardware access (camera)
-DeviceAllow=/dev/video0 rw
-DeviceAllow=/dev/media0 rw
-SupplementaryGroups=video
+# Hardware access (Picamera2/libcamera may use several /dev/video*,
+# /dev/media*, dma-buf, and render nodes; avoid a narrow DeviceAllow list.
+SupplementaryGroups=video render gpio i2c
 
 [Install]
 WantedBy=multi-user.target
