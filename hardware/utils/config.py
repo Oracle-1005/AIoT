@@ -53,7 +53,7 @@ DEFAULT_CONFIG = {
     },
     "led": {
         "enabled": False,
-        "gpio": 18,
+        "gpio": 19,
         "panel_count": 2,
         "led_per_panel": 256,
         "brightness_limit": 0.25,

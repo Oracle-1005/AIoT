@@ -189,7 +189,7 @@ class AppController:
             try:
                 from led.controller import LedController
                 self._led_controller = LedController(
-                    gpio=led_cfg.get("gpio", 18),
+                    gpio=led_cfg.get("gpio", 19),
                     panel_count=led_cfg.get("panel_count", 2),
                     led_per_panel=led_cfg.get("led_per_panel", 256),
                     brightness_limit=led_cfg.get("brightness_limit", 0.25),

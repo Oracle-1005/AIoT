@@ -182,7 +182,7 @@ STATUS_TEMPLATE = {
     "led": {
         "connected": False,
         "backend": "rpi_ws281x",
-        "gpio": 18,
+        "gpio": 19,
         "panel_count": 2,
         "total_leds": 512,
         "brightness_limit": 0.25,

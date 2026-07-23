@@ -77,7 +77,7 @@ pi_to_pc:
 # --- WS2812B LED Control ---
 led:
   enabled: false                     # Set true when LED hardware is connected
-  gpio: 18
+  gpio: 19
   panel_count: 2
   led_per_panel: 256
   brightness_limit: 0.25             # 25% max for safety
