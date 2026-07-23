@@ -10,14 +10,17 @@
 // 0 = left hand, 1 = right hand. Change to 1 before flashing the right board.
 const HAND: number = 0
 
-const SAMPLE_PERIOD_MS = 200
+const SAMPLE_PERIOD_MS = 150
+const SENSOR_REPEAT_TOTAL = 1
+const SENSOR_REPEAT_INTERVAL_MS = 50
 const AD_TX_POWER_DBM = -12
 const BLE_CONNECTABLE = false
 
 const DEBOUNCE_MS = 60
 const LONG_PRESS_MS = 1000
-const EVENT_REPEAT_TOTAL = 5
-const EVENT_REPEAT_INTERVAL_MS = 120
+const EVENT_REPEAT_TOTAL = 7
+const EVENT_REPEAT_INTERVAL_MS = 90
+const CONTROL_HOLD_MS = 70
 const EVENT_QUEUE_MAX = 8
 
 const ADV_SENSOR = 0xa1
@@ -50,10 +53,36 @@ class PendingEvent {
     }
 }
 
+class PendingSensor {
+    sequence: number
+    timestampMs: number
+    axMg: number
+    ayMg: number
+    azMg: number
+    pitchDeg: number
+    rollDeg: number
+    repeatIndex: number
+    nextRepeatMs: number
+
+    constructor(sequence: number, timestampMs: number, nextRepeatMs: number) {
+        this.sequence = sequence
+        this.timestampMs = timestampMs
+        this.axMg = input.acceleration(Dimension.X)
+        this.ayMg = input.acceleration(Dimension.Y)
+        this.azMg = input.acceleration(Dimension.Z)
+        this.pitchDeg = clampInt8(input.rotation(Rotation.Pitch))
+        this.rollDeg = clampInt8(input.rotation(Rotation.Roll))
+        this.repeatIndex = 0
+        this.nextRepeatMs = nextRepeatMs
+    }
+}
+
 let sampleSequence = 0
 let eventSequence = 0
 let nextSampleDueMs = input.runningTime()
 let pendingEvents: PendingEvent[] = []
+let pendingSensor: PendingSensor = null
+let controlHoldUntilMs = 0
 
 let rawA = false
 let rawB = false
@@ -87,17 +116,17 @@ function advertiseFrame(packet: Buffer): void {
     bluetooth.advertiseUidBuffer(packet, AD_TX_POWER_DBM, BLE_CONNECTABLE)
 }
 
-function advertiseSensor(sequence: number, timestampMs: number): void {
+function advertiseSensor(sample: PendingSensor): void {
     const packet = pins.createBuffer(16)
     packet.setUint8(0, ADV_SENSOR)
     packet.setUint8(1, makeHeader(MESSAGE_SENSOR_STATE))
-    packet.setNumber(NumberFormat.UInt16LE, 2, sequence)
-    packet.setNumber(NumberFormat.UInt32LE, 4, timestampMs)
-    packet.setNumber(NumberFormat.Int16LE, 8, input.acceleration(Dimension.X))
-    packet.setNumber(NumberFormat.Int16LE, 10, input.acceleration(Dimension.Y))
-    packet.setNumber(NumberFormat.Int16LE, 12, input.acceleration(Dimension.Z))
-    packet.setNumber(NumberFormat.Int8LE, 14, clampInt8(input.rotation(Rotation.Pitch)))
-    packet.setNumber(NumberFormat.Int8LE, 15, clampInt8(input.rotation(Rotation.Roll)))
+    packet.setNumber(NumberFormat.UInt16LE, 2, sample.sequence)
+    packet.setNumber(NumberFormat.UInt32LE, 4, sample.timestampMs)
+    packet.setNumber(NumberFormat.Int16LE, 8, sample.axMg)
+    packet.setNumber(NumberFormat.Int16LE, 10, sample.ayMg)
+    packet.setNumber(NumberFormat.Int16LE, 12, sample.azMg)
+    packet.setNumber(NumberFormat.Int8LE, 14, sample.pitchDeg)
+    packet.setNumber(NumberFormat.Int8LE, 15, sample.rollDeg)
     advertiseFrame(packet)
 }
 
@@ -151,6 +180,7 @@ function sendOneDueEventRepeat(nowMs: number): boolean {
         const event = pendingEvents[i]
         if (nowMs >= event.nextDueMs) {
             advertiseControl(event)
+            controlHoldUntilMs = nowMs + CONTROL_HOLD_MS
             event.repeatIndex += 1
             if (event.repeatIndex >= EVENT_REPEAT_TOTAL) {
                 pendingEvents.removeAt(i)
@@ -161,6 +191,26 @@ function sendOneDueEventRepeat(nowMs: number): boolean {
         }
     }
     return false
+}
+
+function sendDueSensorRepeat(nowMs: number): boolean {
+    if (!pendingSensor || nowMs < pendingSensor.nextRepeatMs) {
+        return false
+    }
+    advertiseSensor(pendingSensor)
+    pendingSensor.repeatIndex += 1
+    if (pendingSensor.repeatIndex >= SENSOR_REPEAT_TOTAL) {
+        pendingSensor = null
+    } else {
+        pendingSensor.nextRepeatMs = nowMs + SENSOR_REPEAT_INTERVAL_MS
+    }
+    return true
+}
+
+function startNewSensorSample(nowMs: number): void {
+    pendingSensor = new PendingSensor(sampleSequence, nowMs, nowMs)
+    sampleSequence = (sampleSequence + 1) & 0xffff
+    sendDueSensorRepeat(nowMs)
 }
 
 function updateDebouncedButtons(nowMs: number): void {
@@ -237,9 +287,11 @@ basic.forever(function () {
     processButtonState(nowMs)
 
     const eventSent = sendOneDueEventRepeat(nowMs)
-    if (!eventSent && nowMs >= nextSampleDueMs) {
-        advertiseSensor(sampleSequence, nowMs)
-        sampleSequence = (sampleSequence + 1) & 0xffff
+    const controlHeld = nowMs < controlHoldUntilMs
+    if (!eventSent && !controlHeld && sendDueSensorRepeat(nowMs)) {
+        // Keep the previous sample visible for one extra advertising window.
+    } else if (!eventSent && !controlHeld && nowMs >= nextSampleDueMs) {
+        startNewSensorSample(nowMs)
         nextSampleDueMs += SAMPLE_PERIOD_MS
         if (nowMs - nextSampleDueMs > SAMPLE_PERIOD_MS * 4) {
             nextSampleDueMs = nowMs + SAMPLE_PERIOD_MS

@@ -32,11 +32,13 @@ raspberry_pi/
 
 - 左手：`HAND = 0`；
 - 右手：`HAND = 1`；
-- 广播周期：`SAMPLE_PERIOD_MS = 200`；
+- 采样周期：`SAMPLE_PERIOD_MS = 150`；
+- 状态样本显式重复：`SENSOR_REPEAT_TOTAL = 1`；BLE 广播层会自然重复当前广告包，程序不再额外调用第二次状态广播；
+- 按键事件重复：`EVENT_REPEAT_TOTAL = 7`，重复间隔 `EVENT_REPEAT_INTERVAL_MS = 90`，每次事件广播后保留 `CONTROL_HOLD_MS = 70` 的控制包窗口；
 - 广播格式：Eddystone UID 载荷内的 16 B 紧凑包；
 - ESP32 不连接、不配对、不依赖 micro:bit 地址，只扫描并解析广播。
 
-树莓派端已验证能收到 ESP32 转发的左右手数据，输出中的 `gateway.flags = 1` 表示数据来自广播转发链路。广播是无确认链路，因此偶发 `sequence_gap` 属于正常现象；判断是否稳定应看左右两侧是否持续刷新，而不是要求每一个序号都完整到达。
+树莓派端已验证能收到 ESP32 转发的左右手数据，输出中的 `gateway.flags = 1` 表示数据来自广播转发链路。广播是无确认链路，因此偶发 `sequence_gap` 属于正常现象；判断是否稳定应看左右两侧是否持续刷新，而不是要求每一个序号都完整到达。ESP32 会按 `sample_sequence` 过滤重复包，树莓派只看到第一次成功到达的样本。
 
 ## 当前实测地址与预览入口
 

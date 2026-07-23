@@ -118,12 +118,19 @@ const HAND = 1  // right
 当前广播参数：
 
 ```typescript
-const SAMPLE_PERIOD_MS = 200
+const SAMPLE_PERIOD_MS = 150
+const SENSOR_REPEAT_TOTAL = 1
+const SENSOR_REPEAT_INTERVAL_MS = 50
 const AD_TX_POWER_DBM = -12
 const BLE_CONNECTABLE = false
+const EVENT_REPEAT_TOTAL = 7
+const EVENT_REPEAT_INTERVAL_MS = 90
+const CONTROL_HOLD_MS = 70
 ```
 
 micro:bit 通过 `bluetooth.advertiseUidBuffer()` 发出 Eddystone UID 广播。由于广播载荷有限，原始项目协议被压缩成 16 字节。
+
+状态样本依靠 BLE 广播层在广告间隔内自然重复；程序不再额外对同一状态样本调用第二次 `advertiseUidBuffer()`，避免额外调用拉长实际采样间隔。ESP32 收到重复序号后只向树莓派转发第一次成功收到的样本。按键事件比状态样本优先级更高，会重复广播 7 次，并在每次事件广播后短暂保持控制包，降低按键事件被状态包覆盖的概率。
 
 状态广播包：
 
@@ -489,6 +496,6 @@ python main.py --config config.json --output /tmp/camera.jsonl
 1. ESP32 与两块 micro:bit 保持 30 cm 到 1 m；
 2. 两块 micro:bit 不要贴在一起；
 3. ESP32 靠近 Wi-Fi 热点，减少 Wi-Fi 重连；
-4. 保持 `SAMPLE_PERIOD_MS = 200`，不要先提频；
-5. 必要时在 micro:bit 端对同一状态包重复广播 2 次；
+4. 当前已采用 `SAMPLE_PERIOD_MS = 150`，状态包依靠 BLE 广播层自然重复，程序不做额外状态重复调用；
+5. 如果丢包仍偏多，优先观察 RSSI 和摆放，再考虑回退到 200 ms 或改用更可靠的无线节点；
 6. 如果后续对丢包零容忍，应改用 ESP-NOW、专用 2.4 GHz 模块，或把 IMU 直接接到 ESP32。

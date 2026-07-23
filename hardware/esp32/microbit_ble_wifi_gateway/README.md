@@ -132,6 +132,29 @@ gateway seq=8 wifi=up mode=advertising
 
 `age_ms` 表示 ESP32 距离上次收到该侧 micro:bit 广播的时间。短时间升到几百毫秒或几秒是广播链路的正常现象，只要左右两侧持续刷新、`gateway seq` 持续增长，链路就是可用的。
 
+当前 micro:bit 广播参数为：
+
+```text
+sensor sample period = 150 ms
+sensor repeat total = 1
+sensor repeat interval = 50 ms
+control event repeat total = 7
+control event repeat interval = 90 ms
+control hold window = 70 ms
+```
+
+状态样本依靠 BLE 广播层在广告间隔内自然重复；micro:bit 程序不再对同一状态样本额外调用第二次 `advertiseUidBuffer()`，避免额外调用拉长实际采样间隔。ESP32 仍按左右手和 `sample_sequence` 去重，只把第一次成功收到的样本转发到树莓派。按键事件会重复广播更多次，并在每次事件广播后短暂保持控制包，避免马上被状态包覆盖。
+
+ESP32 当前扫描参数为连续扫描窗口：
+
+```cpp
+scan->setScanCallbacks(&scanCallbacks, true);
+scan->setActiveScan(false);
+scan->setDuplicateFilter(false);
+scan->setInterval(45);
+scan->setWindow(45);
+```
+
 ## 树莓派验证
 
 在树莓派上进入项目虚拟环境后运行：
@@ -153,6 +176,6 @@ python -m esp32_gateway_receiver.app --config config.json --log-level WARNING
 
 - micro:bit 与 ESP32 保持 30 cm 到 1 m 距离；
 - 两块 micro:bit 不要贴在一起，避免同频遮挡；
-- 保持 `SAMPLE_PERIOD_MS = 200` 或更低发送压力；
+- 若丢包偏高，先在 `SAMPLE_PERIOD_MS = 150`、`SENSOR_REPEAT_TOTAL = 1` 的当前配置下观察，再决定是否回退到 200 ms 或调整事件/状态策略；
 - ESP32 使用 2.4 GHz Wi-Fi 时尽量靠近路由器，避免反复重连；
 - 后续若需要更强可靠性，可改为 ESP-NOW、nRF24、串口无线模块，或在协议层增加重复广播。

@@ -262,8 +262,9 @@ void setup() {
   NimBLEScan* scan = NimBLEDevice::getScan();
   scan->setScanCallbacks(&scanCallbacks, true);
   scan->setActiveScan(false);
-  scan->setInterval(100);
-  scan->setWindow(90);
+  scan->setDuplicateFilter(false);
+  scan->setInterval(45);
+  scan->setWindow(45);
   scan->start(0, false, true);
   Serial.println("BLE advertising gateway started");
 }
