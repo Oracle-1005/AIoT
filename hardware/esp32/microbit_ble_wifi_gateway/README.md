@@ -157,6 +157,12 @@ scan->setWindow(45);
 
 ## 树莓派验证
 
+独立验证会占用 UDP `17778`，如果正式融合服务正在运行，先停止：
+
+```bash
+sudo systemctl stop pi-fusion 2>/dev/null || true
+```
+
 在树莓派上进入项目虚拟环境后运行：
 
 ```bash
@@ -179,3 +185,29 @@ python -m esp32_gateway_receiver.app --config config.json --log-level WARNING
 - 若丢包偏高，先在 `SAMPLE_PERIOD_MS = 150`、`SENSOR_REPEAT_TOTAL = 1` 的当前配置下观察，再决定是否回退到 200 ms 或调整事件/状态策略；
 - ESP32 使用 2.4 GHz Wi-Fi 时尽量靠近路由器，避免反复重连；
 - 后续若需要更强可靠性，可改为 ESP-NOW、nRF24、串口无线模块，或在协议层增加重复广播。
+
+## 与正式融合服务一起验证
+
+确认独立接收正常后，关闭独立 receiver 或 `8787` 预览，再启动正式融合服务：
+
+```bash
+pkill -f esp32_gateway_receiver.app 2>/dev/null || true
+pkill -f live_preview_server.py 2>/dev/null || true
+sudo systemctl restart pi-fusion
+sudo journalctl -u pi-fusion -f
+```
+
+PC 后端启动后，在 PC PowerShell 运行：
+
+```powershell
+cd G:\code\AIoT\AIoT
+backend\.venv\Scripts\python.exe backend\tools\verify_pi_stream.py --duration 30
+```
+
+通过标准：
+
+- `pi_connected=yes`
+- `status` 计数持续增加
+- `fused_frame` 计数持续增加
+- 左右 micro:bit 的 `age_ms` 周期性刷新
+- 按键后 `control_event` 计数增加

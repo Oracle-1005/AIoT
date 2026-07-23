@@ -368,7 +368,7 @@ Pi -> PC 建议使用 JSON Lines，每行一个完整 JSON 对象。预留三类
 9000
 ```
 
-`fused_frame` 示例：
+当前实际 `fused_frame` 示例：
 
 ```json
 {
@@ -376,97 +376,120 @@ Pi -> PC 建议使用 JSON Lines，每行一个完整 JSON 对象。预留三类
   "schema_version": "1.0",
   "fused_sequence": 1024,
   "pi_aligned_timestamp_ns": 48392020000000,
-  "sync_policy": {
-    "camera_max_age_ms": 80,
-    "microbit_max_age_ms": 80,
-    "interpolation": "nearest_or_hold_short_gap"
-  },
-  "left_microbit": {
-    "available": true,
-    "sample_sequence": 1821,
-    "device_timestamp_ms": 73452,
-    "pi_rx_monotonic_ns": 48392014588712,
-    "pi_aligned_timestamp_ns": 48392019880000,
-    "ax_mg": 112,
-    "ay_mg": -934,
-    "az_mg": 287,
-    "pitch_deg": -18,
-    "roll_deg": 42,
-    "quality_flags": []
-  },
-  "right_microbit": {
-    "available": true,
-    "sample_sequence": 1808,
-    "device_timestamp_ms": 73390,
-    "pi_rx_monotonic_ns": 48392014610123,
-    "pi_aligned_timestamp_ns": 48392019910000,
-    "ax_mg": -32,
-    "ay_mg": -901,
-    "az_mg": 330,
-    "pitch_deg": -15,
-    "roll_deg": -37,
-    "quality_flags": []
-  },
   "camera": {
     "available": true,
     "frame_sequence": 392,
-    "sensor_timestamp_ns": 48392019600000,
-    "pi_frame_received_ns": 48392020500000,
-    "pi_aligned_timestamp_ns": 48392020050000,
+    "time_delta_ms": 0.0,
     "hands_detected": 2,
     "hands": []
   },
+  "microbits": [
+    {
+      "hand": "left",
+      "available": true,
+      "sample_sequence": 1821,
+      "time_delta_ms": -12.0,
+      "ax_mg": 112,
+      "ay_mg": -934,
+      "az_mg": 287,
+      "pitch_deg": -18,
+      "roll_deg": 42,
+      "sequence_status": "in_order",
+      "missing_sample_count": 0
+    },
+    {
+      "hand": "right",
+      "available": true,
+      "sample_sequence": 1808,
+      "time_delta_ms": 9.1,
+      "ax_mg": -32,
+      "ay_mg": -901,
+      "az_mg": 330,
+      "pitch_deg": -15,
+      "roll_deg": -37,
+      "sequence_status": "sequence_gap",
+      "missing_sample_count": 1
+    }
+  ],
   "fusion_quality": {
     "max_time_delta_ms": 14,
     "missing_sources": [],
     "dropped_camera_frames": 0,
-    "left_microbit_gap": 0,
-    "right_microbit_gap": 0
+    "microbit_quality_flags": ["right_sequence_gap"]
   }
 }
 ```
 
-`control_event` 上报示例：
+当前实际 `control_event` 上报示例：
 
 ```json
 {
   "type": "control_event",
   "schema_version": "1.0",
-  "event_id": "right-215",
-  "source": "right_microbit",
-  "pi_aligned_timestamp_ns": 48392023500000,
-  "event_code": "B_LONG_PRESS",
-  "mapped_action": "emergency_stop",
-  "priority": 100,
-  "duplicate": false
+  "source": "right",
+  "event_sequence": 215,
+  "pi_rx_monotonic_ns": 48392023500000,
+  "payload": {
+    "event": {
+      "type": "stop",
+      "source": "right",
+      "code": "B_LONG_PRESS",
+      "candidate": "emergency_stop",
+      "priority": 100,
+      "repeat_index": 0,
+      "repeat_total": 7,
+      "strength": 1.0
+    },
+    "music_control": {},
+    "microbit": {},
+    "gateway": {
+      "source_ip": "192.168.43.xxx",
+      "ble_rssi": -62,
+      "flags": 1
+    }
+  }
 }
 ```
 
-`status` 上报示例：
+当前实际 `status` 上报示例：
 
 ```json
 {
   "type": "status",
   "schema_version": "1.0",
   "pi_timestamp_ns": 48392030000000,
+  "microbits": {
+    "left": {
+      "connected": true,
+      "age_ms": 41,
+      "rssi": -59,
+      "missing_sample_count": 0
+    },
+    "right": {
+      "connected": true,
+      "age_ms": 64,
+      "rssi": -66,
+      "missing_sample_count": 2
+    }
+  },
   "camera": {
-    "connected": true,
     "fps": 26.5,
     "dropped_capture_frames": 107,
-    "mediapipe_loaded": true,
+    "hands_detected": 2,
     "clock_ready": true
   },
-  "microbit": {
-    "left_connected": true,
-    "right_connected": true,
-    "left_clock_ready": true,
-    "right_clock_ready": true
-  },
-  "pc_link": {
-    "connected": false,
-    "queued_messages": 0
+  "jitter": {
+    "configured_delay_ms": 250.0,
+    "pending_frames": 8
   }
 }
+```
+
+PC 后端查看入口：
+
+```text
+http://127.0.0.1:5000/api/pi/messages?message_type=fused_frame&limit=5
+http://127.0.0.1:5000/api/sensors/live
 ```
 
 ## 10. 集成顺序建议

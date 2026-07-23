@@ -1,6 +1,18 @@
-# Camera → Raspberry Pi 采集与手部关键点 Demo
+# Camera 到 Raspberry Pi 采集与手部关键点说明
 
-本工程依据 `Camera_to_Pi_v01(2).md` 实现摄像头链路的前三层，并为后续去噪和多传感器时间同步保留稳定接口。
+本工程实现树莓派摄像头采集、MediaPipe 手部关键点识别、摄像头时间戳映射和 JSON Lines 输出。当前正式融合服务会复用这里的摄像头能力，但运行入口位于 `hardware/fusion_pipeline/`。
+
+当前树莓派运行目录：
+
+```text
+/home/ag1_client/aiot_conductor/project/camera_to_Pi
+```
+
+当前统一虚拟环境：
+
+```text
+/home/ag1_client/aiot_conductor/project/camera_to_Pi/.venv/bin/python
+```
 
 ## 1. 当前实现
 
@@ -21,16 +33,18 @@ OV5647 / CSI
 
 建议使用 64 位 Raspberry Pi OS Bookworm 或更新版本。
 
+当前树莓派已统一使用 `camera_to_Pi/.venv`。如果在新树莓派上恢复环境，可按下列方式准备：
+
 ```bash
 sudo apt update
 sudo apt install -y python3-picamera2 python3-venv curl
 
-cd camera_to_pi_demo
+cd /home/ag1_client/aiot_conductor/project/camera_to_Pi
 python3 -m venv --system-site-packages .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
-./download_model.sh
+bash download_model.sh
 ```
 
 先验证摄像头：
@@ -45,20 +59,34 @@ rpicam-hello --timeout 3000
 持续输出 JSONL 到终端：
 
 ```bash
+cd /home/ag1_client/aiot_conductor/project/camera_to_Pi
+source .venv/bin/activate
 python main.py --config config.json
 ```
 
 采集 100 帧并写文件：
 
 ```bash
+cd /home/ag1_client/aiot_conductor/project/camera_to_Pi
+source .venv/bin/activate
 python main.py --config config.json --max-frames 100 --output output/camera.jsonl
 ```
 
 调试单帧结构：
 
 ```bash
+cd /home/ag1_client/aiot_conductor/project/camera_to_Pi
+source .venv/bin/activate
 python main.py --config config.json --max-frames 1 --pretty
 ```
+
+浏览器预览方式见：
+
+```text
+hardware/raspberry_pi/camera_to_Pi/CAMERA_PREVIEW_AND_FUSION.md
+```
+
+注意：摄像头预览会占用 Pi Camera，不能与 `pi-fusion.service` 同时运行。
 
 ## 4. 重要配置
 
@@ -159,5 +187,13 @@ pi_time = scale × sensor_time + offset
 无需摄像头即可测试滤波与时钟映射：
 
 ```bash
+cd /home/ag1_client/aiot_conductor/project/camera_to_Pi
+source .venv/bin/activate
 python -m unittest discover -s tests
+```
+
+完整端到端验证见：
+
+```text
+hardware/END_TO_END_TRANSMISSION_VERIFICATION.md
 ```

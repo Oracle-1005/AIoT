@@ -1,4 +1,16 @@
-# BLE 固件刷写步骤
+# 旧 BLE 直连实验归档
+
+> 该文档仅保留为历史调试记录。当前正式链路不再使用树莓派或 ESP32 主动连接 micro:bit BLE GATT/UART，而是使用 `micro:bit BLE 广播 -> ESP32 扫描 -> UDP:17778 -> 树莓派 -> fusion_pipeline -> PC backend`。
+>
+> 当前可执行方案见：
+>
+> - `hardware/microbit/microbit_to_pi/README.md`
+> - `hardware/microbit/microbit_to_pi/MICROBIT_VISUAL_VERIFICATION.md`
+> - `hardware/END_TO_END_TRANSMISSION_VERIFICATION.md`
+
+当前项目验证不再使用本目录文件。本目录中的步骤不要求通过，也不作为 `git push` 前硬件验收标准。
+
+## 历史方案：BLE 固件刷写步骤
 
 ## 问题
 MicroPython v2.1.1 **不支持 `bluetooth` 模块**。必须使用 MakeCode + Bluetooth 扩展。

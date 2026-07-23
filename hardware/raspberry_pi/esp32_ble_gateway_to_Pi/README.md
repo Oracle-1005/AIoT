@@ -1,6 +1,6 @@
 # ESP32 BLE 网关到树莓派 UDP 接收器
 
-本目录提供 Pi 端 UDP 接收器，用于接收 ESP32 网关发来的 micro:bit 原始数据包，并输出与原 `microbit_receiver.app` 基本一致的 JSON Lines。
+本目录提供 Pi 端 UDP 接收器，用于接收 ESP32 网关发来的 micro:bit 原始数据包，并输出与原 `microbit_receiver.app` 基本一致的 JSON Lines。正式运行时该接收能力由 `hardware/fusion_pipeline/gateway_adapter.py` 调用；本目录命令行程序和 `8787` 页面主要用于独立预览验证。
 
 ## 输入与输出
 
@@ -13,7 +13,7 @@ ESP32 UDP gateway frame on 0.0.0.0:17778
 输出：
 
 ```json
-{"type":"microbit_sensor_state","source":"right","message_type":1,"hand":1,"sample_sequence":9693,"device_timestamp_ms":970210,"pi_rx_monotonic_ns":2223507067128,"raw":{"ax_mg":-24,"ay_mg":744,"az_mg":-680,"pitch_deg":47,"roll_deg":-2},"time_alignment":null,"sequence_status":"first_sample","missing_sample_count":0,"device_restarted":false,"transport":"esp32_udp_gateway","gateway":{"source_ip":"192.168.43.50","source_port":49152,"gateway_sequence":123,"esp_rx_micros":456789,"conn_index":1,"ble_rssi":-42,"flags":0}}
+{"type":"microbit_sensor_state","source":"right","message_type":1,"hand":1,"sample_sequence":9693,"device_timestamp_ms":970210,"pi_rx_monotonic_ns":2223507067128,"raw":{"ax_mg":-24,"ay_mg":744,"az_mg":-680,"pitch_deg":47,"roll_deg":-2},"time_alignment":null,"sequence_status":"first_sample","missing_sample_count":0,"device_restarted":false,"transport":"esp32_udp_gateway","gateway":{"source_ip":"192.168.43.50","source_port":49152,"gateway_sequence":123,"esp_rx_micros":456789,"conn_index":1,"ble_rssi":-42,"flags":1}}
 ```
 
 `pi_rx_monotonic_ns` 表示树莓派收到 UDP 包的单调时钟时间。ESP32 侧 BLE Notify 到达时间保存在 `gateway.esp_rx_micros`，用于调试网关延迟和丢包，不直接替代 Pi 的融合时间轴。
@@ -51,6 +51,12 @@ cp config.example.json config.json
 ```
 
 ## 命令行验证
+
+该命令会占用 UDP `17778`。如果正在运行正式融合服务，先停止：
+
+```bash
+sudo systemctl stop pi-fusion 2>/dev/null || true
+```
 
 先启动 Pi 端接收：
 
@@ -98,6 +104,21 @@ http://192.168.43.221:8787/
 
 ```powershell
 Invoke-WebRequest -UseBasicParsing -Uri http://192.168.43.221:8787/health
+```
+
+关闭预览后再启动正式融合服务：
+
+```bash
+kill "$(cat /tmp/microbit_esp32_preview_8787.pid)" 2>/dev/null || true
+pkill -f live_preview_server.py 2>/dev/null || true
+pkill -f esp32_gateway_receiver.app 2>/dev/null || true
+sudo systemctl start pi-fusion
+```
+
+正式链路到 PC 后端的验证方式见：
+
+```text
+hardware/END_TO_END_TRANSMISSION_VERIFICATION.md
 ```
 
 ## 为什么比 Pi 直接连 BLE 稳定

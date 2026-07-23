@@ -15,14 +15,14 @@ ESP32
   -> UDP gateway frame, port 17778
 Raspberry Pi
   -> esp32_gateway_receiver
-  -> JSON Lines microbit_sensor_state / microbit_control_event
+  -> fusion_pipeline.gateway_adapter
 Camera on Raspberry Pi
   -> Picamera2
   -> MediaPipe Hand Landmarker
-  -> JSON Lines camera_landmark_frame
+  -> fusion_pipeline.camera_adapter
 Fusion on Raspberry Pi
   -> align by Pi monotonic timestamp
-  -> JSON Lines fused_frame / control_event / status
+  -> TCP JSON Lines fused_frame / control_event / status -> PC backend
 ```
 
 这个方案不再让树莓派或 ESP32 主动连接两块 micro:bit。micro:bit 只广播，ESP32 只扫描，因此不会再出现旧 GATT 方案中的“绝大多数时间连接失败”。需要接受的代价是 BLE 广播没有确认机制，偶发 `sequence_gap` 属于正常丢广播包。
@@ -283,13 +283,14 @@ python -m esp32_gateway_receiver.app --config config.json --log-level WARNING
 摄像头工程在：
 
 ```text
-hardware/raspberry_pi/camera_to_Pi
+/home/ag1_client/aiot_conductor/project/camera_to_Pi
 ```
 
 运行摄像头可视预览：
 
 ```bash
-cd ~/aiot_conductor/project/hardware/raspberry_pi/camera_to_Pi
+sudo systemctl stop pi-fusion 2>/dev/null || true
+cd ~/aiot_conductor/project/camera_to_Pi
 source ~/aiot_conductor/project/camera_to_Pi/.venv/bin/activate
 python visual_verify.py --config config.json --host 0.0.0.0 --port 8765
 ```
@@ -303,7 +304,7 @@ http://192.168.43.221:8765/
 运行摄像头 JSONL 输出：
 
 ```bash
-cd ~/aiot_conductor/project/hardware/raspberry_pi/camera_to_Pi
+cd ~/aiot_conductor/project/camera_to_Pi
 source ~/aiot_conductor/project/camera_to_Pi/.venv/bin/activate
 python main.py --config config.json --output /tmp/camera.jsonl
 ```
@@ -383,7 +384,7 @@ interpolated_value = value_n + ratio * (value_n+1 - value_n)
 | `control_event` | 按钮、急停等低延迟事件 |
 | `status` | 链路健康状态 |
 
-`fused_frame` 建议结构：
+当前 `fused_frame` 结构：
 
 ```json
 {
@@ -391,30 +392,6 @@ interpolated_value = value_n + ratio * (value_n+1 - value_n)
   "schema_version": "1.0",
   "fused_sequence": 1024,
   "pi_aligned_timestamp_ns": 48392020000000,
-  "left_microbit": {
-    "available": true,
-    "sample_sequence": 2527,
-    "time_delta_ms": -14.2,
-    "ax_mg": -16,
-    "ay_mg": 248,
-    "az_mg": -1016,
-    "pitch_deg": 13,
-    "roll_deg": 0,
-    "sequence_status": "in_order",
-    "missing_sample_count": 0
-  },
-  "right_microbit": {
-    "available": true,
-    "sample_sequence": 2463,
-    "time_delta_ms": 8.7,
-    "ax_mg": -24,
-    "ay_mg": 400,
-    "az_mg": -936,
-    "pitch_deg": 23,
-    "roll_deg": -1,
-    "sequence_status": "sequence_gap",
-    "missing_sample_count": 2
-  },
   "camera": {
     "available": true,
     "frame_sequence": 392,
@@ -422,6 +399,34 @@ interpolated_value = value_n + ratio * (value_n+1 - value_n)
     "hands_detected": 2,
     "hands": []
   },
+  "microbits": [
+    {
+      "hand": "left",
+      "available": true,
+      "sample_sequence": 2527,
+      "time_delta_ms": -14.2,
+      "ax_mg": -16,
+      "ay_mg": 248,
+      "az_mg": -1016,
+      "pitch_deg": 13,
+      "roll_deg": 0,
+      "sequence_status": "in_order",
+      "missing_sample_count": 0
+    },
+    {
+      "hand": "right",
+      "available": true,
+      "sample_sequence": 2463,
+      "time_delta_ms": 8.7,
+      "ax_mg": -24,
+      "ay_mg": 400,
+      "az_mg": -936,
+      "pitch_deg": 23,
+      "roll_deg": -1,
+      "sequence_status": "sequence_gap",
+      "missing_sample_count": 2
+    }
+  ],
   "fusion_quality": {
     "max_time_delta_ms": 14.2,
     "missing_sources": [],
@@ -438,21 +443,37 @@ interpolated_value = value_n + ratio * (value_n+1 - value_n)
   "type": "status",
   "schema_version": "1.0",
   "pi_timestamp_ns": 48392030000000,
-  "microbit": {
-    "left_age_ms": 41,
-    "right_age_ms": 64,
-    "left_rssi": -59,
-    "right_rssi": -66,
-    "left_missing_sample_count": 0,
-    "right_missing_sample_count": 2
+  "microbits": {
+    "left": {
+      "connected": true,
+      "age_ms": 41,
+      "rssi": -59,
+      "missing_sample_count": 0
+    },
+    "right": {
+      "connected": true,
+      "age_ms": 64,
+      "rssi": -66,
+      "missing_sample_count": 2
+    }
   },
   "camera": {
     "fps": 20.0,
     "hands_detected": 2,
-    "dropped_capture_frames": 0,
     "clock_ready": true
+  },
+  "jitter": {
+    "configured_delay_ms": 250.0,
+    "pending_frames": 8
   }
 }
+```
+
+PC 后端接收后会将这些消息保存在 `pi_messages` 表中，并通过 REST 接口查看：
+
+```text
+http://127.0.0.1:5000/api/pi/messages?message_type=fused_frame&limit=5
+http://127.0.0.1:5000/api/sensors/live
 ```
 
 ## 9. 采集文件方式

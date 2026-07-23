@@ -106,15 +106,14 @@ aiot_conductor/project/                          # Pi 上项目根目录
 │   │
 │   └── utils/                        # 配置工具
 │
-├── backend/                          # PC 后端（在 PC 上运行）
-│   ├── app.py
-│   ├── pi_gateway.py                 # TCP 服务器 (:9000)
-│   ├── message_router.py             # 消息验证与路由
-│   └── state.py                      # 实时状态管理
-│
-├── venv/                             # Python 虚拟环境
 └── models/                           # MediaPipe 模型
 ```
+
+说明：
+
+- PC 后端不放在树莓派运行目录中，实际在 PC 仓库的 `backend/` 目录运行。
+- 树莓派统一虚拟环境是 `camera_to_Pi/.venv/`，不是项目根目录下的 `venv/`。
+- `hardware/fusion_pipeline/test_e2e.py` 是无硬件模拟测试；正式传输验证应使用 PC 端 `backend/tools/verify_pi_stream.py`。
 
 ---
 
@@ -254,10 +253,9 @@ cd /home/ag1_client/aiot_conductor/project/hardware/fusion_pipeline
 ### 5.1 启动 PC 后端
 
 ```bash
-# 在 PC (192.168.43.209) 上
-cd ~/aiot_conductor/backend
-source camera_to_Pi/.venv/bin/activate
-python app.py
+# 在 PC PowerShell 上
+cd G:\code\AIoT\AIoT
+backend\.venv\Scripts\python.exe backend\app.py
 
 # 预期输出:
 # [PiGateway] Listening on 0.0.0.0:9000
@@ -265,16 +263,27 @@ python app.py
 
 ### 5.2 确认硬件在线
 
-```bash
-# Pi 端 — 确认 ESP32 在线
-curl http://127.0.0.1:8787/health
-# 预期: {"status": "live", ...}
+ESP32 和 micro:bit 可先用独立预览验证，但该预览会占用 UDP `17778`，不能与 `pi-fusion.service` 同时运行。
 
-# Pi 端 — 确认 micro:bit 数据到达 ESP32
-cd /home/ag1_client/aiot_conductor/project/hardware/raspberry_pi/esp32_ble_gateway_to_Pi
-/home/ag1_client/aiot_conductor/project/camera_to_Pi/.venv/bin/python \
-    -m esp32_gateway_receiver.app --config config.example.json 2>/dev/null | head -3
-# 预期: {"type":"microbit_sensor_state","source":"left",...}
+```bash
+# Pi 端，独立验证 micro:bit -> ESP32 -> Pi
+sudo systemctl stop pi-fusion 2>/dev/null || true
+cd /home/ag1_client/aiot_conductor/project
+bash hardware/raspberry_pi/esp32_ble_gateway_to_Pi/tools/start_gateway_preview.sh
+```
+
+PC 浏览器打开：
+
+```text
+http://192.168.43.221:8787/
+```
+
+确认左右两列都有数据后关闭预览，再启动正式融合服务：
+
+```bash
+kill "$(cat /tmp/microbit_esp32_preview_8787.pid)" 2>/dev/null || true
+pkill -f live_preview_server.py 2>/dev/null || true
+pkill -f esp32_gateway_receiver.app 2>/dev/null || true
 ```
 
 ### 5.3 启动融合管线
@@ -301,33 +310,56 @@ sudo journalctl -u pi-fusion -f
 
 ### 6.1 方式一 — 后端健康接口
 
-```bash
-# PC 端
-curl -s http://localhost:5000/api/pi/status | python3 -m json.tool
+PC 浏览器打开：
+
+```text
+http://127.0.0.1:5000/api/status
+http://127.0.0.1:5000/api/pi/status
+http://127.0.0.1:5000/api/sensors/live
+http://127.0.0.1:5000/api/pi/messages?limit=20
 ```
 
-预期输出：
-```json
-{
-    "connected": true,
-    "running": true,
-    "received_messages": 1523,
-    "sent_messages": 0,
-    "client_address": ["192.168.43.221", 45678],
-    "last_received_at": 1721734567.89
-}
+重点字段：
+
+```text
+/api/status
+  pi_gateway.running = true
+  pi_gateway.connected = true
+  pi_gateway.received_messages 持续增加
+
+/api/pi/status
+  runtime.message_counts.status 持续增加
+  runtime.message_counts.fused_frame 持续增加
+  runtime.message_counts.control_event 按键后增加
+
+/api/sensors/live
+  camera
+  microbit_left
+  microbit_right
 ```
 
-`received_messages` 持续增长即表示数据正常到达。
+### 6.2 方式二 — PC 端实时验证脚本
 
-### 6.2 方式二 — 查看后端日志
-
-```bash
-# PC 端 — app.py 运行终端
-# 每秒应收到:
-#   ~25 条 fused_frame (type=fused_frame)
-#   1 条 status (type=status)
+```powershell
+cd G:\code\AIoT\AIoT
+backend\.venv\Scripts\python.exe backend\tools\verify_pi_stream.py --duration 30
 ```
+
+通过标准：
+
+```text
+gateway_running=yes
+pi_connected=yes
+status 和 fused_frame 的 delta 持续大于 0
+```
+
+严格验证按键事件：
+
+```powershell
+backend\.venv\Scripts\python.exe backend\tools\verify_pi_stream.py --duration 60 --require status --require fused_frame --require control_event
+```
+
+运行期间需要至少按一次 micro:bit 按键，否则 `control_event` 不会增加。
 
 ### 6.3 方式三 — 查看 Pi 日志
 
@@ -370,13 +402,13 @@ sudo journalctl -u pi-fusion -f | grep B_LONG_PRESS
 
 | # | 检查项 | 命令 | 预期结果 |
 |---|--------|------|----------|
-| 1 | ESP32 在线 | `curl http://192.168.43.221:8787/health` | `"status": "live"` |
+| 1 | ESP32/micro:bit 独立预览 | `bash hardware/raspberry_pi/esp32_ble_gateway_to_Pi/tools/start_gateway_preview.sh` | `8787` 页面左右两列持续刷新 |
 | 2 | Pi UDP 监听 | `sudo journalctl -u pi-fusion \| grep Gateway` | `listening on 0.0.0.0:17778` |
 | 3 | Pi TCP 连接 | `sudo journalctl -u pi-fusion \| grep "TCP connected"` | `TCP connected to 192.168.43.209:9000` |
 | 4 | Pi 无错误 | `sudo journalctl -u pi-fusion -n 10` | 无 ERROR |
 | 5 | PC 端连接 | `curl localhost:5000/api/pi/status` | `"connected": true` |
-| 6 | 消息到达 | 同上 | `"received_messages" > 0` 且持续增长 |
-| 7 | 控制事件 | 长按 micro:bit B 键 | 后端收到 `emergency_stop` |
+| 6 | 消息到达 | `backend\.venv\Scripts\python.exe backend\tools\verify_pi_stream.py --duration 30` | `status` / `fused_frame` 计数增长 |
+| 7 | 控制事件 | 运行严格验证脚本并按 micro:bit 按键 | `control_event` 计数增长 |
 | 8 | 端到端测试 | `camera_to_Pi/.venv/bin/python test_e2e.py` | ALL CHECKS PASSED |
 
 ---
@@ -404,7 +436,7 @@ cd /home/ag1_client/aiot_conductor/project/hardware/fusion_pipeline
 | 症状 | 可能原因 | 解决 |
 |------|----------|------|
 | `TCP connected` 未出现 | PC IP 错误或后端未启动 | 检查 `config.yaml` 中 `tcp.host: "192.168.43.209"`，确认 PC 端 `app.py` 已运行 |
-| `GatewayAdapter` 无数据 | ESP32 未连接或 Wi-Fi 问题 | 检查 ESP32 固件 Wi-Fi SSID/密码，`curl http://192.168.43.221:8787/health` 确认在线 |
+| `GatewayAdapter` 无数据 | ESP32 未连接、Pi IP 配错或 Wi-Fi 问题 | 先停止 fusion，启动 `8787` 预览确认左右 micro:bit 是否持续刷新 |
 | 大量 `missing_sources` | Jitter buffer 太小或 BLE 信号差 | 增大 `jitter_buffer_ms` 到 300-350ms |
 | `Jitter buffer overflow` | 摄像头帧率远超消费速率 | 降低 `camera.fps` 或增大 `fusion_poll_interval_s` |
 | Pi 端 `ImportError` | 依赖缺失或路径不对 | 运行 4.2 节导入验证，确认 venv 已安装 pyyaml |
@@ -413,14 +445,18 @@ cd /home/ag1_client/aiot_conductor/project/hardware/fusion_pipeline
 
 ### 8.3 PC 端故障排查
 
+```powershell
+# PC 端确认 5000 和 9000 端口在监听
+netstat -ano | Select-String ':5000|:9000'
+
+# PC 端确认后端 API 正常
+Invoke-WebRequest -UseBasicParsing http://127.0.0.1:5000/api/status
+```
+
+Pi 端确认可以连到 PC：
+
 ```bash
-# 确认 9000 端口在监听
-lsof -i :9000
-
-# 确认 Pi 能连通 PC（在 Pi 上执行）
 nc -zv 192.168.43.209 9000
-
-# 后端日志 — 直接看 app.py 运行的终端输出
 ```
 
 ---

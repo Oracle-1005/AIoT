@@ -1,23 +1,23 @@
 # Raspberry Pi 项目配置与 LED 接入交接文档
 
-本文档记录 2026-07-22 树莓派 `AG1` 上当前可运行项目状态，用于后续接入 WS2812B LED 灯带/灯板控制。
+本文档记录 2026-07-23 树莓派 `AG1` 上当前可运行项目状态，用于后续接入 WS2812B LED 灯带/灯板控制。
 
 ## 1. 当前结论
 
-当前树莓派项目已形成三条可用链路：
+当前树莓派项目已经统一为一条正式融合链路：
 
 ```text
-Pi camera -> camera_to_Pi -> camera_landmark_frame JSON Lines
-micro:bit BLE -> microbit_to_Pi -> microbit_sensor_state/control_event JSON Lines
-micro:bit BLE -> ESP32 gateway -> UDP -> esp32_gateway_receiver -> 同结构 JSON Lines
+micro:bit L/R -> BLE 广播 -> ESP32 -> UDP:17778 -> Raspberry Pi
+Pi Camera -> Picamera2 + MediaPipe -> Raspberry Pi
+Raspberry Pi fusion_pipeline -> TCP:9000 -> PC backend
 ```
 
-后续 LED 控制建议不要直接消费 BLE 或摄像头底层对象，而是消费已经整理好的 JSON Lines / fusion 输出：
+后续 LED 控制建议不要直接消费 BLE、ESP32 UDP 或摄像头底层对象，而是消费已经整理好的 fusion 输出或 PC 下行命令：
 
-- `microbit_sensor_state`：用于姿态、动作强度、左右手权重。
-- `microbit_control_event`：用于暂停、继续、风格切换、紧急停止。
-- `camera_landmark_frame`：用于手部关键点和视觉置信度。
-- 后续 fusion 层输出：最适合作为 LED 模式、节拍、强度和左右分区控制输入。
+- `fused_frame`：包含左右 micro:bit 加速度/姿态、摄像头手部关键点和时间对齐信息，适合作为模型输入和 LED 强度/分区控制输入。
+- `control_event`：micro:bit 按键快速通道，适合触发暂停、继续、风格切换、紧急停止等动作。
+- `status`：链路健康状态，只用于监控，不作为训练样本。
+- 后续 PC -> Pi 下行的 `led_command`：建议作为正式 LED 控制入口。
 
 ## 2. 树莓派目录状态
 
@@ -38,14 +38,15 @@ camera_to_Pi/
   visual_verify.py
   .venv/
 
-microbit_to_Pi/
-  config.json
-  config.example.json
-  microbit_receiver/
-  tests/
-  tools/
-
 hardware/
+  fusion_pipeline/
+    main.py
+    config.yaml
+    gateway_adapter.py
+    camera_adapter.py
+    fusion_engine.py
+    tcp_client.py
+    pi-fusion.service
   microbit/microbit_to_pi/
     main.ts
     pxt.json
@@ -55,6 +56,8 @@ hardware/
     config.example.json
     esp32_gateway_receiver/
     tools/send_demo_gateway_frame.py
+  raspberry_pi_iot/led/
+    controller.py
 ```
 
 已清理项目源码目录中的 `__pycache__` 运行缓存。虚拟环境内部缓存没有清理，属于 Python 环境正常内容。
@@ -89,7 +92,7 @@ executable = /usr/bin/python3.13
 | `picamera2` | OK | Pi camera 采集 |
 | `mediapipe` | OK | 手部关键点识别 |
 | `cv2` | OK | 图像处理 |
-| `bleak` | OK | Pi 直接 BLE 接收 micro:bit |
+| `bleak` | OK | 旧 BLE 直连实验依赖，当前正式链路不依赖 |
 | `microbit_receiver` | OK | micro:bit 二进制协议解析与 JSON Lines 输出 |
 | `esp32_gateway_receiver` | OK | ESP32 UDP 网关接收 |
 | `yaml` | OK | 主项目 YAML 配置 |
@@ -117,28 +120,42 @@ sudo /home/ag1_client/aiot_conductor/project/camera_to_Pi/.venv/bin/python <led_
 
 ## 4. 当前运行中的服务
 
-当前发现的预览服务：
+正式服务：
 
 ```text
-live_preview_server.py --receiver-dir /home/ag1_client/aiot_conductor/project/microbit_to_Pi --config config.json --port 8787
-microbit_receiver.app --config /home/ag1_client/aiot_conductor/project/microbit_to_Pi/config.json
+pi-fusion.service
 ```
 
-这意味着浏览器预览服务会同时启动一个 `microbit_receiver.app` 子进程。不要再并行启动第二个 BLE receiver，否则会抢同一个 micro:bit 连接。
+`pi-fusion.service` 会同时占用：
+
+- UDP `17778`：接收 ESP32 网关数据；
+- Pi Camera：采集图像并运行 MediaPipe。
+
+因此 micro:bit 预览 `8787` 和摄像头预览 `8765` 都不能与 `pi-fusion.service` 同时运行。
 
 检查进程：
 
 ```bash
-ps -ef | grep -E 'live_preview_server|microbit_receiver.app|esp32_gateway_receiver' | grep -v grep
+systemctl is-active pi-fusion
+ss -ltnup | grep -E '(:17778|:8765|:8787)' || true
+ps -ef | grep -E 'pi-fusion|visual_verify|live_preview_server|esp32_gateway_receiver' | grep -v grep
 ```
 
-停止预览：
+停止正式服务：
 
 ```bash
-kill "$(cat /tmp/microbit_preview.pid)"
+sudo systemctl stop pi-fusion
 ```
 
-如果 PID 文件不存在，按 `ps` 输出手动 `kill <pid>`。
+停止预览服务：
+
+```bash
+kill "$(cat /tmp/camera_visual_verify.pid)" 2>/dev/null || true
+kill "$(cat /tmp/microbit_esp32_preview_8787.pid)" 2>/dev/null || true
+pkill -f visual_verify.py 2>/dev/null || true
+pkill -f live_preview_server.py 2>/dev/null || true
+pkill -f esp32_gateway_receiver.app 2>/dev/null || true
+```
 
 ## 5. Camera 配置
 
@@ -193,7 +210,9 @@ camera_landmark_frame
 
 用于 LED 时，建议只使用 `hands_detected`、`hands[]`、`pi_aligned_timestamp_ns` 和质量过滤后的关键点，不要让 LED 控制直接依赖原始 camera frame。
 
-## 6. micro:bit 直接 BLE 配置
+## 6. micro:bit 直接 BLE 配置（历史方案）
+
+本节只保留为旧方案记录。Pi 直接 BLE 双连接仍不稳定，典型错误是 `le-connection-abort-by-local`。当前正式链路应使用 ESP32 广播网关，不应在 LED 演示中重新启用 Pi 直连两块 micro:bit。
 
 配置文件：
 
@@ -221,8 +240,6 @@ camera_landmark_frame
 cd /home/ag1_client/aiot_conductor/project/microbit_to_Pi
 ../camera_to_Pi/.venv/bin/python -m microbit_receiver.app --config config.json --log-level INFO
 ```
-
-注意：Pi 直接 BLE 双连接仍不稳定，典型错误是 `le-connection-abort-by-local`。后续 LED 演示如果要求稳定，优先使用 ESP32 网关链路。
 
 ## 7. ESP32 BLE-to-Wi-Fi 网关配置
 
@@ -275,31 +292,12 @@ gateway.ble_rssi
 
 ## 8. 浏览器预览
 
-Pi 直接 BLE 预览：
-
-```bash
-cd /home/ag1_client/aiot_conductor/project
-camera_to_Pi/.venv/bin/python \
-  hardware/microbit/microbit_to_pi/tools/live_preview_server.py \
-  --receiver-dir /home/ag1_client/aiot_conductor/project/microbit_to_Pi \
-  --config config.json \
-  --python /home/ag1_client/aiot_conductor/project/camera_to_Pi/.venv/bin/python \
-  --host 0.0.0.0 \
-  --port 8787
-```
-
 ESP32 UDP 网关预览：
 
 ```bash
+sudo systemctl stop pi-fusion 2>/dev/null || true
 cd /home/ag1_client/aiot_conductor/project
-camera_to_Pi/.venv/bin/python \
-  hardware/microbit/microbit_to_pi/tools/live_preview_server.py \
-  --receiver-dir /home/ag1_client/aiot_conductor/project \
-  --config hardware/raspberry_pi/esp32_ble_gateway_to_Pi/config.example.json \
-  --python /home/ag1_client/aiot_conductor/project/camera_to_Pi/.venv/bin/python \
-  --receiver-module esp32_gateway_receiver.app \
-  --host 0.0.0.0 \
-  --port 8787
+bash hardware/raspberry_pi/esp32_ble_gateway_to_Pi/tools/start_gateway_preview.sh
 ```
 
 电脑端打开：
@@ -320,7 +318,7 @@ Invoke-WebRequest -UseBasicParsing -Uri http://192.168.43.221:8787/health
 仓库中已有 LED 控制器：
 
 ```text
-hardware/led/controller.py
+hardware/raspberry_pi_iot/led/controller.py
 ```
 
 当前设计：
@@ -365,23 +363,23 @@ led:
 
 建议新建一个最小脚本，调用 `LedController.clear()`、`show_beat()`、`update()`，不要接 camera/microbit。
 
-### 第二步：接 micro:bit 或 ESP32 gateway JSON Lines
+### 第二步：接 fusion 输出或 PC 下行命令
 
-目标：用 `microbit_sensor_state.raw` 驱动亮度/颜色。
+目标：用 `fused_frame.microbits[]` 和 `control_event.payload.event.type` 驱动亮度/颜色。
 
 建议映射：
 
 ```text
-left  micro:bit -> panel 0
-right micro:bit -> panel 1
-motion intensity = abs(norm(ax, ay, az) - 1000 mg)
-tilt hue = pitch/roll
-control_event emergency_stop -> clear/off
+left microbit  -> panel 0
+right microbit -> panel 1
+motion intensity = abs(norm(ax_mg, ay_mg, az_mg) - 1000 mg)
+tilt hue = pitch_deg / roll_deg
+control_event stop/cutoff -> clear/off
 ```
 
-### 第三步：接 fusion 输出
+### 第三步：接 PC 后端 LED 下行
 
-目标：LED 只消费融合后的高层特征。
+目标：PC 后端通过 `/api/pi/send` 向 Pi 发送 `led_command`，Pi 侧 LED 服务只消费下行命令，不直接耦合模型、摄像头或 ESP32 接收器。
 
 建议输出字段：
 
@@ -411,10 +409,10 @@ control_event emergency_stop -> clear/off
 
 建议后续整理：
 
-1. 将 `hardware/config.yaml` 中 micro:bit 地址同步为当前实测地址，且把 `microbit.target_sample_rate_hz` 从旧的 25 Hz 改为当前更稳定的 10 Hz。
-2. LED 接入前安装 `rpi_ws281x`，并增加一个独立 `led_smoke_test.py`。
-3. 若采用 ESP32 gateway，正式运行时停止 Pi 直接 BLE 预览服务，避免页面端口和数据源混淆。
-4. 后续将 `camera_to_Pi`、`microbit_to_Pi`、`esp32_ble_gateway_to_Pi` 的启动命令整理成 systemd service，LED 稳定后再自动启动。
+1. LED 接入前安装 `rpi_ws281x`，并增加一个独立 `led_smoke_test.py`。
+2. 在 Pi 侧实现 `led_command` 下行消费与 LED 控制器调用。
+3. 正式运行时只启动 `pi-fusion.service`，不要同时启动 `8765` 或 `8787` 预览。
+4. 如果需要采集训练数据，优先从 PC 后端 `pi_messages` 中导出 `fused_frame`，不要从多个预览服务分别取样。
 
 ## 12. 最小恢复命令
 
