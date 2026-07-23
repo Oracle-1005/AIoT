@@ -1,23 +1,16 @@
 /*
-  ESP32 BLE-to-Wi-Fi gateway for two micro:bit boards.
+  ESP32 BLE-advertising-to-Wi-Fi gateway for two micro:bit boards.
 
-  - ESP32 acts as BLE central.
-  - It subscribes to the MakeCode Nordic UART TX/Notify characteristic on each
-    micro:bit.
-  - Each 17 B sensor_state or 11 B control_event packet is wrapped in a small
-    binary UDP frame and sent to the Raspberry Pi.
-
-  Install in Arduino IDE:
-  - Boards Manager: esp32 by Espressif Systems
-  - Library Manager: NimBLE-Arduino
+  The ESP32 does not connect to micro:bit GATT services. It passively scans
+  Eddystone UID advertisements produced by the MakeCode sender, expands the
+  compact 16-byte advertising frame back to the existing project 17B/11B
+  micro:bit protocol, and sends it to Raspberry Pi over UDP.
 */
 
 #include <Arduino.h>
 #include <NimBLEDevice.h>
 #include <WiFi.h>
 #include <WiFiUdp.h>
-
-#include "MicrobitBleWifiGatewayTypes.h"
 
 // ------------------------- User configuration -------------------------
 
@@ -27,12 +20,11 @@ static const char* WIFI_PASSWORD = "CHANGE_ME";
 static const IPAddress PI_HOST(192, 168, 43, 221);
 static const uint16_t PI_UDP_PORT = 17778;
 
-static const char* LEFT_MICROBIT_ADDRESS = "E7:C8:C1:AF:21:46";
-static const char* RIGHT_MICROBIT_ADDRESS = "FD:15:9A:47:7F:8F";
+// ------------------------- Advertising protocol -----------------------
 
-// micro:bit MakeCode UART Service UUIDs.
-static NimBLEUUID UART_SERVICE_UUID("6e400001-b5a3-f393-e0a9-e50e24dcca9e");
-static NimBLEUUID UART_TX_NOTIFY_UUID("6e400002-b5a3-f393-e0a9-e50e24dcca9e");
+static const uint8_t ADV_SENSOR = 0xa1;
+static const uint8_t ADV_CONTROL = 0xa2;
+static const NimBLEUUID EDDYSTONE_UUID("feaa");
 
 // ------------------------- Gateway UDP frame --------------------------
 
@@ -45,6 +37,17 @@ static_assert(MAX_UDP_PACKET_LEN <= 64, "gateway frame should stay small");
 
 WiFiUDP udp;
 uint32_t gatewaySequence = 0;
+bool udpStarted = false;
+
+uint16_t lastSensorSeq[2] = {0xffff, 0xffff};
+uint32_t lastControlKey[2] = {0xffffffff, 0xffffffff};
+uint32_t lastPacketMs[2] = {0, 0};
+int8_t lastRssi[2] = {-127, -127};
+
+static void putU16LE(uint8_t* dst, uint16_t value) {
+  dst[0] = value & 0xff;
+  dst[1] = (value >> 8) & 0xff;
+}
 
 static void putU32LE(uint8_t* dst, uint32_t value) {
   dst[0] = value & 0xff;
@@ -53,14 +56,48 @@ static void putU32LE(uint8_t* dst, uint32_t value) {
   dst[3] = (value >> 24) & 0xff;
 }
 
-MicrobitLink links[] = {
-  {"left", LEFT_MICROBIT_ADDRESS, 0, nullptr, nullptr, false, 0, 0, -127},
-  {"right", RIGHT_MICROBIT_ADDRESS, 1, nullptr, nullptr, false, 0, 0, -127},
-};
+static uint16_t getU16LE(const uint8_t* src) {
+  return static_cast<uint16_t>(src[0]) | (static_cast<uint16_t>(src[1]) << 8);
+}
 
-static void sendGatewayFrame(MicrobitLink* link, const uint8_t* data, size_t len) {
+static uint32_t getU32LE(const uint8_t* src) {
+  return static_cast<uint32_t>(src[0]) |
+         (static_cast<uint32_t>(src[1]) << 8) |
+         (static_cast<uint32_t>(src[2]) << 16) |
+         (static_cast<uint32_t>(src[3]) << 24);
+}
+
+static uint8_t handFromHeader(uint8_t header) {
+  return (header >> 2) & 0x01;
+}
+
+static void connectWiFi() {
+  if (WiFi.status() == WL_CONNECTED) {
+    if (!udpStarted) {
+      udp.begin(0);
+      udpStarted = true;
+      Serial.printf("Wi-Fi connected: %s\n", WiFi.localIP().toString().c_str());
+    }
+    return;
+  }
+
+  udpStarted = false;
+  static uint32_t lastWiFiAttemptMs = 0;
+  const uint32_t nowMs = millis();
+  if (nowMs - lastWiFiAttemptMs < 10000) {
+    return;
+  }
+  lastWiFiAttemptMs = nowMs;
+
+  Serial.printf("Connecting Wi-Fi SSID=%s\n", WIFI_SSID);
+  WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);
+  WiFi.disconnect(false);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+}
+
+static void sendGatewayFrame(uint8_t connIndex, int8_t rssi, const uint8_t* payload, size_t len) {
   if (len != 17 && len != 11) {
-    Serial.printf("[%s] drop unexpected packet length: %u\n", link->label, (unsigned)len);
     return;
   }
   if (WiFi.status() != WL_CONNECTED) {
@@ -75,132 +112,120 @@ static void sendGatewayFrame(MicrobitLink* link, const uint8_t* data, size_t len
   frame[4] = GATEWAY_VERSION;
   frame[5] = GATEWAY_HEADER_LEN;
   frame[6] = static_cast<uint8_t>(len);
-  frame[7] = 0;  // flags, reserved for future use.
+  frame[7] = 1;  // flags: bit0 means source is BLE advertising.
   putU32LE(frame + 8, gatewaySequence++);
   putU32LE(frame + 12, micros());
-  frame[16] = link->connIndex;
-  frame[17] = static_cast<uint8_t>(link->lastRssi);
-  memcpy(frame + GATEWAY_HEADER_LEN, data, len);
+  frame[16] = connIndex;
+  frame[17] = static_cast<uint8_t>(rssi);
+  memcpy(frame + GATEWAY_HEADER_LEN, payload, len);
 
   udp.beginPacket(PI_HOST, PI_UDP_PORT);
   udp.write(frame, GATEWAY_HEADER_LEN + len);
   udp.endPacket();
-  link->lastPacketMs = millis();
 }
 
-static void onMicrobitNotify(
-    MicrobitLink* link,
-    NimBLERemoteCharacteristic*,
-    uint8_t* data,
-    size_t len,
-    bool) {
-  sendGatewayFrame(link, data, len);
-}
-
-class GatewayClientCallbacks : public NimBLEClientCallbacks {
- public:
-  void onDisconnect(NimBLEClient* client, int reason) override {
-    for (MicrobitLink& link : links) {
-      if (link.client == client) {
-        link.subscribed = false;
-        link.notifyChar = nullptr;
-        Serial.printf("[%s] disconnected, reason=%d\n", link.label, reason);
-      }
-    }
-  }
-};
-
-static GatewayClientCallbacks clientCallbacks;
-
-static void connectWiFi() {
-  if (WiFi.status() == WL_CONNECTED) {
-    return;
-  }
-  Serial.printf("Connecting Wi-Fi SSID=%s\n", WIFI_SSID);
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.printf("\nWi-Fi connected: %s\n", WiFi.localIP().toString().c_str());
-  udp.begin(0);
-}
-
-static bool connectMicrobit(MicrobitLink& link) {
-  const uint32_t nowMs = millis();
-  if (link.client != nullptr && link.client->isConnected() && link.subscribed) {
-    return true;
-  }
-  if (nowMs - link.lastConnectAttemptMs < 5000) {
-    return false;
-  }
-  link.lastConnectAttemptMs = nowMs;
-  link.subscribed = false;
-
-  Serial.printf("[%s] connecting %s\n", link.label, link.address);
-  if (link.client == nullptr) {
-    link.client = NimBLEDevice::createClient();
-    link.client->setClientCallbacks(&clientCallbacks, false);
-    link.client->setConnectTimeout(10);
-  } else if (link.client->isConnected()) {
-    link.client->disconnect();
-  }
-
-  NimBLEAddress address(link.address, BLE_ADDR_RANDOM);
-  if (!link.client->connect(address)) {
-    Serial.printf("[%s] connect failed\n", link.label);
+static bool expandSensorPayload(const uint8_t* uid, uint8_t* payload) {
+  const uint8_t header = uid[1];
+  const uint8_t hand = handFromHeader(header);
+  if (hand > 1) {
     return false;
   }
 
-  NimBLERemoteService* service = link.client->getService(UART_SERVICE_UUID);
-  if (service == nullptr) {
-    Serial.printf("[%s] UART service not found\n", link.label);
-    link.client->disconnect();
+  const uint16_t seq = getU16LE(uid + 2);
+  if (seq == lastSensorSeq[hand]) {
     return false;
   }
+  lastSensorSeq[hand] = seq;
 
-  link.notifyChar = service->getCharacteristic(UART_TX_NOTIFY_UUID);
-  if (link.notifyChar == nullptr || !link.notifyChar->canNotify()) {
-    Serial.printf("[%s] UART TX notify characteristic not found\n", link.label);
-    link.client->disconnect();
-    return false;
-  }
-
-  MicrobitLink* linkPtr = &link;
-  const bool ok = link.notifyChar->subscribe(
-      true,
-      [linkPtr](NimBLERemoteCharacteristic* characteristic,
-                uint8_t* data,
-                size_t len,
-                bool isNotify) {
-        onMicrobitNotify(linkPtr, characteristic, data, len, isNotify);
-      });
-  if (!ok) {
-    Serial.printf("[%s] subscribe failed\n", link.label);
-    link.client->disconnect();
-    return false;
-  }
-
-  link.subscribed = true;
-  link.lastRssi = static_cast<int8_t>(link.client->getRssi());
-  Serial.printf("[%s] subscribed, rssi=%d\n", link.label, link.lastRssi);
+  payload[0] = header;
+  memcpy(payload + 1, uid + 2, 2);   // sequence
+  memcpy(payload + 3, uid + 4, 4);   // timestamp_ms
+  memcpy(payload + 7, uid + 8, 6);   // ax, ay, az
+  const int16_t pitch = static_cast<int8_t>(uid[14]);
+  const int16_t roll = static_cast<int8_t>(uid[15]);
+  putU16LE(payload + 13, static_cast<uint16_t>(pitch));
+  putU16LE(payload + 15, static_cast<uint16_t>(roll));
   return true;
 }
 
-static void updateRssi() {
-  static uint32_t lastRssiMs = 0;
-  const uint32_t nowMs = millis();
-  if (nowMs - lastRssiMs < 3000) {
-    return;
+static bool expandControlPayload(const uint8_t* uid, uint8_t* payload) {
+  const uint8_t header = uid[1];
+  const uint8_t hand = handFromHeader(header);
+  if (hand > 1) {
+    return false;
   }
-  lastRssiMs = nowMs;
-  for (MicrobitLink& link : links) {
-    if (link.client != nullptr && link.client->isConnected()) {
-      link.lastRssi = static_cast<int8_t>(link.client->getRssi());
-    }
+
+  const uint16_t seq = getU16LE(uid + 2);
+  const uint8_t repeatIndex = uid[10];
+  const uint32_t key = (static_cast<uint32_t>(seq) << 8) | repeatIndex;
+  if (key == lastControlKey[hand]) {
+    return false;
   }
+  lastControlKey[hand] = key;
+
+  memcpy(payload, uid + 1, 11);
+  return true;
 }
+
+static bool parseEddystoneUid(const NimBLEAdvertisedDevice* advertisedDevice, uint8_t* uid) {
+  if (!advertisedDevice->haveServiceData()) {
+    return false;
+  }
+
+  const std::string serviceData = advertisedDevice->getServiceData(EDDYSTONE_UUID);
+  if (serviceData.size() < 18) {
+    return false;
+  }
+
+  const uint8_t* data = reinterpret_cast<const uint8_t*>(serviceData.data());
+  if (data[0] != 0x00) {
+    return false;
+  }
+
+  memcpy(uid, data + 2, 16);
+  return uid[0] == ADV_SENSOR || uid[0] == ADV_CONTROL;
+}
+
+class AdvertisingScanCallbacks : public NimBLEScanCallbacks {
+ public:
+  void onResult(const NimBLEAdvertisedDevice* advertisedDevice) override {
+    uint8_t uid[16] = {0};
+    if (!parseEddystoneUid(advertisedDevice, uid)) {
+      return;
+    }
+
+    uint8_t payload[17] = {0};
+    const int8_t rssi = advertisedDevice->getRSSI();
+    const uint8_t hand = handFromHeader(uid[1]);
+    if (hand > 1) {
+      return;
+    }
+
+    bool ok = false;
+    size_t payloadLen = 0;
+    if (uid[0] == ADV_SENSOR) {
+      ok = expandSensorPayload(uid, payload);
+      payloadLen = 17;
+    } else if (uid[0] == ADV_CONTROL) {
+      ok = expandControlPayload(uid, payload);
+      payloadLen = 11;
+    }
+    if (!ok) {
+      return;
+    }
+
+    lastRssi[hand] = rssi;
+    lastPacketMs[hand] = millis();
+    sendGatewayFrame(hand, rssi, payload, payloadLen);
+  }
+
+  void onScanEnd(const NimBLEScanResults& results, int reason) override {
+    Serial.printf("scan ended reason=%d seen=%d; restarting\n", reason, results.getCount());
+    NimBLEDevice::getScan()->start(0, false, true);
+  }
+};
+
+static AdvertisingScanCallbacks scanCallbacks;
 
 static void printHeartbeat() {
   static uint32_t lastPrintMs = 0;
@@ -209,37 +234,42 @@ static void printHeartbeat() {
     return;
   }
   lastPrintMs = nowMs;
-  Serial.printf("gateway seq=%lu wifi=%s\n",
+
+  Serial.printf("gateway seq=%lu wifi=%s mode=advertising\n",
                 static_cast<unsigned long>(gatewaySequence),
                 WiFi.status() == WL_CONNECTED ? "up" : "down");
-  for (const MicrobitLink& link : links) {
-    const bool connected = link.client != nullptr && link.client->isConnected();
-    Serial.printf("  [%s] connected=%d subscribed=%d age_ms=%lu rssi=%d\n",
-                  link.label,
-                  connected,
-                  link.subscribed,
-                  link.lastPacketMs == 0 ? 0 : static_cast<unsigned long>(nowMs - link.lastPacketMs),
-                  link.lastRssi);
+  for (uint8_t hand = 0; hand < 2; hand++) {
+    Serial.printf("  [%s] age_ms=%lu rssi=%d last_sensor_seq=%u\n",
+                  hand == 0 ? "left" : "right",
+                  lastPacketMs[hand] == 0 ? 0 : static_cast<unsigned long>(nowMs - lastPacketMs[hand]),
+                  lastRssi[hand],
+                  lastSensorSeq[hand]);
   }
 }
 
 void setup() {
   Serial.begin(115200);
   delay(1000);
+
+  WiFi.persistent(false);
+  WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);
   connectWiFi();
 
-  NimBLEDevice::init("microbit-wifi-gateway");
+  NimBLEDevice::init("microbit-adv-gateway");
   NimBLEDevice::setPower(ESP_PWR_LVL_P9);
-  NimBLEDevice::setSecurityAuth(false, false, false);
-  Serial.println("BLE gateway started");
+
+  NimBLEScan* scan = NimBLEDevice::getScan();
+  scan->setScanCallbacks(&scanCallbacks, true);
+  scan->setActiveScan(false);
+  scan->setInterval(100);
+  scan->setWindow(90);
+  scan->start(0, false, true);
+  Serial.println("BLE advertising gateway started");
 }
 
 void loop() {
   connectWiFi();
-  for (MicrobitLink& link : links) {
-    connectMicrobit(link);
-  }
-  updateRssi();
   printHeartbeat();
   delay(50);
 }

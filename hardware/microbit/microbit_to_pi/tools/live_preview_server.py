@@ -26,7 +26,7 @@ INDEX_HTML = r"""<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>micro:bit BLE Preview</title>
+  <title>micro:bit Dual Preview</title>
   <style>
     :root {
       color-scheme: light;
@@ -39,6 +39,7 @@ INDEX_HTML = r"""<!doctype html>
       --green: #138a53;
       --red: #bd2f3a;
       --amber: #b46a00;
+      --violet: #6b4fd8;
     }
     * { box-sizing: border-box; }
     body {
@@ -64,6 +65,13 @@ INDEX_HTML = r"""<!doctype html>
       font-size: 14px;
       color: var(--muted);
     }
+    .status-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
     .dot {
       width: 10px;
       height: 10px;
@@ -77,7 +85,7 @@ INDEX_HTML = r"""<!doctype html>
       margin: 0 auto;
       padding: 18px;
       display: grid;
-      grid-template-columns: minmax(280px, 360px) 1fr;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 16px;
     }
     section {
@@ -86,14 +94,29 @@ INDEX_HTML = r"""<!doctype html>
       border-radius: 8px;
       padding: 16px;
     }
+    .device {
+      display: grid;
+      gap: 14px;
+      align-content: start;
+    }
+    .device-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
     .title {
-      margin: 0 0 12px;
-      font-size: 14px;
+      margin: 0;
+      font-size: 15px;
       font-weight: 700;
+      color: var(--ink);
+    }
+    .subtle {
       color: var(--muted);
+      font-size: 13px;
     }
     .tilt-wrap {
-      height: 250px;
+      height: 190px;
       display: grid;
       place-items: center;
       perspective: 700px;
@@ -105,14 +128,17 @@ INDEX_HTML = r"""<!doctype html>
       width: 150px;
       height: 96px;
       border-radius: 8px;
-      background: linear-gradient(135deg, #2d73d5, #22a06b);
+      background: linear-gradient(135deg, #2364d2, #138a53);
       box-shadow: 0 14px 34px rgba(23, 32, 51, 0.22);
       transform-style: preserve-3d;
       transition: transform 90ms linear;
       position: relative;
     }
+    .tilt.right {
+      background: linear-gradient(135deg, #6b4fd8, #bd2f3a);
+    }
     .tilt::before {
-      content: "micro:bit";
+      content: attr(data-label);
       position: absolute;
       inset: 12px;
       border: 2px solid rgba(255,255,255,0.7);
@@ -133,7 +159,7 @@ INDEX_HTML = r"""<!doctype html>
       border: 1px solid var(--line);
       border-radius: 8px;
       padding: 10px;
-      min-height: 64px;
+      min-height: 58px;
     }
     .label {
       display: block;
@@ -181,7 +207,7 @@ INDEX_HTML = r"""<!doctype html>
     }
     canvas {
       width: 100%;
-      height: 210px;
+      height: 150px;
       border: 1px solid var(--line);
       border-radius: 8px;
       background: #fbfcff;
@@ -198,7 +224,10 @@ INDEX_HTML = r"""<!doctype html>
       font-size: 12px;
       white-space: pre-wrap;
     }
-    .events {
+    .wide {
+      grid-column: 1 / -1;
+    }
+    .logs {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 16px;
@@ -206,37 +235,66 @@ INDEX_HTML = r"""<!doctype html>
     @media (max-width: 860px) {
       main { grid-template-columns: 1fr; padding: 12px; }
       header { padding: 0 12px; }
-      .events { grid-template-columns: 1fr; }
+      .logs { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
   <header>
-    <h1>micro:bit BLE Preview</h1>
-    <div class="status"><span id="dot" class="dot"></span><span id="status">waiting</span></div>
+    <h1>micro:bit 双路预览</h1>
+    <div class="status-group">
+      <div class="status"><span id="left-dot" class="dot"></span><span id="left-status">left waiting</span></div>
+      <div class="status"><span id="right-dot" class="dot"></span><span id="right-status">right waiting</span></div>
+    </div>
   </header>
   <main>
-    <section>
-      <p class="title">姿态预览</p>
-      <div class="tilt-wrap"><div id="tilt" class="tilt"></div></div>
+    <section class="device" id="left-panel">
+      <div class="device-head">
+        <p class="title">左手 micro:bit</p>
+        <span id="left-link" class="subtle">waiting</span>
+      </div>
+      <div class="tilt-wrap"><div id="left-tilt" class="tilt" data-label="LEFT"></div></div>
       <div class="metrics">
-        <div class="metric"><span class="label">pitch</span><span id="pitch" class="value">--</span></div>
-        <div class="metric"><span class="label">roll</span><span id="roll" class="value">--</span></div>
-        <div class="metric"><span class="label">sequence</span><span id="seq" class="value">--</span></div>
-        <div class="metric"><span class="label">age</span><span id="age" class="value">--</span></div>
+        <div class="metric"><span class="label">pitch</span><span id="left-pitch" class="value">--</span></div>
+        <div class="metric"><span class="label">roll</span><span id="left-roll" class="value">--</span></div>
+        <div class="metric"><span class="label">sequence</span><span id="left-seq" class="value">--</span></div>
+        <div class="metric"><span class="label">age</span><span id="left-age" class="value">--</span></div>
+        <div class="metric"><span class="label">RSSI</span><span id="left-rssi" class="value">--</span></div>
+        <div class="metric"><span class="label">gap</span><span id="left-gap" class="value">--</span></div>
       </div>
-    </section>
-    <section>
-      <p class="title">三轴加速度</p>
       <div class="bars">
-        <div class="bar-row"><span>ax</span><div class="bar-track"><span class="bar-zero"></span><span id="bar-ax" class="bar"></span></div><span id="ax">--</span></div>
-        <div class="bar-row"><span>ay</span><div class="bar-track"><span class="bar-zero"></span><span id="bar-ay" class="bar"></span></div><span id="ay">--</span></div>
-        <div class="bar-row"><span>az</span><div class="bar-track"><span class="bar-zero"></span><span id="bar-az" class="bar"></span></div><span id="az">--</span></div>
+        <div class="bar-row"><span>ax</span><div class="bar-track"><span class="bar-zero"></span><span id="left-bar-ax" class="bar"></span></div><span id="left-ax">--</span></div>
+        <div class="bar-row"><span>ay</span><div class="bar-track"><span class="bar-zero"></span><span id="left-bar-ay" class="bar"></span></div><span id="left-ay">--</span></div>
+        <div class="bar-row"><span>az</span><div class="bar-track"><span class="bar-zero"></span><span id="left-bar-az" class="bar"></span></div><span id="left-az">--</span></div>
       </div>
-      <div style="height:14px"></div>
-      <canvas id="chart" width="900" height="260"></canvas>
+      <canvas id="left-chart" width="560" height="180"></canvas>
+      <pre id="left-raw"></pre>
     </section>
-    <section class="events">
+
+    <section class="device" id="right-panel">
+      <div class="device-head">
+        <p class="title">右手 micro:bit</p>
+        <span id="right-link" class="subtle">waiting</span>
+      </div>
+      <div class="tilt-wrap"><div id="right-tilt" class="tilt right" data-label="RIGHT"></div></div>
+      <div class="metrics">
+        <div class="metric"><span class="label">pitch</span><span id="right-pitch" class="value">--</span></div>
+        <div class="metric"><span class="label">roll</span><span id="right-roll" class="value">--</span></div>
+        <div class="metric"><span class="label">sequence</span><span id="right-seq" class="value">--</span></div>
+        <div class="metric"><span class="label">age</span><span id="right-age" class="value">--</span></div>
+        <div class="metric"><span class="label">RSSI</span><span id="right-rssi" class="value">--</span></div>
+        <div class="metric"><span class="label">gap</span><span id="right-gap" class="value">--</span></div>
+      </div>
+      <div class="bars">
+        <div class="bar-row"><span>ax</span><div class="bar-track"><span class="bar-zero"></span><span id="right-bar-ax" class="bar"></span></div><span id="right-ax">--</span></div>
+        <div class="bar-row"><span>ay</span><div class="bar-track"><span class="bar-zero"></span><span id="right-bar-ay" class="bar"></span></div><span id="right-ay">--</span></div>
+        <div class="bar-row"><span>az</span><div class="bar-track"><span class="bar-zero"></span><span id="right-bar-az" class="bar"></span></div><span id="right-az">--</span></div>
+      </div>
+      <canvas id="right-chart" width="560" height="180"></canvas>
+      <pre id="right-raw"></pre>
+    </section>
+
+    <section class="wide logs">
       <div>
         <p class="title">最近控制事件</p>
         <pre id="events"></pre>
@@ -246,25 +304,29 @@ INDEX_HTML = r"""<!doctype html>
         <pre id="logs"></pre>
       </div>
     </section>
-    <section>
-      <p class="title">最近原始数据</p>
-      <pre id="raw"></pre>
-    </section>
   </main>
   <script>
     const state = {
-      lastSampleAt: 0,
-      samples: [],
+      devices: {
+        left: { lastSampleAt: 0, samples: [], latest: null },
+        right: { lastSampleAt: 0, samples: [], latest: null }
+      },
       events: [],
       logs: []
     };
     const $ = (id) => document.getElementById(id);
     const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+    function sourceOf(item) {
+      if (item.source === "left" || item.source === "right") return item.source;
+      if (item.hand === 0) return "left";
+      if (item.hand === 1) return "right";
+      return null;
+    }
     function rawOf(item, key) {
       return item.raw && item.raw[key] !== undefined ? item.raw[key] : item[key];
     }
-    function setBar(axis, value) {
-      const bar = $(`bar-${axis}`);
+    function setBar(source, axis, value) {
+      const bar = $(`${source}-bar-${axis}`);
       const pct = clamp(value / 4000, -1, 1) * 50;
       if (pct >= 0) {
         bar.style.left = "50%";
@@ -274,9 +336,10 @@ INDEX_HTML = r"""<!doctype html>
         bar.style.width = (-pct) + "%";
       }
     }
-    function drawChart() {
-      const canvas = $("chart");
+    function drawChart(source) {
+      const canvas = $(`${source}-chart`);
       const ctx = canvas.getContext("2d");
+      const samples = state.devices[source].samples;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.strokeStyle = "#d9e0ec";
       ctx.lineWidth = 1;
@@ -296,9 +359,9 @@ INDEX_HTML = r"""<!doctype html>
         ctx.strokeStyle = color;
         ctx.lineWidth = 2;
         ctx.beginPath();
-        state.samples.forEach((sample, index) => {
+        samples.forEach((sample, index) => {
           const value = key === "az" ? rawOf(sample, "az_mg") : rawOf(sample, `${key}_deg`);
-          const x = index * canvas.width / Math.max(1, state.samples.length - 1);
+          const x = index * canvas.width / Math.max(1, samples.length - 1);
           const y = canvas.height / 2 - clamp(value / scale, -1, 1) * canvas.height * 0.42;
           if (index === 0) ctx.moveTo(x, y);
           else ctx.lineTo(x, y);
@@ -314,26 +377,32 @@ INDEX_HTML = r"""<!doctype html>
       ctx.fillText("az", 130, 20);
     }
     function updateSample(item) {
+      const source = sourceOf(item);
+      if (!source) return;
       const pitch = rawOf(item, "pitch_deg") || 0;
       const roll = rawOf(item, "roll_deg") || 0;
       const ax = rawOf(item, "ax_mg") || 0;
       const ay = rawOf(item, "ay_mg") || 0;
       const az = rawOf(item, "az_mg") || 0;
-      $("tilt").style.transform = `rotateX(${-pitch}deg) rotateY(${roll}deg)`;
-      $("pitch").textContent = `${pitch}°`;
-      $("roll").textContent = `${roll}°`;
-      $("seq").textContent = item.sample_sequence ?? item.sequence ?? "--";
-      $("ax").textContent = `${ax} mg`;
-      $("ay").textContent = `${ay} mg`;
-      $("az").textContent = `${az} mg`;
-      setBar("ax", ax);
-      setBar("ay", ay);
-      setBar("az", az);
-      $("raw").textContent = JSON.stringify(item, null, 2);
-      state.lastSampleAt = Date.now();
-      state.samples.push(item);
-      if (state.samples.length > 180) state.samples.shift();
-      drawChart();
+      const device = state.devices[source];
+      $(`${source}-tilt`).style.transform = `rotateX(${-pitch}deg) rotateY(${roll}deg)`;
+      $(`${source}-pitch`).textContent = `${pitch}°`;
+      $(`${source}-roll`).textContent = `${roll}°`;
+      $(`${source}-seq`).textContent = item.sample_sequence ?? item.sequence ?? "--";
+      $(`${source}-ax`).textContent = `${ax} mg`;
+      $(`${source}-ay`).textContent = `${ay} mg`;
+      $(`${source}-az`).textContent = `${az} mg`;
+      $(`${source}-rssi`).textContent = item.gateway && item.gateway.ble_rssi !== undefined ? `${item.gateway.ble_rssi} dBm` : "--";
+      $(`${source}-gap`).textContent = item.missing_sample_count !== undefined ? `${item.missing_sample_count}` : "--";
+      $(`${source}-raw`).textContent = JSON.stringify(item, null, 2);
+      setBar(source, "ax", ax);
+      setBar(source, "ay", ay);
+      setBar(source, "az", az);
+      device.lastSampleAt = Date.now();
+      device.latest = item;
+      device.samples.push(item);
+      if (device.samples.length > 120) device.samples.shift();
+      drawChart(source);
     }
     function addLine(listName, elementId, line) {
       state[listName].unshift(line);
@@ -345,14 +414,22 @@ INDEX_HTML = r"""<!doctype html>
     es.addEventListener("control", (event) => addLine("events", "events", JSON.stringify(JSON.parse(event.data))));
     es.addEventListener("log", (event) => addLine("logs", "logs", event.data));
     es.onerror = () => {
-      $("status").textContent = "stream disconnected";
-      $("dot").className = "dot stale";
+      for (const source of ["left", "right"]) {
+        $(`${source}-status`).textContent = `${source} stream disconnected`;
+        $(`${source}-dot`).className = "dot stale";
+      }
     };
     setInterval(() => {
-      const age = state.lastSampleAt ? Date.now() - state.lastSampleAt : Infinity;
-      $("age").textContent = Number.isFinite(age) ? `${Math.round(age)} ms` : "--";
-      $("status").textContent = age < 1200 ? "live" : "waiting for samples";
-      $("dot").className = age < 1200 ? "dot live" : "dot stale";
+      for (const source of ["left", "right"]) {
+        const device = state.devices[source];
+        const age = device.lastSampleAt ? Date.now() - device.lastSampleAt : Infinity;
+        const live = age < 1200;
+        const ageText = Number.isFinite(age) ? `${Math.round(age)} ms` : "--";
+        $(`${source}-age`).textContent = ageText;
+        $(`${source}-status`).textContent = live ? `${source} live` : `${source} waiting`;
+        $(`${source}-link`).textContent = live ? `live, age ${ageText}` : "waiting";
+        $(`${source}-dot`).className = live ? "dot live" : "dot stale";
+      }
     }, 300);
   </script>
 </body>
@@ -365,14 +442,15 @@ class Hub:
         self.clients: list[queue.Queue[tuple[str, str]]] = []
         self.lock = threading.Lock()
         self.latest: dict[str, Any] | None = None
+        self.latest_by_source: dict[str, dict[str, Any]] = {}
         self.logs: list[str] = []
 
     def subscribe(self) -> queue.Queue[tuple[str, str]]:
         client_queue: queue.Queue[tuple[str, str]] = queue.Queue()
         with self.lock:
             self.clients.append(client_queue)
-            if self.latest is not None:
-                client_queue.put(("sample", json.dumps(self.latest, ensure_ascii=False)))
+            for item in self.latest_by_source.values():
+                client_queue.put(("sample", json.dumps(item, ensure_ascii=False)))
             for line in self.logs[-8:]:
                 client_queue.put(("log", line))
         return client_queue
@@ -387,6 +465,9 @@ class Hub:
             if event_name == "sample":
                 try:
                     self.latest = json.loads(payload)
+                    source = str(self.latest.get("source", ""))
+                    if source in {"left", "right"}:
+                        self.latest_by_source[source] = self.latest
                 except json.JSONDecodeError:
                     pass
             elif event_name == "log":
@@ -414,7 +495,10 @@ def make_handler(hub: Hub) -> type[BaseHTTPRequestHandler]:
                 return
 
             if self.path == "/health":
-                body = json.dumps({"ok": True, "latest": hub.latest}, ensure_ascii=False).encode("utf-8")
+                body = json.dumps(
+                    {"ok": True, "latest": hub.latest, "latest_by_source": hub.latest_by_source},
+                    ensure_ascii=False,
+                ).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))

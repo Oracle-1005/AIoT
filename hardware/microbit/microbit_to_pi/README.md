@@ -1,9 +1,12 @@
-# 双 micro:bit → 树莓派 BLE 代码 Demo
+# 双 micro:bit → 树莓派数据链路代码 Demo
+
+> 当前推荐实机链路：micro:bit v2 使用 BLE 广播发送数据，ESP32 扫描广播后通过 UDP 转发到树莓派。旧的“树莓派或 ESP32 同时连接两块 micro:bit BLE UART/GATT”方案仍保留在代码与文档中作为参考，但不再作为稳定性优先的默认方案。
 
 本项目依据 `Microbit_to_Pi_v01.md` 实现：
 
-- micro:bit：MakeCode TypeScript，采集三轴加速度、Pitch、Roll，完成按键防抖、长按和组合键判断，发送 17 B/11 B 小端序二进制包；
-- 树莓派：Python + Bleak，同时连接左右腕，校验、解析、序号跟踪、控制事件去重，并分流到状态队列和优先控制队列；
+- micro:bit：MakeCode TypeScript，采集三轴加速度、Pitch、Roll，完成按键防抖、长按和组合键判断；当前广播固件将数据压缩进 Eddystone UID 广播载荷；
+- ESP32：扫描左右 micro:bit 广播，按 `HAND=0/1` 还原为项目原始 17 B/11 B 小端序二进制包，并通过 UDP 发给树莓派；
+- 树莓派：接收 ESP32 UDP 网关帧，校验、解析、序号跟踪、控制事件去重，并分流到状态队列和优先控制队列；
 - 输出：UTF-8 JSON Lines，方便后续时间同步、摄像头融合或发送到 PC。
 
 ## 目录
@@ -21,7 +24,19 @@ raspberry_pi/
   tools/                本地示例包解析脚本
 ```
 
-需要直观看到实时数据时，按 `MICROBIT_VISUAL_VERIFICATION.md` 启动 `tools/live_preview_server.py`，然后在浏览器打开树莓派预览页。
+需要直观看到实时数据时，优先使用 `hardware/raspberry_pi/esp32_ble_gateway_to_Pi` 的 UDP receiver；旧版直连 BLE 预览仍可按 `MICROBIT_VISUAL_VERIFICATION.md` 启动 `tools/live_preview_server.py`。
+
+## 当前 v2 广播方案状态
+
+截至 2026-07-23，已在两块 micro:bit v2 上烧录广播固件：
+
+- 左手：`HAND = 0`；
+- 右手：`HAND = 1`；
+- 广播周期：`SAMPLE_PERIOD_MS = 200`；
+- 广播格式：Eddystone UID 载荷内的 16 B 紧凑包；
+- ESP32 不连接、不配对、不依赖 micro:bit 地址，只扫描并解析广播。
+
+树莓派端已验证能收到 ESP32 转发的左右手数据，输出中的 `gateway.flags = 1` 表示数据来自广播转发链路。广播是无确认链路，因此偶发 `sequence_gap` 属于正常现象；判断是否稳定应看左右两侧是否持续刷新，而不是要求每一个序号都完整到达。
 
 ## 当前实测地址与预览入口
 
