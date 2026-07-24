@@ -1,0 +1,653 @@
+﻿{
+    "status":  {
+                   "camera_connected":  true,
+                   "inference":  {
+                                     "camera_frames_seen":  1047,
+                                     "camera_samples":  {
+                                                            "left":  0,
+                                                            "right":  0
+                                                        },
+                                     "duplicates_dropped":  1784,
+                                     "infer_every_n_frames":  3,
+                                     "last_error":  null,
+                                     "last_sequences":  {
+                                                            "left":  0,
+                                                            "right":  0
+                                                        },
+                                     "microbit_samples":  {
+                                                              "left":  30,
+                                                              "right":  30
+                                                          },
+                                     "min_camera_frames":  15,
+                                     "predictions":  0,
+                                     "samples":  {
+                                                     "left":  0,
+                                                     "right":  0
+                                                 },
+                                     "window_features_auto_infer":  true,
+                                     "window_size":  30
+                                 },
+                   "microbit_left":  true,
+                   "microbit_right":  true,
+                   "model_loaded":  true,
+                   "pi_gateway":  {
+                                      "client_address":  [
+                                                             "192.168.43.221",
+                                                             48422
+                                                         ],
+                                      "connected":  true,
+                                      "connected_at":  1784870984.6958964,
+                                      "enabled":  true,
+                                      "last_error":  null,
+                                      "last_received_at":  1784871045.2139044,
+                                      "listen_host":  "0.0.0.0",
+                                      "listen_port":  9000,
+                                      "received_messages":  1111,
+                                      "running":  true,
+                                      "sent_messages":  0
+                                  },
+                   "sonic_pi":  {
+                                    "attempted_messages":  0,
+                                    "available":  true,
+                                    "connected":  false,
+                                    "enabled":  true,
+                                    "last_error":  null,
+                                    "last_feedback_at":  null,
+                                    "last_sent_command":  null,
+                                    "listen_host":  "127.0.0.1",
+                                    "listen_port":  4561,
+                                    "received_messages":  0,
+                                    "running":  true,
+                                    "send_host":  "127.0.0.1",
+                                    "send_port":  4560,
+                                    "sent_messages":  0
+                                },
+                   "status":  "ok",
+                   "uptime_seconds":  101
+               },
+    "pi_status":  {
+                      "gateway":  {
+                                      "client_address":  [
+                                                             "192.168.43.221",
+                                                             48422
+                                                         ],
+                                      "connected":  true,
+                                      "connected_at":  1784870984.6958964,
+                                      "enabled":  true,
+                                      "last_error":  null,
+                                      "last_received_at":  1784871045.2139044,
+                                      "listen_host":  "0.0.0.0",
+                                      "listen_port":  9000,
+                                      "received_messages":  1111,
+                                      "running":  true,
+                                      "sent_messages":  0
+                                  },
+                      "runtime":  {
+                                      "last_control_event":  null,
+                                      "last_message_at":  1784871045.2139258,
+                                      "last_message_type":  "fused_frame",
+                                      "message_counts":  {
+                                                             "control_event":  0,
+                                                             "fused_frame":  1047,
+                                                             "status":  64,
+                                                             "window_features":  0
+                                                         },
+                                      "status":  {
+                                                     "camera":  {
+                                                                    "clock_ready":  true,
+                                                                    "dropped_capture_frames":  0,
+                                                                    "fps":  16.7,
+                                                                    "hands_detected":  0
+                                                                },
+                                                     "jitter":  {
+                                                                    "configured_delay_ms":  250.0,
+                                                                    "max_pending_depth":  5,
+                                                                    "overflow_count":  0,
+                                                                    "pending_frames":  4
+                                                                },
+                                                     "microbits":  {
+                                                                       "left":  {
+                                                                                    "age_ms":  2035.4,
+                                                                                    "connected":  true,
+                                                                                    "missing_sample_count":  201,
+                                                                                    "rssi":  -50
+                                                                                },
+                                                                       "right":  {
+                                                                                     "age_ms":  1721.6,
+                                                                                     "connected":  true,
+                                                                                     "missing_sample_count":  211,
+                                                                                     "rssi":  -77
+                                                                                 }
+                                                                   },
+                                                     "pi_timestamp_ns":  14147732490277
+                                                 }
+                                  }
+                  },
+    "sensors_live":  {
+                         "camera":  {
+                                        "available":  false,
+                                        "frame_sequence":  958,
+                                        "hands":  [
+
+                                                  ],
+                                        "hands_detected":  0,
+                                        "time_delta_ms":  0.0
+                                    },
+                         "hand_count":  0,
+                         "hand_detected":  false,
+                         "microbit_left":  {
+                                               "available":  false,
+                                               "ax_mg":  0,
+                                               "ay_mg":  0,
+                                               "az_mg":  0,
+                                               "hand":  "left",
+                                               "missing_sample_count":  0,
+                                               "pitch_deg":  0,
+                                               "roll_deg":  0,
+                                               "sample_sequence":  0,
+                                               "sequence_status":  "",
+                                               "time_delta_ms":  1921.5
+                                           },
+                         "microbit_right":  {
+                                                "available":  false,
+                                                "ax_mg":  0,
+                                                "ay_mg":  0,
+                                                "az_mg":  0,
+                                                "hand":  "right",
+                                                "missing_sample_count":  0,
+                                                "pitch_deg":  0,
+                                                "roll_deg":  0,
+                                                "sample_sequence":  0,
+                                                "sequence_status":  "",
+                                                "time_delta_ms":  1607.7
+                                            },
+                         "timestamp":  1784871045.2139258
+                     },
+    "recent_fused":  {
+                         "count":  5,
+                         "records":  [
+                                         {
+                                             "created_at":  "2026-07-24 05:30:45",
+                                             "id":  2247,
+                                             "message_type":  "fused_frame",
+                                             "packet_sequence":  null,
+                                             "payload":  {
+                                                             "camera":  {
+                                                                            "available":  false,
+                                                                            "frame_sequence":  958,
+                                                                            "hands":  [
+
+                                                                                      ],
+                                                                            "hands_detected":  0,
+                                                                            "time_delta_ms":  0.0
+                                                                        },
+                                                             "fused_sequence":  958,
+                                                             "fusion_quality":  {
+                                                                                    "camera_quality_flags":  [
+
+                                                                                                             ],
+                                                                                    "max_time_delta_ms":  0.0,
+                                                                                    "microbit_quality_flags":  [
+
+                                                                                                               ],
+                                                                                    "missing_sources":  [
+                                                                                                            "left_microbit",
+                                                                                                            "right_microbit",
+                                                                                                            "camera"
+                                                                                                        ]
+                                                                                },
+                                                             "microbits":  [
+                                                                               {
+                                                                                   "available":  false,
+                                                                                   "ax_mg":  0,
+                                                                                   "ay_mg":  0,
+                                                                                   "az_mg":  0,
+                                                                                   "hand":  "left",
+                                                                                   "missing_sample_count":  0,
+                                                                                   "pitch_deg":  0,
+                                                                                   "roll_deg":  0,
+                                                                                   "sample_sequence":  0,
+                                                                                   "sequence_status":  "",
+                                                                                   "time_delta_ms":  1921.5
+                                                                               },
+                                                                               {
+                                                                                   "available":  false,
+                                                                                   "ax_mg":  0,
+                                                                                   "ay_mg":  0,
+                                                                                   "az_mg":  0,
+                                                                                   "hand":  "right",
+                                                                                   "missing_sample_count":  0,
+                                                                                   "pitch_deg":  0,
+                                                                                   "roll_deg":  0,
+                                                                                   "sample_sequence":  0,
+                                                                                   "sequence_status":  "",
+                                                                                   "time_delta_ms":  1607.7
+                                                                               }
+                                                                           ],
+                                                             "pi_aligned_timestamp_ns":  14147618622769
+                                                         },
+                                             "pi_id":  null,
+                                             "received_at":  1784871045.2139258,
+                                             "schema_version":  "1.0",
+                                             "session_id":  null,
+                                             "source_address":  "192.168.43.221:48422"
+                                         },
+                                         {
+                                             "created_at":  "2026-07-24 05:30:45",
+                                             "id":  2246,
+                                             "message_type":  "fused_frame",
+                                             "packet_sequence":  null,
+                                             "payload":  {
+                                                             "camera":  {
+                                                                            "available":  false,
+                                                                            "frame_sequence":  957,
+                                                                            "hands":  [
+
+                                                                                      ],
+                                                                            "hands_detected":  0,
+                                                                            "time_delta_ms":  0.0
+                                                                        },
+                                                             "fused_sequence":  957,
+                                                             "fusion_quality":  {
+                                                                                    "camera_quality_flags":  [
+
+                                                                                                             ],
+                                                                                    "max_time_delta_ms":  0.0,
+                                                                                    "microbit_quality_flags":  [
+
+                                                                                                               ],
+                                                                                    "missing_sources":  [
+                                                                                                            "left_microbit",
+                                                                                                            "right_microbit",
+                                                                                                            "camera"
+                                                                                                        ]
+                                                                                },
+                                                             "microbits":  [
+                                                                               {
+                                                                                   "available":  false,
+                                                                                   "ax_mg":  0,
+                                                                                   "ay_mg":  0,
+                                                                                   "az_mg":  0,
+                                                                                   "hand":  "left",
+                                                                                   "missing_sample_count":  0,
+                                                                                   "pitch_deg":  0,
+                                                                                   "roll_deg":  0,
+                                                                                   "sample_sequence":  0,
+                                                                                   "sequence_status":  "",
+                                                                                   "time_delta_ms":  1859.9
+                                                                               },
+                                                                               {
+                                                                                   "available":  false,
+                                                                                   "ax_mg":  0,
+                                                                                   "ay_mg":  0,
+                                                                                   "az_mg":  0,
+                                                                                   "hand":  "right",
+                                                                                   "missing_sample_count":  0,
+                                                                                   "pitch_deg":  0,
+                                                                                   "roll_deg":  0,
+                                                                                   "sample_sequence":  0,
+                                                                                   "sequence_status":  "",
+                                                                                   "time_delta_ms":  1546.1
+                                                                               }
+                                                                           ],
+                                                             "pi_aligned_timestamp_ns":  14147556948282
+                                                         },
+                                             "pi_id":  null,
+                                             "received_at":  1784871045.1541874,
+                                             "schema_version":  "1.0",
+                                             "session_id":  null,
+                                             "source_address":  "192.168.43.221:48422"
+                                         },
+                                         {
+                                             "created_at":  "2026-07-24 05:30:45",
+                                             "id":  2245,
+                                             "message_type":  "fused_frame",
+                                             "packet_sequence":  null,
+                                             "payload":  {
+                                                             "camera":  {
+                                                                            "available":  false,
+                                                                            "frame_sequence":  956,
+                                                                            "hands":  [
+
+                                                                                      ],
+                                                                            "hands_detected":  0,
+                                                                            "time_delta_ms":  0.0
+                                                                        },
+                                                             "fused_sequence":  956,
+                                                             "fusion_quality":  {
+                                                                                    "camera_quality_flags":  [
+
+                                                                                                             ],
+                                                                                    "max_time_delta_ms":  0.0,
+                                                                                    "microbit_quality_flags":  [
+
+                                                                                                               ],
+                                                                                    "missing_sources":  [
+                                                                                                            "left_microbit",
+                                                                                                            "right_microbit",
+                                                                                                            "camera"
+                                                                                                        ]
+                                                                                },
+                                                             "microbits":  [
+                                                                               {
+                                                                                   "available":  false,
+                                                                                   "ax_mg":  0,
+                                                                                   "ay_mg":  0,
+                                                                                   "az_mg":  0,
+                                                                                   "hand":  "left",
+                                                                                   "missing_sample_count":  0,
+                                                                                   "pitch_deg":  0,
+                                                                                   "roll_deg":  0,
+                                                                                   "sample_sequence":  0,
+                                                                                   "sequence_status":  "",
+                                                                                   "time_delta_ms":  1798.2
+                                                                               },
+                                                                               {
+                                                                                   "available":  false,
+                                                                                   "ax_mg":  0,
+                                                                                   "ay_mg":  0,
+                                                                                   "az_mg":  0,
+                                                                                   "hand":  "right",
+                                                                                   "missing_sample_count":  0,
+                                                                                   "pitch_deg":  0,
+                                                                                   "roll_deg":  0,
+                                                                                   "sample_sequence":  0,
+                                                                                   "sequence_status":  "",
+                                                                                   "time_delta_ms":  1484.4
+                                                                               }
+                                                                           ],
+                                                             "pi_aligned_timestamp_ns":  14147495273827
+                                                         },
+                                             "pi_id":  null,
+                                             "received_at":  1784871045.1022637,
+                                             "schema_version":  "1.0",
+                                             "session_id":  null,
+                                             "source_address":  "192.168.43.221:48422"
+                                         },
+                                         {
+                                             "created_at":  "2026-07-24 05:30:45",
+                                             "id":  2243,
+                                             "message_type":  "fused_frame",
+                                             "packet_sequence":  null,
+                                             "payload":  {
+                                                             "camera":  {
+                                                                            "available":  false,
+                                                                            "frame_sequence":  955,
+                                                                            "hands":  [
+
+                                                                                      ],
+                                                                            "hands_detected":  0,
+                                                                            "time_delta_ms":  0.0
+                                                                        },
+                                                             "fused_sequence":  955,
+                                                             "fusion_quality":  {
+                                                                                    "camera_quality_flags":  [
+
+                                                                                                             ],
+                                                                                    "max_time_delta_ms":  0.0,
+                                                                                    "microbit_quality_flags":  [
+
+                                                                                                               ],
+                                                                                    "missing_sources":  [
+                                                                                                            "left_microbit",
+                                                                                                            "right_microbit",
+                                                                                                            "camera"
+                                                                                                        ]
+                                                                                },
+                                                             "microbits":  [
+                                                                               {
+                                                                                   "available":  false,
+                                                                                   "ax_mg":  0,
+                                                                                   "ay_mg":  0,
+                                                                                   "az_mg":  0,
+                                                                                   "hand":  "left",
+                                                                                   "missing_sample_count":  0,
+                                                                                   "pitch_deg":  0,
+                                                                                   "roll_deg":  0,
+                                                                                   "sample_sequence":  0,
+                                                                                   "sequence_status":  "",
+                                                                                   "time_delta_ms":  1736.5
+                                                                               },
+                                                                               {
+                                                                                   "available":  false,
+                                                                                   "ax_mg":  0,
+                                                                                   "ay_mg":  0,
+                                                                                   "az_mg":  0,
+                                                                                   "hand":  "right",
+                                                                                   "missing_sample_count":  0,
+                                                                                   "pitch_deg":  0,
+                                                                                   "roll_deg":  0,
+                                                                                   "sample_sequence":  0,
+                                                                                   "sequence_status":  "",
+                                                                                   "time_delta_ms":  1422.7
+                                                                               }
+                                                                           ],
+                                                             "pi_aligned_timestamp_ns":  14147433597111
+                                                         },
+                                             "pi_id":  null,
+                                             "received_at":  1784871045.0671196,
+                                             "schema_version":  "1.0",
+                                             "session_id":  null,
+                                             "source_address":  "192.168.43.221:48422"
+                                         },
+                                         {
+                                             "created_at":  "2026-07-24 05:30:44",
+                                             "id":  2242,
+                                             "message_type":  "fused_frame",
+                                             "packet_sequence":  null,
+                                             "payload":  {
+                                                             "camera":  {
+                                                                            "available":  false,
+                                                                            "frame_sequence":  954,
+                                                                            "hands":  [
+
+                                                                                      ],
+                                                                            "hands_detected":  0,
+                                                                            "time_delta_ms":  0.0
+                                                                        },
+                                                             "fused_sequence":  954,
+                                                             "fusion_quality":  {
+                                                                                    "camera_quality_flags":  [
+
+                                                                                                             ],
+                                                                                    "max_time_delta_ms":  0.0,
+                                                                                    "microbit_quality_flags":  [
+
+                                                                                                               ],
+                                                                                    "missing_sources":  [
+                                                                                                            "left_microbit",
+                                                                                                            "right_microbit",
+                                                                                                            "camera"
+                                                                                                        ]
+                                                                                },
+                                                             "microbits":  [
+                                                                               {
+                                                                                   "available":  false,
+                                                                                   "ax_mg":  0,
+                                                                                   "ay_mg":  0,
+                                                                                   "az_mg":  0,
+                                                                                   "hand":  "left",
+                                                                                   "missing_sample_count":  0,
+                                                                                   "pitch_deg":  0,
+                                                                                   "roll_deg":  0,
+                                                                                   "sample_sequence":  0,
+                                                                                   "sequence_status":  "",
+                                                                                   "time_delta_ms":  1674.8
+                                                                               },
+                                                                               {
+                                                                                   "available":  false,
+                                                                                   "ax_mg":  0,
+                                                                                   "ay_mg":  0,
+                                                                                   "az_mg":  0,
+                                                                                   "hand":  "right",
+                                                                                   "missing_sample_count":  0,
+                                                                                   "pitch_deg":  0,
+                                                                                   "roll_deg":  0,
+                                                                                   "sample_sequence":  0,
+                                                                                   "sequence_status":  "",
+                                                                                   "time_delta_ms":  1361.0
+                                                                               }
+                                                                           ],
+                                                             "pi_aligned_timestamp_ns":  14147371922551
+                                                         },
+                                             "pi_id":  null,
+                                             "received_at":  1784871044.966341,
+                                             "schema_version":  "1.0",
+                                             "session_id":  null,
+                                             "source_address":  "192.168.43.221:48422"
+                                         }
+                                     ]
+                     },
+    "recent_status":  {
+                          "count":  3,
+                          "records":  [
+                                          {
+                                              "created_at":  "2026-07-24 05:30:45",
+                                              "id":  2244,
+                                              "message_type":  "status",
+                                              "packet_sequence":  null,
+                                              "payload":  {
+                                                              "camera":  {
+                                                                             "clock_ready":  true,
+                                                                             "dropped_capture_frames":  0,
+                                                                             "fps":  16.7,
+                                                                             "hands_detected":  0
+                                                                         },
+                                                              "jitter":  {
+                                                                             "configured_delay_ms":  250.0,
+                                                                             "max_pending_depth":  5,
+                                                                             "overflow_count":  0,
+                                                                             "pending_frames":  4
+                                                                         },
+                                                              "microbits":  {
+                                                                                "left":  {
+                                                                                             "age_ms":  2035.4,
+                                                                                             "connected":  true,
+                                                                                             "missing_sample_count":  201,
+                                                                                             "rssi":  -50
+                                                                                         },
+                                                                                "right":  {
+                                                                                              "age_ms":  1721.6,
+                                                                                              "connected":  true,
+                                                                                              "missing_sample_count":  211,
+                                                                                              "rssi":  -77
+                                                                                          }
+                                                                            },
+                                                              "pi_timestamp_ns":  14147732490277
+                                                          },
+                                              "pi_id":  null,
+                                              "received_at":  1784871045.0762417,
+                                              "schema_version":  "1.0",
+                                              "session_id":  null,
+                                              "source_address":  "192.168.43.221:48422"
+                                          },
+                                          {
+                                              "created_at":  "2026-07-24 05:30:44",
+                                              "id":  2226,
+                                              "message_type":  "status",
+                                              "packet_sequence":  null,
+                                              "payload":  {
+                                                              "camera":  {
+                                                                             "clock_ready":  true,
+                                                                             "dropped_capture_frames":  0,
+                                                                             "fps":  16.7,
+                                                                             "hands_detected":  0
+                                                                         },
+                                                              "jitter":  {
+                                                                             "configured_delay_ms":  250.0,
+                                                                             "max_pending_depth":  5,
+                                                                             "overflow_count":  0,
+                                                                             "pending_frames":  5
+                                                                         },
+                                                              "microbits":  {
+                                                                                "left":  {
+                                                                                             "age_ms":  1033.2,
+                                                                                             "connected":  true,
+                                                                                             "missing_sample_count":  201,
+                                                                                             "rssi":  -50
+                                                                                         },
+                                                                                "right":  {
+                                                                                              "age_ms":  719.4,
+                                                                                              "connected":  true,
+                                                                                              "missing_sample_count":  211,
+                                                                                              "rssi":  -77
+                                                                                          }
+                                                                            },
+                                                              "pi_timestamp_ns":  14146730339913
+                                                          },
+                                              "pi_id":  null,
+                                              "received_at":  1784871044.0399196,
+                                              "schema_version":  "1.0",
+                                              "session_id":  null,
+                                              "source_address":  "192.168.43.221:48422"
+                                          },
+                                          {
+                                              "created_at":  "2026-07-24 05:30:43",
+                                              "id":  2209,
+                                              "message_type":  "status",
+                                              "packet_sequence":  null,
+                                              "payload":  {
+                                                              "camera":  {
+                                                                             "clock_ready":  true,
+                                                                             "dropped_capture_frames":  0,
+                                                                             "fps":  16.7,
+                                                                             "hands_detected":  0
+                                                                         },
+                                                              "jitter":  {
+                                                                             "configured_delay_ms":  250.0,
+                                                                             "max_pending_depth":  5,
+                                                                             "overflow_count":  0,
+                                                                             "pending_frames":  4
+                                                                         },
+                                                              "microbits":  {
+                                                                                "left":  {
+                                                                                             "age_ms":  30.1,
+                                                                                             "connected":  true,
+                                                                                             "missing_sample_count":  201,
+                                                                                             "rssi":  -50
+                                                                                         },
+                                                                                "right":  {
+                                                                                              "age_ms":  119.9,
+                                                                                              "connected":  true,
+                                                                                              "missing_sample_count":  209,
+                                                                                              "rssi":  -62
+                                                                                          }
+                                                                            },
+                                                              "pi_timestamp_ns":  14145727224426
+                                                          },
+                                              "pi_id":  null,
+                                              "received_at":  1784871043.053297,
+                                              "schema_version":  "1.0",
+                                              "session_id":  null,
+                                              "source_address":  "192.168.43.221:48422"
+                                          }
+                                      ]
+                      },
+    "gesture_current":  {
+                            "all_probs":  {
+                                              "bilateral_strike":  0.0,
+                                              "crescendo":  0.0,
+                                              "cutoff":  0.0,
+                                              "decrescendo":  0.0,
+                                              "downbeat":  0.0,
+                                              "gesture_end":  0.0,
+                                              "gesture_start":  0.0,
+                                              "idle":  1.0,
+                                              "left_cue":  0.0,
+                                              "left_wrist_strike":  0.0,
+                                              "resume":  0.0,
+                                              "right_cue":  0.0,
+                                              "right_wrist_strike":  0.0,
+                                              "stop":  0.0,
+                                              "style_switch":  0.0,
+                                              "tempo_down":  0.0,
+                                              "tempo_up":  0.0,
+                                              "upbeat":  0.0
+                                          },
+                            "confidence":  0.0,
+                            "features_used":  0,
+                            "gesture":  "idle",
+                            "gesture_id":  0,
+                            "timestamp":  0.0
+                        }
+}

@@ -72,13 +72,20 @@ ss -ltnup | grep -E '(:8765|:8787|:17778)' || true
 
 ```powershell
 cd G:\code\AIoT\AIoT
-backend\.venv\Scripts\python.exe backend\app.py
+powershell -ExecutionPolicy Bypass -File backend\tools\start_backend.ps1 -Restart
 ```
 
 后端应启动：
 
 - Flask HTTP: `0.0.0.0:5000`
 - Pi TCP gateway: `0.0.0.0:9000`
+- 日志文件：`backend\logs\backend_stdout.log`、`backend\logs\backend_stderr.log`
+
+如果需要前台观察日志，也可以运行：
+
+```powershell
+backend\.venv\Scripts\python.exe backend\app.py
+```
 
 另开一个 PowerShell 检查端口：
 
@@ -214,6 +221,17 @@ backend\.venv\Scripts\python.exe backend\tools\verify_pi_stream.py --duration 60
 ```
 
 这个命令要求 60 秒内三类消息都增加。运行期间需要至少按一次 micro:bit 按键，否则 `control_event` 不会增加。
+
+### 6.1 最近一次真实验证记录
+
+2026-07-24 实测：
+
+- PC 后端 IP：`192.168.43.209`
+- 树莓派 IP：`192.168.43.221`
+- 验证命令：`backend\.venv\Scripts\python.exe backend\tools\verify_pi_stream.py --duration 30 --interval 1 --require status --require fused_frame`
+- 结果：`PASS`
+- 30 秒内新增：`fused_frame=472`，`status=29`
+- 后端接收快照：`hardware/live_test_records/pi_backend_live_final_20260724_133045.json`
 
 ## 7. 后端 REST 手动检查
 

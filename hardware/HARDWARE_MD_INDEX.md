@@ -46,8 +46,8 @@ Raspberry Pi fusion_pipeline -> TCP:9000 -> PC backend
 | Camera 到 Raspberry Pi 采集与手部关键点说明 | `hardware/raspberry_pi/camera_to_Pi/README.md` | 说明 Picamera2、MediaPipe HandLandmarker、关键点输出、质量字段、去噪和静态测试。 | 单独理解或验证摄像头采集与关键点输出。 |
 | 摄像头可视预览与后续融合接口说明 | `hardware/raspberry_pi/camera_to_Pi/CAMERA_PREVIEW_AND_FUSION.md` | 说明 `8765` 摄像头预览、MediaPipe 模型、预览关闭方式、摄像头输出和当前 `fused_frame` 结构。 | 打开或关闭摄像头预览；理解摄像头与 fusion 的互斥关系。 |
 | 正式传输链路联合预览 | `hardware/fusion_pipeline/FUSION_LIVE_PREVIEW.md` | 说明 `pi-fusion` 内置的 `8790` 联合预览页面，集中展示摄像头视频帧、MediaPipe 输出、micro:bit 原始/过滤后样本，以及正式发送给 PC 前的完整 `fused_frame`/`control_event`/`status`。 | 在 PC 后端正式传输同时调试训练数据是否完整；定位采集、过滤、时间同步或发送前格式问题。 |
-| 融合预览页面与 PC 后端服务集成更新说明 | `hardware/fusion_pipeline/FUSION_PREVIEW_BACKEND_UPDATE.md` | 记录本次 `pi-fusion` 内置预览与 PC 后端正式传输协同运行的更新内容、启动方法、相关文件、故障排查和对后端接收的影响。 | 回顾本次更新；排查 `8790` 页面、PC 后端连接和文件版本不同步问题。 |
 | 正式链路摄像头与 MediaPipe 调优 | `hardware/fusion_pipeline/CAMERA_MEDIAPIPE_TUNING.md` | 说明 RGB 通道、640×480@30FPS、可配置检测阈值、预览短时保持、5 秒检出率和训练数据真实性。 | 排查手部关键点漏检、骨架闪断、颜色通道或处理负载问题。 |
+| 融合预览页面与 PC 后端服务集成更新说明 | `hardware/fusion_pipeline/FUSION_PREVIEW_BACKEND_UPDATE.md` | 记录本次 `pi-fusion` 内置预览与 PC 后端正式传输协同运行的更新内容、启动方法、相关文件、故障排查和对后端接收的影响。 | 回顾本次更新；排查 `8790` 页面、PC 后端连接和文件版本不同步问题。 |
 | micro:bit v2 广播、ESP32 网关与摄像头数据整理说明 | `hardware/raspberry_pi/MICROBIT_ESP32_CAMERA_DATA_FLOW.md` | 说明 micro:bit 广播包、ESP32 UDP 帧、Pi 接收、摄像头关键点、时间同步和融合输出。 | 理解传感器数据如何进入训练样本和后端。 |
 
 ## 4. LED 与后续扩展
@@ -70,8 +70,8 @@ Raspberry Pi fusion_pipeline -> TCP:9000 -> PC backend
 | 想验证 micro:bit 预览页面 | `hardware/microbit/microbit_to_pi/MICROBIT_VISUAL_VERIFICATION.md` |
 | 想验证摄像头预览页面 | `hardware/raspberry_pi/camera_to_Pi/CAMERA_PREVIEW_AND_FUSION.md` |
 | 想在正式传输同时看摄像头、micro:bit 和发送前融合数据 | `hardware/fusion_pipeline/FUSION_LIVE_PREVIEW.md` |
-| 想了解本次预览与后端服务集成更新 | `hardware/fusion_pipeline/FUSION_PREVIEW_BACKEND_UPDATE.md` |
 | 想改善 MediaPipe 关键点漏检或查看检出率 | `hardware/fusion_pipeline/CAMERA_MEDIAPIPE_TUNING.md` |
+| 想了解本次预览与后端服务集成更新 | `hardware/fusion_pipeline/FUSION_PREVIEW_BACKEND_UPDATE.md` |
 | 想确认训练数据字段 | `hardware/raspberry_pi/MICROBIT_ESP32_CAMERA_DATA_FLOW.md`、`hardware/PI_BACKEND_COMMUNICATION_PLAN.md` |
 | 想接 LED 灯带 | `hardware/raspberry_pi/PI_PROJECT_LED_HANDOFF.md` |
 | 想部署/验证 LED 下行（后端发命令亮灯） | `hardware/fusion_pipeline/FUSION_LED_DOWNLINK.md` |
