@@ -1,11 +1,16 @@
 # ── Fusion Pipeline Configuration ───────────────────────────────────────
-# ESP32 BLE Gateway → Raspberry Pi multi-sensor fusion → PC backend
+# micro:bit Radio USB Gateway → Raspberry Pi multi-sensor fusion → PC backend
 # Per: hardware/raspberry_pi/MICROBIT_ESP32_CAMERA_DATA_FLOW.md
 
-# ── ESP32 Gateway UDP ───────────────────────────────────────────────────
+# ── micro:bit gateway transport ─────────────────────────────────────────
 gateway:
+  # Use "esp32_udp" to roll back to the previous ESP32 BLE/Wi-Fi gateway.
+  transport: "microbit_radio_usb"
   listen_host: "0.0.0.0"
   listen_port: 17778
+  serial_device: "/dev/serial/by-id/usb-ARM_BBC_micro:bit_CMSIS-DAP_9900000043114e45006590030000006a0000000097969901-if01"
+  serial_baud_rate: 115200
+  serial_reconnect_delay_s: 1.0
   allowed_hands: ["left", "right"]
   event_dedup_ttl_s: 10.0
 

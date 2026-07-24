@@ -1,30 +1,27 @@
 /*
- * micro:bit -> ESP32 BLE advertising sender.
+ * Wearable micro:bit -> Radio -> USB gateway sender.
  *
- * This version does not open a GATT/UART connection. It periodically updates
- * an Eddystone UID advertisement with a compact 16-byte frame. The ESP32 scans
- * advertisements, expands the compact frame back to the existing 17B/11B
- * project protocol, and forwards it to Raspberry Pi over UDP.
+ * The 17-byte sensor packet and 11-byte control packet are identical to the
+ * protocol previously reconstructed by the ESP32 gateway. Keeping that wire
+ * format lets the Raspberry Pi reuse parsing, filtering, fusion and backend
+ * output unchanged.
  */
 
 // 0 = left hand, 1 = right hand. Change to 1 before flashing the right board.
 const HAND: number = 0
 
-const SAMPLE_PERIOD_MS = 150
-const SENSOR_REPEAT_TOTAL = 1
-const SENSOR_REPEAT_INTERVAL_MS = 50
-const AD_TX_POWER_DBM = 0
-const BLE_CONNECTABLE = false
+const RADIO_GROUP = 79
+// Different coprime periods prevent two independently booted wearables from
+// remaining phase-locked and repeatedly colliding on the same radio slots.
+const SAMPLE_PERIOD_MS = HAND == 0 ? 47 : 53
+const SENSOR_REPEAT_TOTAL = 2
+const SENSOR_REPEAT_INTERVAL_MS = 15
 
 const DEBOUNCE_MS = 60
 const LONG_PRESS_MS = 1000
 const EVENT_REPEAT_TOTAL = 7
-const EVENT_REPEAT_INTERVAL_MS = 90
-const CONTROL_HOLD_MS = 70
+const EVENT_REPEAT_INTERVAL_MS = 40
 const EVENT_QUEUE_MAX = 8
-
-const ADV_SENSOR = 0xa1
-const ADV_CONTROL = 0xa2
 
 const MESSAGE_SENSOR_STATE = 1
 const MESSAGE_CONTROL_EVENT = 2
@@ -82,7 +79,6 @@ let eventSequence = 0
 let nextSampleDueMs = input.runningTime()
 let pendingEvents: PendingEvent[] = []
 let pendingSensor: PendingSensor = null
-let controlHoldUntilMs = 0
 
 let rawA = false
 let rawB = false
@@ -112,38 +108,33 @@ function clampInt8(value: number): number {
     return value
 }
 
-function advertiseFrame(packet: Buffer): void {
-    bluetooth.advertiseUidBuffer(packet, AD_TX_POWER_DBM, BLE_CONNECTABLE)
+function sendFrame(packet: Buffer): void {
+    radio.sendBuffer(packet)
 }
 
-function advertiseSensor(sample: PendingSensor): void {
-    const packet = pins.createBuffer(16)
-    packet.setUint8(0, ADV_SENSOR)
-    packet.setUint8(1, makeHeader(MESSAGE_SENSOR_STATE))
-    packet.setNumber(NumberFormat.UInt16LE, 2, sample.sequence)
-    packet.setNumber(NumberFormat.UInt32LE, 4, sample.timestampMs)
-    packet.setNumber(NumberFormat.Int16LE, 8, sample.axMg)
-    packet.setNumber(NumberFormat.Int16LE, 10, sample.ayMg)
-    packet.setNumber(NumberFormat.Int16LE, 12, sample.azMg)
-    packet.setNumber(NumberFormat.Int8LE, 14, sample.pitchDeg)
-    packet.setNumber(NumberFormat.Int8LE, 15, sample.rollDeg)
-    advertiseFrame(packet)
+function sendSensor(sample: PendingSensor): void {
+    const packet = pins.createBuffer(17)
+    packet.setUint8(0, makeHeader(MESSAGE_SENSOR_STATE))
+    packet.setNumber(NumberFormat.UInt16LE, 1, sample.sequence)
+    packet.setNumber(NumberFormat.UInt32LE, 3, sample.timestampMs)
+    packet.setNumber(NumberFormat.Int16LE, 7, sample.axMg)
+    packet.setNumber(NumberFormat.Int16LE, 9, sample.ayMg)
+    packet.setNumber(NumberFormat.Int16LE, 11, sample.azMg)
+    packet.setNumber(NumberFormat.Int16LE, 13, sample.pitchDeg)
+    packet.setNumber(NumberFormat.Int16LE, 15, sample.rollDeg)
+    sendFrame(packet)
 }
 
-function advertiseControl(event: PendingEvent): void {
-    const packet = pins.createBuffer(16)
-    packet.setUint8(0, ADV_CONTROL)
-    packet.setUint8(1, makeHeader(MESSAGE_CONTROL_EVENT))
-    packet.setNumber(NumberFormat.UInt16LE, 2, event.sequence)
-    packet.setNumber(NumberFormat.UInt32LE, 4, event.timestampMs)
-    packet.setUint8(8, event.eventCode)
-    packet.setUint8(9, event.priority)
-    packet.setUint8(10, event.repeatIndex)
-    packet.setUint8(11, EVENT_REPEAT_TOTAL)
-    packet.setUint8(12, HAND)
-    packet.setNumber(NumberFormat.UInt16LE, 13, event.sequence ^ 0x5a5a)
-    packet.setUint8(15, 0x7e)
-    advertiseFrame(packet)
+function sendControl(event: PendingEvent): void {
+    const packet = pins.createBuffer(11)
+    packet.setUint8(0, makeHeader(MESSAGE_CONTROL_EVENT))
+    packet.setNumber(NumberFormat.UInt16LE, 1, event.sequence)
+    packet.setNumber(NumberFormat.UInt32LE, 3, event.timestampMs)
+    packet.setUint8(7, event.eventCode)
+    packet.setUint8(8, event.priority)
+    packet.setUint8(9, event.repeatIndex)
+    packet.setUint8(10, EVENT_REPEAT_TOTAL)
+    sendFrame(packet)
 }
 
 function priorityFor(eventCode: number): number {
@@ -179,8 +170,7 @@ function sendOneDueEventRepeat(nowMs: number): boolean {
     for (let i = 0; i < pendingEvents.length; i++) {
         const event = pendingEvents[i]
         if (nowMs >= event.nextDueMs) {
-            advertiseControl(event)
-            controlHoldUntilMs = nowMs + CONTROL_HOLD_MS
+            sendControl(event)
             event.repeatIndex += 1
             if (event.repeatIndex >= EVENT_REPEAT_TOTAL) {
                 pendingEvents.removeAt(i)
@@ -197,7 +187,7 @@ function sendDueSensorRepeat(nowMs: number): boolean {
     if (!pendingSensor || nowMs < pendingSensor.nextRepeatMs) {
         return false
     }
-    advertiseSensor(pendingSensor)
+    sendSensor(pendingSensor)
     pendingSensor.repeatIndex += 1
     if (pendingSensor.repeatIndex >= SENSOR_REPEAT_TOTAL) {
         pendingSensor = null
@@ -276,7 +266,9 @@ function processButtonState(nowMs: number): void {
     }
 }
 
-bluetooth.setTransmitPower(7)
+radio.setGroup(RADIO_GROUP)
+radio.setTransmitPower(7)
+radio.setTransmitSerialNumber(true)
 input.setAccelerometerRange(AcceleratorRange.FourG)
 basic.showString(HAND == 0 ? "L" : "R")
 
@@ -287,10 +279,9 @@ basic.forever(function () {
     processButtonState(nowMs)
 
     const eventSent = sendOneDueEventRepeat(nowMs)
-    const controlHeld = nowMs < controlHoldUntilMs
-    if (!eventSent && !controlHeld && sendDueSensorRepeat(nowMs)) {
-        // Keep the previous sample visible for one extra advertising window.
-    } else if (!eventSent && !controlHeld && nowMs >= nextSampleDueMs) {
+    if (!eventSent && sendDueSensorRepeat(nowMs)) {
+        // Send at most one radio packet per loop iteration.
+    } else if (!eventSent && nowMs >= nextSampleDueMs) {
         startNewSensorSample(nowMs)
         nextSampleDueMs += SAMPLE_PERIOD_MS
         if (nowMs - nextSampleDueMs > SAMPLE_PERIOD_MS * 4) {

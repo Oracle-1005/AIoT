@@ -1,182 +1,142 @@
-# 双 micro:bit 到树莓派数据链路说明
+# 双手 micro:bit Radio 发送端
 
-**更新日期**: 2026-07-23
-
-当前正式链路：
+**当前正式链路**：
 
 ```text
-left micro:bit v2  -> BLE advertising
-right micro:bit v2 -> BLE advertising
-ESP32              -> 扫描广播并通过 UDP:17778 转发到 Raspberry Pi
-Raspberry Pi       -> fusion_pipeline 与摄像头数据融合
-PC backend         -> 接收 fused_frame / status / control_event
+左手 micro:bit ─┐
+                ├─ MakeCode Radio 组 79
+右手 micro:bit ─┘
+                         ↓
+第三块 micro:bit 网关 → USB 串口 → Raspberry Pi
+                         ↓
+降噪、时间对齐、摄像头融合 → PC 后端
 ```
 
-旧的“树莓派直接 BLE GATT/UART 同时连接两块 micro:bit”方案已归档到：
+旧 ESP32 BLE/Wi-Fi 方案仍保存在 Git 和树莓派回退目录中，但不再是当前
+`pi-fusion` 的默认输入方式。
 
-```text
-hardware/microbit/legacy_ble_connection_tests/
-```
+## 固件文件
 
-该旧方案可用于参考协议设计，但不再作为当前稳定性优先的默认方案。
+| 文件 | 用途 |
+| --- | --- |
+| `main.ts` | 左右手共用的 MakeCode TypeScript 源码 |
+| `pxt.json` | MakeCode Radio 工程依赖 |
+| `MICROBIT_VISUAL_VERIFICATION.md` | 旧 ESP32 预览说明，仅供回退参考 |
 
-## 1. 本目录内容
+## 左右手配置
 
-```text
-hardware/microbit/microbit_to_pi/
-├── main.ts                         # MakeCode TypeScript 广播固件
-├── pxt.json                        # MakeCode 项目依赖
-├── tools/live_preview_server.py    # 通用浏览器预览服务
-├── MICROBIT_VISUAL_VERIFICATION.md # micro:bit 预览验证说明
-└── README.md                       # 本说明
-```
-
-## 2. micro:bit 固件状态
-
-两块 micro:bit 使用同一份 `main.ts`，烧录前只修改 `HAND`：
+烧录左手前：
 
 ```typescript
-const HAND = 0  // left
-const HAND = 1  // right
+const HAND: number = 0
 ```
 
-当前关键参数：
+烧录右手前：
 
 ```typescript
-const SAMPLE_PERIOD_MS = 150
-const SENSOR_REPEAT_TOTAL = 1
-const SENSOR_REPEAT_INTERVAL_MS = 50
+const HAND: number = 1
+```
+
+当前设备映射：
+
+| 手别 | 本次烧录盘符 | DAPLink 唯一 ID 尾段 | Radio 发送板序列号 |
+| --- | --- | --- | --- |
+| 左手 | `F:` | `e15b1fe8a20608ea` | `-1944233693` |
+| 右手 | `H:` | `6a0e2f5b8fe408e9` | `-349312960` |
+
+盘符可能因重新插拔变化，重新烧录时应核对 `DETAILS.TXT` 的唯一 ID。
+
+## 发送参数
+
+```typescript
+const RADIO_GROUP = 79
+const SAMPLE_PERIOD_MS = HAND == 0 ? 47 : 53
+const SENSOR_REPEAT_TOTAL = 2
+const SENSOR_REPEAT_INTERVAL_MS = 15
 const EVENT_REPEAT_TOTAL = 7
-const EVENT_REPEAT_INTERVAL_MS = 90
-const CONTROL_HOLD_MS = 70
-const BLE_CONNECTABLE = false
+const EVENT_REPEAT_INTERVAL_MS = 40
 ```
 
-含义：
+左右手采用不同的互质发送周期，逻辑采样率约为 `21.3 Hz` 和 `18.9 Hz`，
+避免两块板启动相位接近后持续发生无线碰撞。
+每个传感样本发送两次，Pi 根据相同的 `sample_sequence` 丢弃重复副本，只让
+首个成功副本进入滤波和融合。按键事件与传感样本在同一循环中交错发送，
+按键事件优先，但不会像旧 BLE 方案一样暂停数百毫秒的传感采样。
 
-- 状态样本约每 `150 ms` 更新一次。
-- 状态样本不再由程序主动重复多次，避免拉长实际采样间隔。
-- BLE 广播层会自然重复当前广告包。
-- 按键事件重复广播 `7` 次，优先保证控制事件到达。
-- micro:bit 不需要配对、不需要连接、不依赖蓝牙地址。
+## 数据协议
 
-## 3. 广播数据内容
-
-状态包包含可用于训练的 IMU 数据：
+传感状态包固定为 `17 B`：
 
 ```text
-sample_sequence
-device_timestamp_ms
-ax_mg
-ay_mg
-az_mg
-pitch_deg
-roll_deg
+header, sample_sequence, device_timestamp_ms,
+ax_mg, ay_mg, az_mg, pitch_deg, roll_deg
 ```
 
-`ax_mg / ay_mg / az_mg` 单位为 `mg`，约 `1000 mg = 1g`。静止时某个轴接近 `±1000 mg` 是重力投影，不是异常。
-
-按键事件包含：
+控制事件包固定为 `11 B`：
 
 ```text
-event_sequence
-device_timestamp_ms
-event_code
-priority
-repeat_index
-repeat_total
+header, event_sequence, device_timestamp_ms,
+event_code, priority, repeat_index, repeat_total
 ```
 
-## 4. 按键事件定义
+协议与旧 ESP32 网关向 Pi 输出的完整载荷保持一致，因此 Pi 的协议解析、
+序号跟踪、滤波和融合数据结构不需要变化。
 
-左手：
+## 按键定义
 
-| 操作 | event_code | candidate | 进入后端后的事件 |
-| --- | --- | --- | --- |
-| A 短按 | `A_SHORT_PRESS` | `start_or_resume` | `resume` |
-| B 短按 | `B_SHORT_PRESS` | `pause` | `cutoff` |
-| A+B 长按 | `AB_LONG_PRESS` | `recalibrate` | `gesture_start` |
+| 手别 | 操作 | 后端事件 |
+| --- | --- | --- |
+| 左手 | A 短按 | `resume` |
+| 左手 | B 短按 | `cutoff` |
+| 左手 | A+B 长按 | `gesture_start` |
+| 右手 | A 短按 | `style_switch` |
+| 右手 | B 长按 | `stop` |
+| 右手 | A+B 长按 | `gesture_start` |
 
-右手：
+同一个按键事件重复发送 7 次，Pi 根据 `(hand, event_sequence)` 去重，只向
+后端输出一次。
 
-| 操作 | event_code | candidate | 进入后端后的事件 |
-| --- | --- | --- | --- |
-| A 短按 | `A_SHORT_PRESS` | `style_switch` | `style_switch` |
-| B 长按 | `B_LONG_PRESS` | `emergency_stop` | `stop` |
-| A+B 长按 | `AB_LONG_PRESS` | `recalibrate` | `gesture_start` |
+## 运行验证
 
-## 5. 烧录方式
-
-1. 打开 MakeCode for micro:bit。
-2. 新建项目。
-3. 添加 Bluetooth 扩展。
-4. 切换到 JavaScript / TypeScript。
-5. 粘贴 `main.ts` 内容。
-6. 烧录左手前设置 `const HAND = 0`。
-7. 烧录右手前设置 `const HAND = 1`。
-8. 上电后左手应显示 `L`，右手应显示 `R`。
-
-## 6. 树莓派预览验证
-
-micro:bit 预览依赖 ESP32 网关，入口见：
-
-```text
-hardware/microbit/microbit_to_pi/MICROBIT_VISUAL_VERIFICATION.md
-```
-
-树莓派上运行：
+树莓派正式服务：
 
 ```bash
-sudo systemctl stop pi-fusion 2>/dev/null || true
-cd /home/ag1_client/aiot_conductor/project
-bash hardware/raspberry_pi/esp32_ble_gateway_to_Pi/tools/start_gateway_preview.sh
+sudo systemctl restart pi-fusion
+sudo journalctl -u pi-fusion -f
 ```
 
-PC 浏览器打开：
+浏览器打开：
+
+```text
+http://192.168.43.221:8790/
+```
+
+如需使用原来的双 micro:bit 独立页面，可在 `pi-fusion` 保持运行时启动只读
+兼容预览：
+
+```bash
+bash hardware/microbit/microbit_to_pi/tools/start_radio_preview.sh
+```
+
+然后打开：
 
 ```text
 http://192.168.43.221:8787/
 ```
 
+该模式读取 `8790/state`，不占用 USB 串口，不会中断正式融合和后端发送。
+
 通过标准：
 
-- 页面顶部显示 `live`。
-- left 和 right 两列都持续刷新。
-- 两侧 `sequence` 持续增长。
-- 两侧 `age` 周期性回落，不持续增大。
-- 按键后“最近控制事件”刷新。
+- 左右手原始数据和滤波数据都持续刷新；
+- `source` 分别为 `left`、`right`；
+- `transport` 为 `microbit_radio_usb`；
+- `age` 通常低于 `120 ms`；
+- 融合输出的两个 `microbits[]` 尽量为 `available=true`；
+- PC 状态显示已连接且发送队列没有持续增长。
 
-该预览会占用 UDP `17778`，正式启动 `pi-fusion.service` 前必须关闭。
-
-## 7. 正式融合验证
-
-完整流程见：
+完整部署、回退和故障排查见：
 
 ```text
-hardware/END_TO_END_TRANSMISSION_VERIFICATION.md
+hardware/MICROBIT_RADIO_USB_GATEWAY.md
 ```
-
-PC 后端启动后，运行：
-
-```powershell
-cd G:\code\AIoT\AIoT
-backend\.venv\Scripts\python.exe backend\tools\verify_pi_stream.py --duration 30
-```
-
-如果需要验证按键事件：
-
-```powershell
-backend\.venv\Scripts\python.exe backend\tools\verify_pi_stream.py --duration 60 --require status --require fused_frame --require control_event
-```
-
-运行期间至少按一次 micro:bit 按键。
-
-## 8. 常见问题
-
-| 现象 | 原因 | 处理 |
-| --- | --- | --- |
-| 只有一侧有数据 | 另一块 micro:bit 未上电、`HAND` 设置错误或信号差 | 检查屏幕显示 `L/R`，靠近 ESP32 |
-| `sequence_gap` 偶发 | BLE 广播无确认机制 | 可接受，重点看两侧是否持续刷新 |
-| `sequence_gap` 很多 | 距离、遮挡或 2.4 GHz 干扰 | ESP32 与 micro:bit 保持 30 cm 到 1 m，两块板不要贴在一起 |
-| 按键事件不出现 | 事件广播被状态包覆盖或距离太远 | 靠近 ESP32，重新按键，观察 `8787` 页面 |
-| fusion 报端口占用 | `8787` 预览仍占用 UDP `17778` | 停止预览后重启 `pi-fusion` |

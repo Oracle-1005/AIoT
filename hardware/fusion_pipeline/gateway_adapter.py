@@ -239,6 +239,27 @@ class GatewayAdapter:
             logger.debug("Bad gateway frame from %s:%d: %s", *addr, exc)
             return
 
+        self._handle_gateway_frame(
+            frame,
+            addr,
+            pi_rx_ns,
+            transport_name="esp32_udp_gateway",
+        )
+
+    def _handle_gateway_frame(
+        self,
+        frame: GatewayFrame,
+        addr: tuple[str, int],
+        pi_rx_ns: int,
+        *,
+        transport_name: str,
+        gateway_metadata: dict | None = None,
+    ) -> None:
+        """Decode and process a normalized gateway frame.
+
+        Transport adapters may construct ``GatewayFrame`` instances and enter
+        the existing protocol, tracking and filtering path here.
+        """
         try:
             message_type, hand = decode_header(frame.payload[0])
         except ProtocolError as exc:
@@ -260,9 +281,22 @@ class GatewayAdapter:
             return
 
         if isinstance(packet, ControlEvent):
-            self._handle_control_event(packet, frame, addr)
+            self._handle_control_event(
+                packet,
+                frame,
+                addr,
+                transport_name=transport_name,
+                gateway_metadata=gateway_metadata,
+            )
         else:
-            self._handle_sensor_state(packet, frame, addr, pi_rx_ns)
+            self._handle_sensor_state(
+                packet,
+                frame,
+                addr,
+                pi_rx_ns,
+                transport_name=transport_name,
+                gateway_metadata=gateway_metadata,
+            )
 
     def _handle_sensor_state(
         self,
@@ -270,13 +304,16 @@ class GatewayAdapter:
         frame: GatewayFrame,
         addr: tuple[str, int],
         pi_rx_ns: int,
+        *,
+        transport_name: str,
+        gateway_metadata: dict | None = None,
     ) -> None:
         """Process a sensor_state packet through tracking + noise filter."""
         hand = packet.hand
 
         if self._on_raw_sensor_state:
             raw_item = packet.to_dict()
-            raw_item["transport"] = "esp32_udp_gateway"
+            raw_item["transport"] = transport_name
             raw_item["gateway"] = {
                 "source_ip": addr[0],
                 "source_port": addr[1],
@@ -286,6 +323,8 @@ class GatewayAdapter:
                 "ble_rssi": frame.ble_rssi,
                 "flags": frame.flags,
             }
+            if gateway_metadata:
+                raw_item["gateway"].update(gateway_metadata)
             try:
                 self._on_raw_sensor_state(raw_item)
             except Exception:
@@ -358,6 +397,9 @@ class GatewayAdapter:
         packet: ControlEvent,
         frame: GatewayFrame,
         addr: tuple[str, int],
+        *,
+        transport_name: str,
+        gateway_metadata: dict | None = None,
     ) -> None:
         """Process a control_event packet — dedup and fast-path emit."""
         # Deduplicate
@@ -376,7 +418,10 @@ class GatewayAdapter:
             "source_ip": addr[0],
             "ble_rssi": frame.ble_rssi,
             "flags": frame.flags,
+            "transport": transport_name,
         }
+        if gateway_metadata:
+            gateway.update(gateway_metadata)
         event = self._build_backend_control_event(raw_event, gateway)
 
         # Fast path: emit immediately via callback

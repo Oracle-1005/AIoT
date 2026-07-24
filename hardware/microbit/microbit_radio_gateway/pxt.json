@@ -1,0 +1,13 @@
+{
+  "name": "microbit-radio-usb-gateway",
+  "description": "micro:bit Radio to Raspberry Pi USB serial gateway",
+  "dependencies": {
+    "core": "*",
+    "radio": "*",
+    "microphone": "*"
+  },
+  "files": [
+    "main.ts"
+  ],
+  "preferredEditor": "tsprj"
+}

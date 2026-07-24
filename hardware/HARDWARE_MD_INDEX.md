@@ -12,7 +12,7 @@
 当前正式硬件链路：
 
 ```text
-micro:bit L/R -> BLE 广播 -> ESP32 -> UDP:17778 -> Raspberry Pi
+micro:bit L/R -> MakeCode Radio -> 第三块 micro:bit USB 网关 -> Raspberry Pi
 Pi Camera -> Raspberry Pi
 Raspberry Pi fusion_pipeline -> TCP:9000 -> PC backend
 ```
@@ -22,6 +22,7 @@ Raspberry Pi fusion_pipeline -> TCP:9000 -> PC backend
 | 文档 | 位置 | 内容概括 | 使用场景 |
 | --- | --- | --- | --- |
 | Hardware Markdown 文档索引 | `hardware/HARDWARE_MD_INDEX.md` | 汇总 `hardware/` 下所有 Markdown 文档的位置、用途和维护规则。 | 查找文档入口；新增或修改文档后更新索引。 |
+| 第三块 micro:bit Radio/USB 网关部署与回退 | `hardware/MICROBIT_RADIO_USB_GATEWAY.md` | 说明当前 Radio/USB 正式链路、设备标识、串口协议、验证方法及 ESP32 回退快照。 | 部署、验证或回退当前双手数据链路。 |
 | 硬件项目结构说明 | `hardware/PROJECT_STRUCTURE.md` | 说明 PC 仓库和树莓派运行目录的当前结构，明确正式链路、虚拟环境、预览端口和后端位置。 | 查目录、确认当前架构、判断旧目录是否仍在使用。 |
 | 融合管线部署与验证指南 | `hardware/FUSION_PIPELINE_DEPLOY.md` | 说明 `pi-fusion.service`、`fusion_pipeline`、ESP32 网关、摄像头和 PC 后端的部署与验证。 | 部署或重启 Pi 正式融合服务。 |
 | 端到端传输验证流程 | `hardware/END_TO_END_TRANSMISSION_VERIFICATION.md` | 给出从 micro:bit、ESP32、Pi Camera、Pi fusion 到 PC backend 的完整验证步骤。 | 做整链路验收；确认 `status`、`fused_frame`、`control_event` 是否到达 PC。 |
@@ -32,10 +33,11 @@ Raspberry Pi fusion_pipeline -> TCP:9000 -> PC backend
 
 | 文档 | 位置 | 内容概括 | 使用场景 |
 | --- | --- | --- | --- |
-| 双 micro:bit 到树莓派数据链路说明 | `hardware/microbit/microbit_to_pi/README.md` | 说明当前 micro:bit v2 BLE 广播固件、左右手 `HAND` 设置、IMU 字段、按键事件和正式验证方式。 | 烧录或检查 micro:bit 固件；理解加速度和按键事件。 |
-| micro:bit 到树莓派数据可视化验证说明 | `hardware/microbit/microbit_to_pi/MICROBIT_VISUAL_VERIFICATION.md` | 说明 `8787` micro:bit 预览页面、左右手状态显示、按键事件和端口冲突处理。 | 独立验证 micro:bit -> ESP32 -> Pi 是否稳定。 |
-| ESP32 micro:bit BLE 广播转 Wi-Fi 网关 | `hardware/esp32/microbit_ble_wifi_gateway/README.md` | 说明 ESP32 Arduino 固件配置、Wi-Fi/Pi IP 修改、BLE 广播解析、UDP 网关帧和正式融合验证。 | 配置或重新上传 ESP32 网关固件。 |
-| ESP32 BLE 网关到树莓派 UDP 接收器 | `hardware/raspberry_pi/esp32_ble_gateway_to_Pi/README.md` | 说明 Pi 端 `esp32_gateway_receiver` 的安装、命令行接收、模拟包验证和 `8787` 预览接入。 | 单独验证 Pi 是否能收到 ESP32 UDP 数据。 |
+| 双 micro:bit 到树莓派数据链路说明 | `hardware/microbit/microbit_to_pi/README.md` | 说明当前 micro:bit v2 Radio 固件、左右手 `HAND` 和唯一 ID、IMU 字段、按键事件及正式验证方式。 | 烧录或检查当前 micro:bit 固件。 |
+| micro:bit Radio 转 USB 网关 | `hardware/microbit/microbit_radio_gateway/README.md` | 说明第三块 micro:bit 网关的 Radio 组、USB 串口接口和状态输出。 | 检查或重新烧录当前网关板。 |
+| micro:bit 到树莓派数据可视化验证说明 | `hardware/microbit/microbit_to_pi/MICROBIT_VISUAL_VERIFICATION.md` | 说明当前 Radio/USB 链路的 `8787` 左右手独立预览、健康检查和关闭方式。 | 与正式 `pi-fusion` 同时观察双手数据。 |
+| ESP32 micro:bit BLE 广播转 Wi-Fi 网关 | `hardware/esp32/microbit_ble_wifi_gateway/README.md` | 说明旧 ESP32 Arduino 固件、BLE 广播解析和 UDP 网关帧。 | ESP32 回退方案。 |
+| ESP32 BLE 网关到树莓派 UDP 接收器 | `hardware/raspberry_pi/esp32_ble_gateway_to_Pi/README.md` | 说明旧 Pi 端 ESP32 UDP 接收器和 `8787` 预览。 | ESP32 回退方案。 |
 | 旧 BLE 直连实验归档 | `hardware/microbit/legacy_ble_connection_tests/README_BLE.md` | 记录旧 MakeCode BLE UART/GATT 直连实验。该方案不属于当前正式链路。 | 仅作历史参考，不作为验收标准。 |
 | 硬件侧任务清单 | `hardware/HARDWARE_TASKS.md` | micro:bit 发射功率实验（辅助传感器，目标稳定在线 + 有效 ≥3 Hz）、ESP32 固件确认、micro:bit 重烧注意、LED 改 GPIO19/ws2812-pio 的文档更正。 | 硬件组员当前待办入口；采样率确认实验操作说明。 |
 
@@ -66,8 +68,9 @@ Raspberry Pi fusion_pipeline -> TCP:9000 -> PC backend
 | 想部署或重启 `pi-fusion` | `hardware/FUSION_PIPELINE_DEPLOY.md` |
 | 想看 PC 是否收到 Pi 数据 | `hardware/END_TO_END_TRANSMISSION_VERIFICATION.md`、`hardware/PI_BACKEND_COMMUNICATION_PLAN.md` |
 | 想烧录或调整 micro:bit | `hardware/microbit/microbit_to_pi/README.md` |
-| 想配置或重新上传 ESP32 | `hardware/esp32/microbit_ble_wifi_gateway/README.md` |
-| 想验证 micro:bit 预览页面 | `hardware/microbit/microbit_to_pi/MICROBIT_VISUAL_VERIFICATION.md` |
+| 想部署、验证或回退当前 Radio/USB 链路 | `hardware/MICROBIT_RADIO_USB_GATEWAY.md` |
+| 想配置或重新上传 ESP32 回退方案 | `hardware/esp32/microbit_ble_wifi_gateway/README.md` |
+| 想验证当前双 micro:bit | `hardware/fusion_pipeline/FUSION_LIVE_PREVIEW.md` |
 | 想验证摄像头预览页面 | `hardware/raspberry_pi/camera_to_Pi/CAMERA_PREVIEW_AND_FUSION.md` |
 | 想在正式传输同时看摄像头、micro:bit 和发送前融合数据 | `hardware/fusion_pipeline/FUSION_LIVE_PREVIEW.md` |
 | 想改善 MediaPipe 关键点漏检或查看检出率 | `hardware/fusion_pipeline/CAMERA_MEDIAPIPE_TUNING.md` |

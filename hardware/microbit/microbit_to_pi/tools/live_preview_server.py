@@ -16,6 +16,8 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -558,6 +560,53 @@ def stream_stderr(process: subprocess.Popen[str], hub: Hub) -> None:
         hub.publish("log", line.strip())
 
 
+def stream_fusion_state(url: str, hub: Hub, stop_event: threading.Event) -> None:
+    """Feed the legacy dual-hand UI from pi-fusion's read-only state API."""
+    last_sequence: dict[str, int | None] = {"left": None, "right": None}
+    seen_events: set[tuple[str, int]] = set()
+    error_logged = False
+
+    while not stop_event.wait(0.05):
+        try:
+            with urllib.request.urlopen(url, timeout=2.0) as response:
+                state = json.load(response)
+            error_logged = False
+        except (OSError, ValueError, urllib.error.URLError) as exc:
+            if not error_logged:
+                hub.publish("log", f"fusion state unavailable: {exc}")
+                error_logged = True
+            stop_event.wait(1.0)
+            continue
+
+        samples = state.get("latest_raw_microbits", {})
+        for source in ("left", "right"):
+            item = samples.get(source)
+            if not isinstance(item, dict):
+                continue
+            sequence = item.get("sample_sequence")
+            if sequence == last_sequence[source]:
+                continue
+            last_sequence[source] = sequence
+            hub.publish(
+                "sample",
+                json.dumps(item, ensure_ascii=False, separators=(",", ":")),
+            )
+
+        for item in state.get("outbound_tail", []):
+            if not isinstance(item, dict) or item.get("type") != "control_event":
+                continue
+            key = (str(item.get("source", "")), int(item.get("event_sequence", 0)))
+            if key in seen_events:
+                continue
+            seen_events.add(key)
+            hub.publish(
+                "control",
+                json.dumps(item, ensure_ascii=False, separators=(",", ":")),
+            )
+        if len(seen_events) > 100:
+            seen_events.clear()
+
+
 def build_receiver_command(args: argparse.Namespace) -> list[str]:
     return [
         str(args.python),
@@ -571,9 +620,13 @@ def build_receiver_command(args: argparse.Namespace) -> list[str]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Serve a live micro:bit BLE data preview page.")
-    parser.add_argument("--receiver-dir", type=Path, required=True, help="Directory containing microbit_receiver.")
-    parser.add_argument("--config", type=Path, required=True, help="Receiver JSON config path.")
+    parser = argparse.ArgumentParser(description="Serve a live dual micro:bit preview page.")
+    parser.add_argument("--receiver-dir", type=Path, help="Directory containing microbit_receiver.")
+    parser.add_argument("--config", type=Path, help="Receiver JSON config path.")
+    parser.add_argument(
+        "--fusion-state-url",
+        help="Read-only pi-fusion state endpoint, for example http://127.0.0.1:8790/state.",
+    )
     parser.add_argument("--python", type=Path, default=Path(sys.executable), help="Python executable for receiver.")
     parser.add_argument(
         "--receiver-module",
@@ -586,11 +639,19 @@ def main() -> int:
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
     args = parser.parse_args()
 
-    receiver_dir = args.receiver_dir.expanduser().resolve()
-    config = args.config.expanduser()
-    if not config.is_absolute():
-        config = receiver_dir / config
-    args.config = config
+    if not args.fusion_state_url and (args.receiver_dir is None or args.config is None):
+        parser.error("--receiver-dir and --config are required without --fusion-state-url")
+
+    receiver_dir = (
+        args.receiver_dir.expanduser().resolve()
+        if args.receiver_dir is not None
+        else Path.cwd()
+    )
+    if args.config is not None:
+        config = args.config.expanduser()
+        if not config.is_absolute():
+            config = receiver_dir / config
+        args.config = config
     python_path = args.python.expanduser()
     if not python_path.is_absolute():
         python_path = (Path.cwd() / python_path).resolve()
@@ -608,26 +669,36 @@ def main() -> int:
     pid_file.write_text(str(os.getpid()), encoding="utf-8")
 
     hub = Hub()
-    env = os.environ.copy()
-    env["PYTHONUNBUFFERED"] = "1"
-    command = build_receiver_command(args)
-    hub.publish("log", "receiver command: " + " ".join(command))
+    process: subprocess.Popen[str] | None = None
+    fusion_stop = threading.Event()
+    if args.fusion_state_url:
+        hub.publish("log", "fusion state source: " + args.fusion_state_url)
+        threading.Thread(
+            target=stream_fusion_state,
+            args=(args.fusion_state_url, hub, fusion_stop),
+            daemon=True,
+        ).start()
+    else:
+        env = os.environ.copy()
+        env["PYTHONUNBUFFERED"] = "1"
+        command = build_receiver_command(args)
+        hub.publish("log", "receiver command: " + " ".join(command))
 
-    process = subprocess.Popen(
-        command,
-        cwd=receiver_dir,
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        bufsize=1,
-        start_new_session=True,
-    )
+        process = subprocess.Popen(
+            command,
+            cwd=receiver_dir,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+            start_new_session=True,
+        )
 
-    threading.Thread(target=stream_receiver, args=(process, hub), daemon=True).start()
-    threading.Thread(target=stream_stderr, args=(process, hub), daemon=True).start()
+        threading.Thread(target=stream_receiver, args=(process, hub), daemon=True).start()
+        threading.Thread(target=stream_stderr, args=(process, hub), daemon=True).start()
 
     server = ThreadingHTTPServer((args.host, args.port), make_handler(hub))
     print(f"preview: http://{args.host}:{args.port}/", flush=True)
@@ -641,7 +712,8 @@ def main() -> int:
     try:
         server.serve_forever()
     finally:
-        if process.poll() is None:
+        fusion_stop.set()
+        if process is not None and process.poll() is None:
             try:
                 os.killpg(process.pid, signal.SIGTERM)
             except ProcessLookupError:

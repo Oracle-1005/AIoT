@@ -54,6 +54,7 @@ from microbit_receiver.protocol import Hand
 
 from fusion_pipeline.fusion_engine import FusionEngine
 from fusion_pipeline.gateway_adapter import GatewayAdapter, MicrobitSample
+from fusion_pipeline.radio_serial_adapter import RadioSerialAdapter
 from fusion_pipeline.camera_adapter import CameraAdapter
 from fusion_pipeline.tcp_client import TcpJsonlClient
 from fusion_pipeline.preview_server import PreviewServer, PreviewState
@@ -66,8 +67,12 @@ logger = logging.getLogger("fusion_pipeline")
 
 DEFAULT_CONFIG: dict = {
     "gateway": {
+        "transport": "esp32_udp",
         "listen_host": "0.0.0.0",
         "listen_port": 17778,
+        "serial_device": "/dev/serial/by-id/usb-ARM_BBC_micro:bit_CMSIS-DAP_9900000043114e45006590030000006a0000000097969901-if01",
+        "serial_baud_rate": 115200,
+        "serial_reconnect_delay_s": 1.0,
         "allowed_hands": ["left", "right"],
         "event_dedup_ttl_s": 10.0,
         "noise_filter": {
@@ -179,7 +184,7 @@ class FusionApp:
         self._cfg = config
 
         # Subsystems (created in start())
-        self._gateway: GatewayAdapter | None = None
+        self._gateway: GatewayAdapter | RadioSerialAdapter | None = None
         self._camera: CameraAdapter | None = None
         self._fusion: FusionEngine | None = None
         self._tcp: TcpJsonlClient | None = None
@@ -249,16 +254,34 @@ class FusionApp:
         # ── Gateway Adapter ───────────────────────────────────────────
         gw_cfg = self._cfg["gateway"]
         allowed = {Hand.from_label(h) for h in gw_cfg["allowed_hands"]}
-        self._gateway = GatewayAdapter(
-            listen_host=gw_cfg["listen_host"],
-            listen_port=gw_cfg["listen_port"],
-            allowed_hands=allowed,
-            event_dedup_ttl_s=gw_cfg["event_dedup_ttl_s"],
-            noise_filter_config=gw_cfg.get("noise_filter", {}),
-            on_raw_sensor_state=self._on_raw_microbit_sample,
-            on_sensor_state=self._on_microbit_sample,
-            on_control_event=self._on_control_event,
-        )
+        gateway_callbacks = {
+            "allowed_hands": allowed,
+            "event_dedup_ttl_s": gw_cfg["event_dedup_ttl_s"],
+            "noise_filter_config": gw_cfg.get("noise_filter", {}),
+            "on_raw_sensor_state": self._on_raw_microbit_sample,
+            "on_sensor_state": self._on_microbit_sample,
+            "on_control_event": self._on_control_event,
+        }
+        gateway_transport = gw_cfg.get("transport", "esp32_udp")
+        if gateway_transport == "microbit_radio_usb":
+            self._gateway = RadioSerialAdapter(
+                device=gw_cfg["serial_device"],
+                baud_rate=int(gw_cfg.get("serial_baud_rate", 115200)),
+                reconnect_delay_s=float(
+                    gw_cfg.get("serial_reconnect_delay_s", 1.0)
+                ),
+                **gateway_callbacks,
+            )
+        elif gateway_transport == "esp32_udp":
+            self._gateway = GatewayAdapter(
+                listen_host=gw_cfg["listen_host"],
+                listen_port=gw_cfg["listen_port"],
+                **gateway_callbacks,
+            )
+        else:
+            raise ValueError(
+                f"Unsupported gateway.transport: {gateway_transport!r}"
+            )
         await self._gateway.start()
 
         # ── Camera Adapter ────────────────────────────────────────────

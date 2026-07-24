@@ -1,5 +1,5 @@
 [Unit]
-Description=AIoT Fusion Pipeline — ESP32 Gateway + Camera → TCP
+Description=AIoT Fusion Pipeline - micro:bit Gateway + Camera to TCP
 Documentation=https://github.com/your-org/aiot-conducting
 After=network-online.target
 Wants=network-online.target
@@ -16,7 +16,7 @@ Environment="PYTHONUNBUFFERED=1"
 ExecStartPre=/bin/sleep 5
 ExecStart=/home/ag1_client/aiot_conductor/project/camera_to_Pi/.venv/bin/python -u /home/ag1_client/aiot_conductor/project/hardware/fusion_pipeline/main.py --config config.yaml
 
-# Restart on failure (ESP32 may take time to reconnect)
+# Restart on failure (the USB gateway may take time to reconnect)
 Restart=always
 RestartSec=10
 StartLimitInterval=120
@@ -29,7 +29,7 @@ SyslogIdentifier=pi-fusion
 
 # Hardware access (Picamera2/libcamera may use several /dev/video*,
 # /dev/media*, dma-buf, and render nodes; avoid a narrow DeviceAllow list.
-SupplementaryGroups=video render gpio i2c
+SupplementaryGroups=video render gpio i2c plugdev dialout
 
 [Install]
 WantedBy=multi-user.target
