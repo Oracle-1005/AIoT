@@ -54,6 +54,7 @@ Raspberry Pi fusion_pipeline -> TCP:9000 -> PC backend
 | 文档 | 位置 | 内容概括 | 使用场景 |
 | --- | --- | --- | --- |
 | Raspberry Pi 项目配置与 LED 接入交接文档 | `hardware/raspberry_pi/PI_PROJECT_LED_HANDOFF.md` | 汇总 Pi 当前运行环境、虚拟环境依赖、正式融合链路、LED 控制器位置和后续 `led_command` 接入建议。 | 后续接入 WS2812B LED 灯带或灯板。 |
+| LED 下行链路接入说明 | `hardware/fusion_pipeline/FUSION_LED_DOWNLINK.md` | `led_command` 下行（PC 后端 → TCP:9000 → pi-fusion → LedConsumer → WS2812B）的实现、effect 映射、`/dev/leds0` udev 权限部署步骤与验证方法。 | 部署/验证 LED 下行；排查灯不亮。 |
 
 ## 5. 快速查找
 
@@ -71,6 +72,7 @@ Raspberry Pi fusion_pipeline -> TCP:9000 -> PC backend
 | 想了解本次预览与后端服务集成更新 | `hardware/fusion_pipeline/FUSION_PREVIEW_BACKEND_UPDATE.md` |
 | 想确认训练数据字段 | `hardware/raspberry_pi/MICROBIT_ESP32_CAMERA_DATA_FLOW.md`、`hardware/PI_BACKEND_COMMUNICATION_PLAN.md` |
 | 想接 LED 灯带 | `hardware/raspberry_pi/PI_PROJECT_LED_HANDOFF.md` |
+| 想部署/验证 LED 下行（后端发命令亮灯） | `hardware/fusion_pipeline/FUSION_LED_DOWNLINK.md` |
 | 想确认目录结构 | `hardware/PROJECT_STRUCTURE.md` |
 | 想看硬件侧当前待办（采样率/ESP32/LED） | `hardware/HARDWARE_TASKS.md` |
 

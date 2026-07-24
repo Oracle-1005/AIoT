@@ -57,6 +57,7 @@ from fusion_pipeline.gateway_adapter import GatewayAdapter, MicrobitSample
 from fusion_pipeline.camera_adapter import CameraAdapter
 from fusion_pipeline.tcp_client import TcpJsonlClient
 from fusion_pipeline.preview_server import PreviewServer, PreviewState
+from fusion_pipeline.led_consumer import LedConsumer
 
 logger = logging.getLogger("fusion_pipeline")
 
@@ -123,6 +124,15 @@ DEFAULT_CONFIG: dict = {
         "jpeg_quality": 70,
         "jpeg_every_n_frames": 2,
     },
+    "led": {
+        # WS2812B panels via ws2812-pio (/dev/leds0, GPIO19). Consumes
+        # led_command downlink from the PC backend (INTERFACE_CONTRACT §8.1).
+        # Requires write permission on /dev/leds0 for the service user.
+        "enabled": False,
+        "default_pattern": "breathing",
+        "brightness_limit": 0.25,
+        "refresh_hz": 50,
+    },
 }
 
 
@@ -169,6 +179,7 @@ class FusionApp:
         self._tcp: TcpJsonlClient | None = None
         self._preview_state: PreviewState | None = None
         self._preview_server: PreviewServer | None = None
+        self._led: LedConsumer | None = None
         self._video = None  # MjpegStreamer | None — optional, config-gated
 
         self._running = False
@@ -210,6 +221,16 @@ class FusionApp:
             connect_timeout_s=tcp_cfg["connect_timeout_s"],
         )
         await self._tcp.start()
+
+        # ── LED downlink consumer (optional, hardware-gated) ──────────
+        led_cfg = self._cfg.get("led", {})
+        if led_cfg.get("enabled", False):
+            self._led = LedConsumer(
+                enabled=True,
+                default_pattern=led_cfg.get("default_pattern", "breathing"),
+                brightness_limit=float(led_cfg.get("brightness_limit", 0.25)),
+            )
+            self._tcp.set_downlink_handler(self._led.handle_message)
 
         # ── Fusion Engine ─────────────────────────────────────────────
         fusion_cfg = self._cfg["fusion"]
@@ -295,6 +316,9 @@ class FusionApp:
             await self._gateway.stop()
         if self._tcp:
             await self._tcp.stop()
+        if self._led:
+            self._led.close()
+            self._led = None
         if self._preview_server:
             self._preview_server.stop()
         if self._preview_state:
@@ -321,6 +345,9 @@ class FusionApp:
         poll_s = self._cfg["general"]["fusion_poll_interval_s"]
         status_s = self._cfg["general"]["status_interval_s"]
         last_status = time.monotonic()
+        led_cfg = self._cfg.get("led", {})
+        led_interval_s = 1.0 / max(1.0, float(led_cfg.get("refresh_hz", 50)))
+        last_led = 0.0
 
         logger.info(
             "Main loop started: poll=%.0f Hz, status=%.0f Hz",
@@ -362,6 +389,11 @@ class FusionApp:
                         self._tcp.send(status_msg)
                         self._status_count += 1
                     last_status = now
+
+                # ── 4. LED animation frame (throttled to refresh_hz) ──
+                if self._led is not None and now - last_led >= led_interval_s:
+                    self._led.update()
+                    last_led = now
 
                 await asyncio.sleep(poll_s)
 

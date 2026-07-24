@@ -178,6 +178,7 @@ class LedController:
         self._connected = False
         self._error = None
         self._backend = "none"
+        self._consecutive_errors = 0
 
         try:
             if os.path.exists(_LEDS0_PATH):
@@ -314,15 +315,30 @@ class LedController:
         """Compute and display the current animation frame.
 
         Called at the configured refresh rate (typically 50Hz) by the
-        main event loop.
+        main event loop. Consecutive failures are rate-limited in the log
+        and eventually flip the controller to disconnected, so a mid-run
+        device failure (overlay unload, EIO on /dev/leds0) neither floods
+        the journal at 50Hz nor keeps reporting a healthy connected state.
         """
         if not self._connected:
             return
 
         try:
             self._update_animation()
+            self._consecutive_errors = 0
         except Exception as e:
-            logger.error("LED update error: %s", e, exc_info=True)
+            self._consecutive_errors += 1
+            # Log the first few, then once every ~5s at 50Hz
+            if self._consecutive_errors <= 3 or self._consecutive_errors % 250 == 0:
+                logger.error(
+                    "LED update error (#%d consecutive): %s",
+                    self._consecutive_errors, e,
+                    exc_info=self._consecutive_errors <= 3,
+                )
+            if self._consecutive_errors >= 250:
+                self._connected = False
+                self._error = f"update failed {self._consecutive_errors}x: {e}"
+                logger.error("LED: too many consecutive failures — marking disconnected.")
 
     def get_status(self) -> dict:
         """Return LED status for the status message."""

@@ -69,3 +69,15 @@ preview:
   port: 8790
   jpeg_quality: 70
   jpeg_every_n_frames: 2
+
+# ── WS2812B LED panels (downlink led_command consumer) ────────────────────
+# Consumes led_command from the PC backend over the TCP downlink
+# (INTERFACE_CONTRACT §8.1). Hardware: ws2812-pio overlay, GPIO19,
+# /dev/leds0. The service user needs write permission on /dev/leds0
+# (udev rule), otherwise commands are logged and dropped.
+led:
+  enabled: true
+  default_pattern: "breathing"
+  brightness_limit: 0.25   # safety cap — keep <= 0.25 for first light
+  refresh_hz: 50
+
