@@ -12,12 +12,18 @@ defined in docs/INTERFACE_CONTRACT.md section 4.3.
 from __future__ import annotations
 
 import os
+import sys
 import time
 from pathlib import Path
 from typing import Any
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+# model/ 包在仓库根目录；以 `python backend/app.py` 方式启动时 sys.path[0]
+# 是 backend/，需要把仓库根加进来才能 `from model.inference import ...`（幂等）。
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 DEFAULT_MODEL_PATH = PROJECT_ROOT / "model" / "models" / "gesture_classifier.pkl"
 MODEL_PATH = os.getenv("AIOT_MODEL_PATH", str(DEFAULT_MODEL_PATH))
 
