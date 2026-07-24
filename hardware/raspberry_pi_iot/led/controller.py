@@ -171,7 +171,10 @@ class LedController:
         self._beat_strength = 0.0
         self._beat_duration_ms = 120
         self._beat_hand = "none"
-        self._bpm = 120.0
+        # Rest tempo: 0 = no music yet → breathing falls back to a slow ~4 s
+        # cycle. A performing tempo (e.g. 120) would make "breathing" a 2 Hz
+        # blink. set_state(bpm=...) overrides once music is playing.
+        self._bpm = 0.0
         self._intensity = 0.5
         self._left_weight = 0.5
         self._right_weight = 0.5
