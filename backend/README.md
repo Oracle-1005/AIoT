@@ -13,7 +13,7 @@ PC-side Flask + SQLite backend using the confirmed Pi ↔ PC architecture:
 ## Run
 
 ```powershell
-cd G:\code\AIoT\AIoT
+cd <project-root>
 python -m venv backend\.venv
 backend\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
 backend\.venv\Scripts\python.exe backend\test_backend.py
@@ -31,7 +31,7 @@ The PC listens on:
 After starting `backend/app.py` and the Raspberry Pi `fusion_pipeline`, run:
 
 ```powershell
-cd G:\code\AIoT\AIoT
+cd <project-root>
 backend\.venv\Scripts\python.exe backend\tools\verify_pi_stream.py --duration 30
 ```
 
@@ -94,9 +94,10 @@ Downlink example:
 {
   "message_type": "led_command",
   "payload": {
-    "effect": "accent_flash",
-    "strength": 0.9,
-    "duration_ms": 120
+    "effect": "downbeat",
+    "brightness": 0.9,
+    "duration_ms": 120,
+    "source": "backend"
   }
 }
 ```
@@ -128,6 +129,10 @@ section, beat, and Sonic Pi connection state.
 
 ## Model integration
 
-`window_features` is stored and exposed immediately, but automatic inference
-is disabled until its fields are finalized. Set
-`AIOT_AUTO_INFER_WINDOW_FEATURES=1` after the model input contract is fixed.
+`fused_frame` is the primary inference trigger. Samples are separated by hand and
+deduplicated by `sample_sequence` before entering a sliding window. When the model
+is available, the window is passed to `model_service.predict()` and the normalized
+prediction is stored, exposed through `/api/gesture/current`, and sent to Sonic Pi.
+
+`window_features` remains supported as a compatibility input. Set
+`AIOT_AUTO_INFER_WINDOW_FEATURES=0` to store it without triggering inference.

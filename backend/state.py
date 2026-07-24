@@ -10,8 +10,11 @@ from typing import Any
 GESTURES = (
     "idle",
     "downbeat",
+    "upbeat",
     "crescendo",
     "decrescendo",
+    "left_cue",
+    "right_cue",
     "cutoff",
     "style_switch",
     "tempo_up",
@@ -94,7 +97,7 @@ class LiveState:
             "last_message_at": None,
             "message_counts": {
                 name: 0
-                for name in ("fused_frame", "control_event", "status")
+                for name in ("fused_frame", "window_features", "control_event", "status")
             },
             "status": {},
             "last_control_event": None,
@@ -145,19 +148,17 @@ class LiveState:
                 right_microbit = microbits.get("right", {})
 
                 if isinstance(left_microbit, dict):
-                    self.microbit_left_connected = _online(
-                        left_microbit.get(
-                            "connected",
-                            self.microbit_left_connected,
-                        )
+                    age_ms = left_microbit.get("age_ms")
+                    self.microbit_left_connected = (
+                        float(age_ms) < 1000 if isinstance(age_ms, (int, float))
+                        else _online(left_microbit.get("connected", self.microbit_left_connected))
                     )
 
                 if isinstance(right_microbit, dict):
-                    self.microbit_right_connected = _online(
-                        right_microbit.get(
-                            "connected",
-                            self.microbit_right_connected,
-                        )
+                    age_ms = right_microbit.get("age_ms")
+                    self.microbit_right_connected = (
+                        float(age_ms) < 1000 if isinstance(age_ms, (int, float))
+                        else _online(right_microbit.get("connected", self.microbit_right_connected))
                     )
 
     def apply_fused_frame(
@@ -220,6 +221,7 @@ class LiveState:
 
                     if gesture in {
                         "downbeat",
+    "upbeat",
                         "left_wrist_strike",
                         "right_wrist_strike",
                         "bilateral_strike",
@@ -445,10 +447,10 @@ class LiveState:
     def _apply_music_effect(self, gesture: str) -> None:
         self.music_state["current_gesture"] = gesture
 
-        if gesture == "downbeat":
+        if gesture in {"downbeat", "upbeat", "left_cue", "right_cue", "gesture_start"}:
             self.music_state["playing"] = True
 
-        elif gesture == "cutoff":
+        elif gesture in {"cutoff", "stop"}:
             self.music_state["playing"] = False
 
         elif gesture == "crescendo":

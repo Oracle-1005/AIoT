@@ -19,6 +19,7 @@ from flask_cors import CORS
 
 from database import DB_PATH, get_pi_message_history, get_prediction_history, init_db
 from message_router import UPLINK_MESSAGE_TYPES, route_uplink_message
+from inference_pipeline import inference_pipeline
 from model_service import model_service
 from pi_gateway import PI_GATEWAY_ENABLED, PI_GATEWAY_HOST, PI_GATEWAY_PORT, pi_gateway
 from sonic_pi import sonic_pi_adapter
@@ -46,6 +47,7 @@ def create_app() -> Flask:
             "model_loaded": model_service.loaded,
             "pi_gateway": pi_gateway.status(),
             "sonic_pi": sonic_pi_adapter.status(),
+            "inference": inference_pipeline.status(),
             "uptime_seconds": live_state.uptime_seconds(),
         })
 
@@ -76,6 +78,23 @@ def create_app() -> Flask:
         payload = body.get("payload", {})
         if not isinstance(payload, dict):
             return jsonify({"error": "payload must be a JSON object"}), 400
+        if message_type == "led_command":
+            required = {"effect", "brightness", "duration_ms"}
+            missing = required.difference(payload)
+            if missing:
+                return jsonify({"error": f"led_command missing fields: {sorted(missing)}"}), 400
+            try:
+                brightness = float(payload["brightness"])
+                duration_ms = int(payload["duration_ms"])
+            except (TypeError, ValueError):
+                return jsonify({"error": "brightness must be numeric and duration_ms must be an integer"}), 400
+            if not 0.0 <= brightness <= 1.0 or duration_ms < 0:
+                return jsonify({"error": "brightness must be in [0,1] and duration_ms must be >= 0"}), 400
+            payload = dict(payload)
+            payload["effect"] = str(payload["effect"])
+            payload["brightness"] = brightness
+            payload["duration_ms"] = duration_ms
+            payload.setdefault("source", "backend")
         message = {
             "schema_version": str(body.get("schema_version", "draft")),
             "message_type": message_type,
@@ -127,6 +146,7 @@ def create_app() -> Flask:
             "sent": sent,
             "music": live_state.get_music(),
             "sonic_pi": sonic_pi_adapter.status(),
+            "inference": inference_pipeline.status(),
         }), 200 if sent else 503
 
     @app.post("/api/sonic-pi/state")

@@ -1,8 +1,9 @@
 """Validation and dispatch for Pi -> PC uplink messages.
 
-The Pi currently sends three message types:
+The Pi currently sends four message types:
 
 - fused_frame
+- window_features
 - control_event
 - status
 
@@ -16,11 +17,13 @@ import time
 from typing import Any
 
 from database import insert_pi_message
+from inference_pipeline import inference_pipeline
 from sonic_pi import sonic_pi_adapter
 from state import live_state
 
 UPLINK_MESSAGE_TYPES = frozenset({
     "fused_frame",
+    "window_features",
     "control_event",
     "status",
 })
@@ -116,6 +119,10 @@ def route_uplink_message(
             payload,
             received_at,
         )
+        inference_pipeline.process_fused_frame(payload, received_at)
+
+    elif message_type == "window_features":
+        inference_pipeline.process_window_features(payload)
 
     elif message_type == "control_event":
         live_state.apply_control_event(

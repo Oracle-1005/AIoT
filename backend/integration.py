@@ -7,13 +7,14 @@ from typing import Any
 
 from database import insert_prediction, insert_sensor_record
 from model_service import model_service
+from gesture_mapping import normalize_prediction
 from pi_gateway import pi_gateway
 from sonic_pi import sonic_pi_adapter
 from state import live_state
 
 
 def run_prediction(window_data: Any) -> dict[str, Any]:
-    result = model_service.predict(window_data)
+    result = normalize_prediction(model_service.predict(window_data))
     accept_prediction(result)
     return result
 

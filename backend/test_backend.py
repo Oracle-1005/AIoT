@@ -268,13 +268,16 @@ def main() -> None:
             "status",
         }
     )
+    assert "window_features" in __import__("message_router").UPLINK_MESSAGE_TYPES
 
     disconnected = client.post(
         "/api/pi/send",
         json={
             "message_type": "led_command",
             "payload": {
-                "effect": "test",
+                "effect": "idle",
+                "brightness": 0.5,
+                "duration_ms": 100,
             },
         },
     )

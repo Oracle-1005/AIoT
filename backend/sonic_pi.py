@@ -32,12 +32,18 @@ SONIC_PI_LISTEN_PORT = int(os.getenv("AIOT_SONIC_PI_LISTEN_PORT", "4561"))
 
 ACCENT_GESTURES = {
     "downbeat",
+    "upbeat",
+    "left_cue",
+    "right_cue",
     "left_wrist_strike",
     "right_wrist_strike",
     "bilateral_strike",
 }
 START_GESTURES = {
     "downbeat",
+    "upbeat",
+    "left_cue",
+    "right_cue",
     "left_wrist_strike",
     "right_wrist_strike",
     "bilateral_strike",
