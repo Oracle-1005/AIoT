@@ -22,6 +22,9 @@ if [[ ! -f "$CONFIG" ]]; then
   cp "$RECEIVER_DIR/config.example.json" "$CONFIG"
 fi
 
+MICROBIT_RECEIVER_DIR="$PROJECT_ROOT/hardware/raspberry_pi/microbit_to_Pi"
+export PYTHONPATH="$RECEIVER_DIR:$MICROBIT_RECEIVER_DIR:${PYTHONPATH:-}"
+
 exec "$PYTHON_BIN" "$PREVIEW_SCRIPT" \
   --receiver-dir "$RECEIVER_DIR" \
   --config "$CONFIG" \
