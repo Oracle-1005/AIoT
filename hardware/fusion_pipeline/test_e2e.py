@@ -402,17 +402,22 @@ def validate(result: TestResult) -> tuple[bool, list[str]]:
     lines.append(f"\n📊 control_events: {len(result.control_events)} total")
     check(len(result.control_events) >= 1, "At least one control_event received")
 
-    blp_events = [e for e in result.control_events
-                  if e.get("event_code") == "B_LONG_PRESS"]
+    blp_events = [
+        e for e in result.control_events
+        if (e.get("payload") or {}).get("event", {}).get("code") == "B_LONG_PRESS"
+    ]
     lines.append(f"  B_LONG_PRESS events: {len(blp_events)} "
                  f"(ESP32 forwarded {EVENT_REPEAT_TOTAL}, expect 1 after dedup)")
     check(len(blp_events) == 1,
           f"Event dedup: 7 ESP32 copies → 1 Pi output (got {len(blp_events)})")
     if blp_events:
-        check(blp_events[0].get("mapped_candidate") == "emergency_stop",
-              "B_LONG_PRESS mapped to emergency_stop")
-        # Verify it's not marked duplicate
-        check(not blp_events[0].get("duplicate", True),
+        event_payload = (blp_events[0].get("payload") or {}).get("event", {})
+        raw_microbit = (blp_events[0].get("payload") or {}).get("microbit", {})
+        check(event_payload.get("candidate") == "emergency_stop",
+              "B_LONG_PRESS preserves emergency_stop candidate")
+        check(event_payload.get("type") == "stop",
+              "B_LONG_PRESS mapped to backend stop event")
+        check(raw_microbit.get("duplicate") is False,
               "Event not marked as duplicate (first copy accepted)")
 
     # ── 3. Sensor suppression period ──────────────────────────────────

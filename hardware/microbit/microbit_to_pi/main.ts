@@ -13,7 +13,7 @@ const HAND: number = 0
 const SAMPLE_PERIOD_MS = 150
 const SENSOR_REPEAT_TOTAL = 1
 const SENSOR_REPEAT_INTERVAL_MS = 50
-const AD_TX_POWER_DBM = -12
+const AD_TX_POWER_DBM = 0
 const BLE_CONNECTABLE = false
 
 const DEBOUNCE_MS = 60

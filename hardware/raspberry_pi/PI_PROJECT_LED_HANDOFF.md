@@ -324,7 +324,9 @@ hardware/raspberry_pi_iot/led/controller.py
 当前设计：
 
 - 控制 WS2812B。
-- 默认 GPIO：`18`，物理引脚 12。
+- Pi 5 默认后端：`ws2812-pio` 内核驱动。
+- 默认数据线：`GPIO19`，物理引脚 35。
+- 默认设备节点：`/dev/leds0`。
 - 默认 2 个 panel。
 - 每个 panel 256 LEDs。
 - 总计 512 LEDs。
@@ -336,7 +338,7 @@ hardware/raspberry_pi_iot/led/controller.py
 ```yaml
 led:
   enabled: false
-  gpio: 18
+  gpio: 19
   panel_count: 2
   led_per_panel: 256
   brightness_limit: 0.25
@@ -347,11 +349,13 @@ led:
 
 注意事项：
 
-- 当前 Pi 虚拟环境未安装 `rpi_ws281x`。
-- `GPIO18` 使用 PWM/DMA，可能与音频或其它 PWM 功能冲突。
+- Pi 5 不应使用 `rpi_ws281x` 作为正式 LED 后端；实测 `ws2811_init` 返回 `-3`，根因是 RP1 南桥不兼容。
+- Pi 5 当前方案是 `/boot/firmware/config.txt` 中启用 `dtoverlay=ws2812-pio,gpio=19,num_leds=512,brightness=0`。
+- `/dev/leds0` 仅 root 可写，LED 服务需要 root 或相应 udev 权限。
+- 数据线使用 `GPIO19`，物理引脚 35，经 330-470 欧姆电阻进入灯板 0 DIN，两板级联。
 - 首次点亮必须限制亮度和供电电流，建议保持 `brightness_limit <= 0.25`。
 - LED 电源地必须与树莓派 GND 共地。
-- 数据线建议串联 330-470 欧姆电阻，长线建议加电平转换。
+- 长线建议加电平转换。
 
 ## 10. LED 接入推荐路径
 
@@ -359,7 +363,7 @@ led:
 
 ### 第一步：LED 独立硬件验证
 
-目标：只验证 `rpi_ws281x`、GPIO18、供电和灯带方向。
+目标：只验证 `ws2812-pio`、`/dev/leds0`、GPIO19、供电和灯带方向。
 
 建议新建一个最小脚本，调用 `LedController.clear()`、`show_beat()`、`update()`，不要接 camera/microbit。
 

@@ -364,6 +364,12 @@ class CameraSensor:
             landmarks_raw = [
                 [lm.x, lm.y, lm.z] for lm in landmarks
             ]
+            world_landmarks = []
+            if mp_result.hand_world_landmarks and idx < len(mp_result.hand_world_landmarks):
+                world_landmarks = [
+                    [lm.x, lm.y, lm.z]
+                    for lm in mp_result.hand_world_landmarks[idx]
+                ]
 
             # Apply temporal smoothing to reduce MediaPipe jitter
             timestamp_s = sensor_ts_ns / 1_000_000_000.0
@@ -390,7 +396,7 @@ class CameraSensor:
                 "confidence": confidence,
                 "valid": confidence >= 0.5,
                 "landmarks_normalized": landmarks_normalized,
-                "world_landmarks": [],  # Optional, disabled for performance
+                "world_landmarks": world_landmarks,
                 "features": features,
             }
 

@@ -143,6 +143,7 @@ class GatewayAdapter:
         allowed_hands: set[Hand] | None = None,
         event_dedup_ttl_s: float = 10.0,
         noise_filter_config: dict | None = None,
+        on_raw_sensor_state: Callable[[dict], None] | None = None,
         on_sensor_state: Callable[[MicrobitSample], None] | None = None,
         on_control_event: Callable[[dict], None] | None = None,
     ) -> None:
@@ -150,6 +151,7 @@ class GatewayAdapter:
         self._listen_port = listen_port
         self._allowed_hands = allowed_hands or {Hand.LEFT, Hand.RIGHT}
 
+        self._on_raw_sensor_state = on_raw_sensor_state
         self._on_sensor_state = on_sensor_state
         self._on_control_event = on_control_event
 
@@ -271,6 +273,23 @@ class GatewayAdapter:
     ) -> None:
         """Process a sensor_state packet through tracking + noise filter."""
         hand = packet.hand
+
+        if self._on_raw_sensor_state:
+            raw_item = packet.to_dict()
+            raw_item["transport"] = "esp32_udp_gateway"
+            raw_item["gateway"] = {
+                "source_ip": addr[0],
+                "source_port": addr[1],
+                "gateway_sequence": frame.gateway_sequence,
+                "esp_rx_micros": frame.esp_rx_micros,
+                "conn_index": frame.conn_index,
+                "ble_rssi": frame.ble_rssi,
+                "flags": frame.flags,
+            }
+            try:
+                self._on_raw_sensor_state(raw_item)
+            except Exception:
+                logger.exception("on_raw_sensor_state callback failed")
 
         # ── Sequence tracking ──────────────────────────────────────────
         decision = self._sequence_tracker.observe(packet)

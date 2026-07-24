@@ -15,8 +15,8 @@ Usage:
   python -m esp32_gateway_receiver.app --config config.json --log-level WARNING \
       | python tools/measure_effective_rate.py
 
-Reference targets for the 2026-07-24 sampling-rate experiments:
-  - per-hand effective rate >= 10 Hz (ideally 20+), arrival >= 80%, RSSI > -75 dBm
+Reference targets for the 2026-07-24 v2 sampling-rate experiment:
+  - per-hand effective rate >= 3 Hz, RSSI avg > -75 dBm, age_ms mostly < 1 s
   - current firmware baseline (SAMPLE_PERIOD_MS=150, REPEAT=1, TX=-12dBm):
     nominal 6.7 Hz, measured 2026-07-23 ~25% arrival -> ~1.7 Hz effective
 """
@@ -101,7 +101,7 @@ def report(stats):
                 if s["rssi_n"] else "n/a")
         print(f"{src:<8} {s['received']:>6} {s['gaps']:>6} {arrival:>7.0f}% "
               f"{eff_hz:>7.1f} {rssi:>20} {s['restarts']:>8}")
-    print("\nReference: target eff_Hz >= 10, arrival >= 80%, RSSI avg > -75 dBm")
+    print("\nReference: target eff_Hz >= 3, RSSI avg > -75 dBm, age_ms mostly < 1 s")
     return 0
 
 
