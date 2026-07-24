@@ -57,6 +57,11 @@ EFFECT_TO_PATTERN = {
     "right_cue": "right",
     "strong_beat": "downbeat",
     "weak_beat": "upbeat",
+    # Operational aliases (not gestures): force the panels dark. The canonical
+    # "idle" event stays mapped to breathing per the LedController design.
+    "off": "idle",
+    "clear": "idle",
+    "lights_off": "idle",
 }
 
 # Downlink types we explicitly do not handle yet (logged at debug level).

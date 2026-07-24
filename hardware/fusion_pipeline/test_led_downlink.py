@@ -120,6 +120,10 @@ def test_effect_mapping() -> None:
         ("diminuendo", "diminuendo"),
         ("start", "start"),
         ("wave", "wave"),
+        # operational off aliases → controller's all-dark idle pattern
+        ("off", "idle"),
+        ("clear", "idle"),
+        ("lights_off", "idle"),
     ]
     for effect, expected in cases:
         fake.patterns.clear()
