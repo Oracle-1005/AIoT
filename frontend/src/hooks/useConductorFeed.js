@@ -1,8 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createConductorFrame, gestureCatalog, makeInferenceLog } from '../data/conductorData'
 
 const BACKEND_REST_DEFAULT = 'http://localhost:5000'
 const REST_POLL_INTERVAL_MS = 250
+const TRANSPORT_FETCH_TIMEOUT_MS = 1200
+const CAMERA_STREAM_ENV = import.meta.env.VITE_CAMERA_STREAM_URL || ''
+const CAMERA_FRAME_ENV = import.meta.env.VITE_CAMERA_FRAME_URL || ''
+const PLAY_ACTIONS = new Set(['start', 'resume', 'play', 'reset'])
+const PAUSE_ACTIONS = new Set(['pause', 'stop', 'cutoff'])
 
 const gestureResponses = {
   idle: 'Maintain current playback state',
@@ -66,6 +71,155 @@ function toNumber(value, fallback = 0) {
 
 function clamp(value, low, high) {
   return Math.min(high, Math.max(low, value))
+}
+
+function readString(...values) {
+  return values.find((value) => typeof value === 'string' && value.trim()) || ''
+}
+
+function normalizeLandmarkPoint(point, index) {
+  if (Array.isArray(point)) {
+    const [x, y, z = 0] = point
+    if (!Number.isFinite(Number(x)) || !Number.isFinite(Number(y))) return null
+    return {
+      id: index,
+      x: Number(x),
+      y: Number(y),
+      z: Number.isFinite(Number(z)) ? Number(z) : 0,
+    }
+  }
+
+  if (!point || typeof point !== 'object') return null
+  const x = Number(point.x)
+  const y = Number(point.y)
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null
+
+  return {
+    id: Number.isFinite(Number(point.id)) ? Number(point.id) : index,
+    x,
+    y,
+    z: Number.isFinite(Number(point.z)) ? Number(point.z) : 0,
+  }
+}
+
+function normalizeLandmarks(hand = {}) {
+  const source =
+    hand.landmarks_normalized ||
+    hand.image_landmarks ||
+    hand.landmarks ||
+    hand.world_landmarks ||
+    []
+
+  if (!Array.isArray(source)) return []
+  return source
+    .map((point, index) => normalizeLandmarkPoint(point, index))
+    .filter(Boolean)
+}
+
+function normalizeCameraHands(camera = {}) {
+  const hands = Array.isArray(camera.hands) ? camera.hands : []
+  return hands
+    .map((hand, index) => {
+      if (!hand || typeof hand !== 'object') return null
+      const handedness = String(
+        hand.hand ||
+        hand.handedness ||
+        hand.hand_label ||
+        hand.hand_id ||
+        `hand-${index}`,
+      ).toLowerCase()
+      const features = hand.features && typeof hand.features === 'object' ? hand.features : {}
+
+      return {
+        handId: String(hand.hand_id || hand.id || `${handedness}-${index}`),
+        handedness,
+        valid: hand.valid ?? hand.detection_valid ?? true,
+        confidence: toPercent(Number(hand.confidence ?? hand.score ?? hand.handedness_score), 0),
+        landmarks: normalizeLandmarks(hand),
+        features,
+      }
+    })
+    .filter(Boolean)
+}
+
+function readCameraMedia(camera = {}, sensors = {}) {
+  const media = camera.media && typeof camera.media === 'object' ? camera.media : {}
+  const streamUrl = readString(
+    camera.stream_url,
+    camera.streamUrl,
+    camera.mjpeg_url,
+    camera.mjpegUrl,
+    camera.video_url,
+    camera.videoUrl,
+    media.stream_url,
+    media.streamUrl,
+    sensors.camera_stream_url,
+    sensors.cameraStreamUrl,
+    CAMERA_STREAM_ENV,
+  )
+  const frameUrl = readString(
+    camera.frame_url,
+    camera.frameUrl,
+    camera.image_url,
+    camera.imageUrl,
+    media.frame_url,
+    media.frameUrl,
+    sensors.camera_frame_url,
+    sensors.cameraFrameUrl,
+    CAMERA_FRAME_ENV,
+  )
+
+  return { streamUrl, frameUrl }
+}
+
+function vectorMagnitude(values) {
+  if (!Array.isArray(values)) return 0
+  return Math.sqrt(
+    values.reduce((total, value) => {
+      const number = Number(value)
+      return Number.isFinite(number) ? total + number * number : total
+    }, 0),
+  )
+}
+
+function firstWristPoint(hand) {
+  return hand?.landmarks?.find((point) => point.id === 0) || hand?.landmarks?.[0] || null
+}
+
+function deriveCameraMetrics(rawCamera = {}, baseCamera = {}, hands = []) {
+  const cameraWidth = Number(rawCamera.width) || 640
+  const cameraHeight = Number(rawCamera.height) || 480
+  const normalizeAxis = (value, size) => {
+    const number = Number(value)
+    if (!Number.isFinite(number)) return null
+    return number > 1 && size > 1 ? number / size : number
+  }
+  const leftHand = hands.find((hand) => hand.handedness.includes('left'))
+  const rightHand = hands.find((hand) => hand.handedness.includes('right'))
+  const leftWrist = firstWristPoint(leftHand)
+  const rightWrist = firstWristPoint(rightHand)
+  const leftWristX = normalizeAxis(leftWrist?.x, cameraWidth)
+  const leftWristY = normalizeAxis(leftWrist?.y, cameraHeight)
+  const rightWristX = normalizeAxis(rightWrist?.x, cameraWidth)
+  const rightWristY = normalizeAxis(rightWrist?.y, cameraHeight)
+  const leftVelocity = leftHand?.features?.wrist_velocity
+  const rightVelocity = rightHand?.features?.wrist_velocity
+  const dominantVelocity = vectorMagnitude(rightVelocity) ? rightVelocity : leftVelocity
+  const motionSpeed = Math.max(vectorMagnitude(leftVelocity), vectorMagnitude(rightVelocity))
+  const handDistance = leftWristX !== null && leftWristY !== null && rightWristX !== null && rightWristY !== null
+    ? Math.sqrt((leftWristX - rightWristX) ** 2 + (leftWristY - rightWristY) ** 2)
+    : baseCamera.handDistance
+  const trajectoryAngle = Array.isArray(dominantVelocity) && dominantVelocity.length >= 2
+    ? Math.round((Math.atan2(-Number(dominantVelocity[1]), Number(dominantVelocity[0])) * 180) / Math.PI)
+    : baseCamera.trajectoryAngle
+
+  return {
+    leftHandY: Number((leftWristY ?? baseCamera.leftHandY).toFixed(2)),
+    rightHandX: Number((rightWristX ?? baseCamera.rightHandX).toFixed(2)),
+    handDistance: Number((handDistance ?? baseCamera.handDistance).toFixed(2)),
+    movementSpeed: Number((motionSpeed || baseCamera.movementSpeed || 0).toFixed(2)),
+    trajectoryAngle,
+  }
 }
 
 function normalizeAcceleration(value) {
@@ -191,10 +345,17 @@ function normalizeRestFrame({ status = {}, prediction = {}, sensors = {}, music 
   const base = createConductorFrame(tick)
   const leftSensor = sensors.microbit_left || {}
   const rightSensor = sensors.microbit_right || {}
+  const rawCamera = sensors.camera || {}
+  const cameraHands = normalizeCameraHands(rawCamera)
+  const cameraMedia = readCameraMedia(rawCamera, sensors)
+  const cameraMetrics = deriveCameraMetrics(rawCamera, base.camera, cameraHands)
   const volume = toPercent(Number(music.volume), base.music.volume)
   const handCount = Number(sensors.hand_count || 0)
   const gateway = piStatus.gateway || status.pi_gateway || {}
   const sonicPi = status.sonic_pi || {}
+  const sonicPiConnected = typeof sonicPi.connected === 'boolean'
+    ? sonicPi.connected
+    : Boolean(music.sonic_pi_connected)
   const runtime = piStatus.runtime || {}
   const controlPayload = getLastControlPayload(runtime)
   const gesture = selectCurrentGesture({ prediction, music, controlPayload })
@@ -216,7 +377,7 @@ function normalizeRestFrame({ status = {}, prediction = {}, sensors = {}, music 
       camera: status.camera_connected ? 'Connected' : 'Waiting',
       hands: sensors.hand_detected ? `${handCount || 1} Hand${handCount === 1 ? '' : 's'} Detected` : 'No Hands Detected',
       tracking: sensors.hand_detected ? 'Stable' : 'Standby',
-      fps: base.connection.fps,
+      fps: Number(rawCamera.fps || status.camera?.fps || base.connection.fps),
       latency: Number(prediction.latency_ms || base.connection.latency),
       model: status.model_loaded ? 'Model Loaded' : 'Model Pending',
       backend: status.status === 'ok' ? 'REST Online' : 'REST Pending',
@@ -249,6 +410,21 @@ function normalizeRestFrame({ status = {}, prediction = {}, sensors = {}, music 
         z: readAcceleration(rightSensor, 'z'),
       },
     },
+    camera: {
+      ...base.camera,
+      ...cameraMetrics,
+      source: rawCamera.source || 'camera',
+      frameId: rawCamera.frame_id ?? rawCamera.frameId ?? null,
+      width: Number(rawCamera.width || base.camera.width || 640),
+      height: Number(rawCamera.height || base.camera.height || 480),
+      fps: Number(rawCamera.fps || base.connection.fps),
+      hands: cameraHands,
+      streamUrl: cameraMedia.streamUrl,
+      frameUrl: cameraMedia.frameUrl,
+      hasLiveVideo: Boolean(cameraMedia.streamUrl || cameraMedia.frameUrl),
+      hasLiveLandmarks: cameraHands.some((hand) => hand.landmarks.length > 0),
+      raw: rawCamera,
+    },
     prediction: {
       gesture,
       label: catalogMatch?.label || toGestureLabel(gesture),
@@ -256,6 +432,12 @@ function normalizeRestFrame({ status = {}, prediction = {}, sensors = {}, music 
       confidence,
       response: catalogMatch?.response || gestureResponses[gesture] || 'Update live state',
       top3: topPredictionsFromAllProbs(useEventTop3 ? {} : prediction.all_probs, gesture, confidence),
+    },
+    actuation: {
+      ...base.actuation,
+      event: controlPayload.event || {},
+      led: controlPayload.led_control || base.actuation.led,
+      databaseSaved: Boolean(runtime.last_control_event || status.status === 'ok'),
     },
     music: {
       ...base.music,
@@ -283,16 +465,92 @@ function normalizeRestFrame({ status = {}, prediction = {}, sensors = {}, music 
       lastBar: Number.isFinite(Number(music.last_bar)) ? Number(music.last_bar) : base.music.lastBar,
       lastBeat: Number.isFinite(Number(music.last_beat)) ? Number(music.last_beat) : base.music.lastBeat,
       beatStrength: toPercent(Number(music.beat_strength), base.music.beatStrength),
-      sonicPiConnected: Boolean(music.sonic_pi_connected || sonicPi.connected),
+      sonicPiConnected,
     },
   }
 }
 
 function normalizeRemoteFrame(payload) {
+  const base = createConductorFrame(0)
+  const rawCamera = payload.camera || {}
+  const cameraHands = normalizeCameraHands(rawCamera)
+  const cameraMedia = readCameraMedia(rawCamera, payload.sensors || {})
+  const cameraBase = {
+    ...base.camera,
+    ...rawCamera,
+  }
+  const cameraMetrics = deriveCameraMetrics(rawCamera, cameraBase, cameraHands)
+
   return {
-    ...createConductorFrame(0),
+    ...base,
     ...payload,
     timestamp: payload.timestamp || new Date().toISOString(),
+    connection: {
+      ...base.connection,
+      ...payload.connection,
+    },
+    actuation: {
+      ...base.actuation,
+      ...payload.actuation,
+    },
+    camera: {
+      ...cameraBase,
+      ...cameraMetrics,
+      hands: cameraHands.length ? cameraHands : (Array.isArray(rawCamera.hands) ? rawCamera.hands : []),
+      streamUrl: cameraMedia.streamUrl || rawCamera.streamUrl || '',
+      frameUrl: cameraMedia.frameUrl || rawCamera.frameUrl || '',
+      hasLiveVideo: Boolean(cameraMedia.streamUrl || cameraMedia.frameUrl || rawCamera.streamUrl || rawCamera.frameUrl),
+      hasLiveLandmarks: cameraHands.some((hand) => hand.landmarks.length > 0),
+      raw: rawCamera,
+    },
+  }
+}
+
+function createTransportOverride(action, currentMusic = {}, status = 'sending', error = '') {
+  const actionText = String(action).trim().toLowerCase()
+  const requestedAt = Date.now() / 1000
+  const currentPlaying = Boolean(currentMusic.playing)
+
+  return {
+    action: actionText,
+    playing: PAUSE_ACTIONS.has(actionText) ? false : PLAY_ACTIONS.has(actionText) ? true : currentPlaying,
+    requestedAt,
+    status,
+    error,
+  }
+}
+
+function applyTransportOverride(nextFrame, override) {
+  if (!override || !nextFrame?.music) return nextFrame
+
+  const resetMusic = override.action === 'reset'
+
+  return {
+    ...nextFrame,
+    music: {
+      ...nextFrame.music,
+      playing: override.playing,
+      progress: resetMusic ? 0 : nextFrame.music.progress,
+      elapsedSeconds: resetMusic ? 0 : nextFrame.music.elapsedSeconds,
+      uiReceivedAt: override.requestedAt,
+      transportAction: override.action,
+      transportStatus: override.status,
+      transportError: override.error,
+    },
+  }
+}
+
+async function fetchJsonWithTimeout(url, options = {}, timeoutMs = TRANSPORT_FETCH_TIMEOUT_MS) {
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs)
+
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    })
+  } finally {
+    window.clearTimeout(timeout)
   }
 }
 
@@ -301,62 +559,88 @@ export function useConductorFeed(options = {}) {
   const restBaseUrl = options.restBaseUrl || import.meta.env.VITE_BACKEND_BASE_URL || BACKEND_REST_DEFAULT
   const [tick, setTick] = useState(0)
   const [frame, setFrame] = useState(() => createConductorFrame(0))
-  const [connectionState, setConnectionState] = useState(wsUrl ? 'connecting websocket' : 'connecting rest')
+  const [connectionState, setConnectionState] = useState(wsUrl ? 'connecting websocket' : 'demo preview')
+  const transportOverrideRef = useRef(null)
   const sendSonicPiTransport = async (action) => {
-    const actionText = String(action)
-    const optimisticPlaying = ['start', 'resume', 'play', 'reset'].includes(actionText)
-    const optimisticStopped = ['pause', 'stop', 'cutoff'].includes(actionText)
-    setFrame((current) => ({
-      ...current,
-      music: {
-        ...current.music,
-        playing: optimisticStopped ? false : optimisticPlaying ? true : current.music.playing,
-        elapsedSeconds: actionText === 'reset' ? 0 : current.music.elapsedSeconds,
-        progress: actionText === 'reset' ? 0 : current.music.progress,
-        uiReceivedAt: Date.now() / 1000,
-      },
-    }))
+    const actionText = String(action).trim().toLowerCase()
+    const optimisticOverride = createTransportOverride(actionText, frame.music)
+    transportOverrideRef.current = optimisticOverride
+    setFrame((current) => applyTransportOverride(current, optimisticOverride))
 
-    const response = await fetch(`${restBaseUrl}/api/sonic-pi/transport`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: actionText }),
-    })
-    if (!response.ok) throw new Error(`Sonic Pi transport returned ${response.status}`)
-    const payload = await response.json()
-    if (payload.music) {
-      const music = payload.music
-      setFrame((current) => ({
-        ...current,
-        music: {
-          ...current.music,
-          title: music.title || current.music.title,
-          key: music.key || current.music.key,
-          bpm: Number(music.bpm || current.music.bpm),
-          volume: toPercent(Number(music.volume), current.music.volume),
-          energy: toPercent(Number(music.energy), current.music.energy),
-          style: music.style ? toTitleCase(String(music.style)) : current.music.style,
-          progress: clamp(toNumber(music.progress, current.music.progress), 0, 100),
-          elapsedSeconds: toNumber(music.elapsed_seconds, current.music.elapsedSeconds),
-          durationSeconds: toNumber(music.duration_seconds, current.music.durationSeconds),
-          performanceElapsedSeconds: toNumber(
-            music.performance_elapsed_seconds,
-            current.music.performanceElapsedSeconds,
-          ),
+    try {
+      const response = await fetchJsonWithTimeout(`${restBaseUrl}/api/sonic-pi/transport`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: actionText }),
+      })
+      if (!response.ok) throw new Error(`Sonic Pi transport returned ${response.status}`)
+      const payload = await response.json()
+
+      if (payload.music) {
+        const music = payload.music
+        const syncedOverride = {
+          ...optimisticOverride,
           playing: Boolean(music.playing),
-          engine: music.engine ? toTitleCase(String(music.engine)) : current.music.engine,
-          section: music.section ? toTitleCase(String(music.section)) : current.music.section,
-          lastBar: Number.isFinite(Number(music.last_bar)) ? Number(music.last_bar) : current.music.lastBar,
-          lastBeat: Number.isFinite(Number(music.last_beat)) ? Number(music.last_beat) : current.music.lastBeat,
-          beatStrength: toPercent(Number(music.beat_strength), current.music.beatStrength),
-          sonicPiConnected: Boolean(
-            music.sonic_pi_connected || payload.sonic_pi?.connected || current.music.sonicPiConnected,
-          ),
-          uiReceivedAt: Date.now() / 1000,
-        },
-      }))
+          requestedAt: Date.now() / 1000,
+          status: 'synced',
+          error: '',
+        }
+        transportOverrideRef.current = syncedOverride
+        setFrame((current) => applyTransportOverride(
+          {
+            ...current,
+            music: {
+              ...current.music,
+              title: music.title || current.music.title,
+              key: music.key || current.music.key,
+              bpm: Number(music.bpm || current.music.bpm),
+              volume: toPercent(Number(music.volume), current.music.volume),
+              energy: toPercent(Number(music.energy), current.music.energy),
+              style: music.style ? toTitleCase(String(music.style)) : current.music.style,
+              progress: clamp(toNumber(music.progress, current.music.progress), 0, 100),
+              elapsedSeconds: toNumber(music.elapsed_seconds, current.music.elapsedSeconds),
+              durationSeconds: toNumber(music.duration_seconds, current.music.durationSeconds),
+              performanceElapsedSeconds: toNumber(
+                music.performance_elapsed_seconds,
+                current.music.performanceElapsedSeconds,
+              ),
+              playing: Boolean(music.playing),
+              engine: music.engine ? toTitleCase(String(music.engine)) : current.music.engine,
+              section: music.section ? toTitleCase(String(music.section)) : current.music.section,
+              lastBar: Number.isFinite(Number(music.last_bar)) ? Number(music.last_bar) : current.music.lastBar,
+              lastBeat: Number.isFinite(Number(music.last_beat)) ? Number(music.last_beat) : current.music.lastBeat,
+              beatStrength: toPercent(Number(music.beat_strength), current.music.beatStrength),
+              sonicPiConnected: typeof payload.sonic_pi?.connected === 'boolean'
+                ? payload.sonic_pi.connected
+                : Boolean(music.sonic_pi_connected || current.music.sonicPiConnected),
+              uiReceivedAt: Date.now() / 1000,
+            },
+          },
+          syncedOverride,
+        ))
+      } else {
+        const syncedOverride = {
+          ...optimisticOverride,
+          requestedAt: Date.now() / 1000,
+          status: 'synced',
+          error: '',
+        }
+        transportOverrideRef.current = syncedOverride
+        setFrame((current) => applyTransportOverride(current, syncedOverride))
+      }
+
+      return payload
+    } catch (error) {
+      const localOverride = {
+        ...optimisticOverride,
+        requestedAt: Date.now() / 1000,
+        status: 'local preview',
+        error: error.name === 'AbortError' ? 'Backend timeout' : error.message,
+      }
+      transportOverrideRef.current = localOverride
+      setFrame((current) => applyTransportOverride(current, localOverride))
+      return { sent: false, local: true, error: localOverride.error }
     }
-    return payload
   }
 
   useEffect(() => {
@@ -371,12 +655,12 @@ export function useConductorFeed(options = {}) {
     const startMockFeed = () => {
       if (mockStarted || cancelled) return
       mockStarted = true
-      setConnectionState('mock fallback')
+      setConnectionState('demo preview')
       if (restTimer) window.clearInterval(restTimer)
       mockTimer = window.setInterval(() => {
         feedTick += 1
         setTick(feedTick)
-        setFrame(createConductorFrame(feedTick))
+        setFrame(applyTransportOverride(createConductorFrame(feedTick), transportOverrideRef.current))
       }, 1800)
     }
 
@@ -403,7 +687,10 @@ export function useConductorFeed(options = {}) {
       })
       feedTick += 1
       setTick(feedTick)
-      setFrame(normalizeRestFrame({ status, prediction, sensors, music, piStatus }, feedTick))
+      setFrame(applyTransportOverride(
+        normalizeRestFrame({ status, prediction, sensors, music, piStatus }, feedTick),
+        transportOverrideRef.current,
+      ))
       setConnectionState('rest polling')
     }
 
@@ -433,7 +720,7 @@ export function useConductorFeed(options = {}) {
           try {
             feedTick += 1
             setTick(feedTick)
-            setFrame(normalizeRemoteFrame(JSON.parse(event.data)))
+            setFrame(applyTransportOverride(normalizeRemoteFrame(JSON.parse(event.data)), transportOverrideRef.current))
           } catch {
             setConnectionState('invalid payload')
           }

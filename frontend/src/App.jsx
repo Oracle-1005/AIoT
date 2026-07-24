@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Activity,
@@ -28,6 +28,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   Upload,
+  Users,
   Video,
   Volume2,
   Wifi,
@@ -51,11 +52,14 @@ import {
 import {
   analyticsSeries,
   assetSlots,
+  experienceScenarios,
   flowSteps,
   gestureCatalog,
   gestureDistribution,
   historicalRows,
   navItems,
+  reservedInterfaceSlots,
+  teamMembers,
   trainingSteps,
   validationCards,
 } from './data/conductorData'
@@ -108,6 +112,51 @@ function formatDuration(seconds = 0) {
   return `${minutes.toString().padStart(2, '0')}:${remainder.toString().padStart(2, '0')}`
 }
 
+function getSonicPiDisplayState(music = {}) {
+  if (music.sonicPiConnected) {
+    return {
+      label: 'Sonic Pi Live',
+      pillClass: 'status-pill border-emerald-400/40 text-emerald-200',
+      hint: '',
+    }
+  }
+
+  if (music.transportStatus === 'local preview') {
+    return {
+      label: 'Backend Offline',
+      pillClass: 'status-pill border-coral/40 text-rose-200',
+      hint: 'Start the backend before controlling Sonic Pi.',
+    }
+  }
+
+  if (music.transportStatus === 'synced' || music.transportStatus === 'sending') {
+    return {
+      label: 'Awaiting Sonic Pi',
+      pillClass: 'status-pill border-gold/40 text-gold',
+      hint: 'Run the Sonic Pi buffer to hear web playback control.',
+    }
+  }
+
+  return {
+    label: 'Run Sonic Pi Buffer',
+    pillClass: 'status-pill border-gold/40 text-gold',
+    hint: 'Open Sonic Pi and Run the prepared music script first.',
+  }
+}
+
+const handConnections = [
+  [0, 1], [1, 2], [2, 3], [3, 4],
+  [0, 5], [5, 6], [6, 7], [7, 8],
+  [5, 9], [9, 10], [10, 11], [11, 12],
+  [9, 13], [13, 14], [14, 15], [15, 16],
+  [13, 17], [17, 18], [18, 19], [19, 20],
+  [0, 17],
+]
+
+function isVideoSource(src = '') {
+  return /\.(mp4|webm|mov)(\?.*)?$/i.test(src)
+}
+
 function AssetPlaceholder({ title, path, note, type = 'video' }) {
   const Icon = type === 'video' ? Video : Upload
   return (
@@ -127,12 +176,16 @@ function AssetPlaceholder({ title, path, note, type = 'video' }) {
   )
 }
 
-function TopNav({ onPresentation, connectionState }) {
-  const statusTone = connectionState.includes('mock') ? 'gold' : 'green'
-  const statusLabel = connectionState
-    .split(' ')
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ')
+function TopNav({ onPresentation, onExperience, connectionState }) {
+  const lowerState = connectionState.toLowerCase()
+  const statusTone = lowerState.includes('mock') || lowerState.includes('preview') || lowerState.includes('connecting') ? 'gold' : 'green'
+  const statusLabel = lowerState.includes('websocket')
+    ? 'Live Connected'
+    : lowerState.includes('rest')
+      ? 'Backend Connected'
+      : lowerState.includes('mock') || lowerState.includes('preview')
+        ? 'Demo Preview'
+        : 'Connecting'
 
   return (
     <header className="sticky top-0 z-40 border-b border-white/10 bg-void/80 backdrop-blur-xl">
@@ -140,8 +193,8 @@ function TopNav({ onPresentation, connectionState }) {
         <button
           type="button"
           className="flex items-center gap-3 text-left"
-          onClick={() => scrollToSection('hero')}
-          aria-label="Go to hero"
+          onClick={() => scrollToSection('home')}
+          aria-label="Go to homepage"
         >
           <div className="grid h-10 w-10 place-items-center rounded-md border border-gold/35 bg-gold/10 text-gold">
             <Music2 size={20} />
@@ -165,6 +218,10 @@ function TopNav({ onPresentation, connectionState }) {
             <StatusDot tone={statusTone} />
             {statusLabel}
           </span>
+          <button type="button" className="secondary-button hidden sm:inline-flex" onClick={onExperience}>
+            <Sparkles size={16} />
+            Experience
+          </button>
           <button type="button" className="primary-button" onClick={onPresentation}>
             <Maximize2 size={16} />
             Presentation Mode
@@ -182,16 +239,58 @@ function TopNav({ onPresentation, connectionState }) {
   )
 }
 
-function HeroSection({ frame, onPresentation }) {
+function HeroSection({ frame, onPresentation, onExperience, onVideo }) {
   const heroStats = [
-    ['Input', 'Camera + 2×Micro:bit'],
-    ['Inference', 'Local Edge AI'],
-    ['Response', `${frame.connection.latency} ms`],
-    ['Logging', 'Sensor + Prediction + Action'],
+    ['Live Input', 'Camera + 2x Micro:bit'],
+    ['AI Layer', 'Pi-side gesture events'],
+    ['Music Engine', 'Sonic Pi OSC'],
+    ['Current Latency', `${frame.connection.latency} ms`],
+  ]
+  const ledAction = frame.prediction.gesture === 'cutoff'
+    ? 'Red cutoff flash'
+    : frame.prediction.gesture === 'crescendo'
+      ? 'Energy wave'
+      : 'Beat pulse'
+  const actionChain = [
+    ['Detected Gesture', frame.prediction.label],
+    ['AI Confidence', `${frame.prediction.confidence}%`],
+    ['Music Action', frame.prediction.response],
+    ['LED Action', ledAction],
+    ['Database', frame.connection.backend === 'REST Online' ? 'Saved' : 'Ready'],
+  ]
+  const roadshowEntries = [
+    {
+      title: 'Prepared Demo Video',
+      description: 'Watch the complete interaction: gesture input, AI recognition, and musical response.',
+      action: 'Open Video',
+      icon: Video,
+      onClick: onVideo,
+    },
+    {
+      title: 'Live Hardware Demo',
+      description: 'Use Raspberry Pi Camera, Micro:bit, AI recognition, and Sonic Pi together.',
+      action: 'Roadshow Mode',
+      icon: Maximize2,
+      onClick: onPresentation,
+    },
+    {
+      title: 'Guest Experience',
+      description: 'Let visitors conduct the music themselves with guided gestures.',
+      action: 'Launch',
+      icon: Sparkles,
+      onClick: onExperience,
+    },
+    {
+      title: 'Tech Stack & Workflow',
+      description: 'See how sensing, AI, music, lighting, and records connect in one loop.',
+      action: 'View Workflow',
+      icon: Monitor,
+      onClick: () => scrollToSection('live-stage'),
+    },
   ]
 
   return (
-    <section id="hero" className="relative overflow-hidden border-b border-white/10">
+    <section id="home" className="relative overflow-hidden border-b border-white/10">
       <div className="absolute inset-0 stage-grid opacity-40" />
       <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(6,7,13,0.22),rgba(6,7,13,0.98)_74%)]" />
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan/60 to-transparent" />
@@ -207,20 +306,65 @@ function HeroSection({ frame, onPresentation }) {
             AIoT Smart Conducting Performance System
           </span>
           <h1 className="hero-title mt-6 max-w-5xl font-display text-5xl font-semibold leading-tight sm:text-6xl lg:text-7xl">
-            Conduct Music Through Motion
+            Conduct Music with Motion
           </h1>
           <p className="mt-6 max-w-3xl text-lg leading-8 text-slate-200">
-            A camera, dual Micro:bit sensors, and a Raspberry Pi edge AI model recognize conducting gestures in real time and translate motion into tempo, volume, energy, style, and musical section control.
+            Raise your hands and the system reads conducting intention through a Raspberry Pi camera and Micro:bit sensors, then changes Sonic Pi music, LED feedback, and interaction records in real time.
           </p>
+          <div className="mt-6 rounded-lg border border-white/10 bg-white/[0.045] p-4">
+            <p className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase text-cyan">
+              <Users size={14} />
+              Project Team
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+              {teamMembers.map((member) => (
+                <div key={member.id} className="rounded-md border border-white/10 bg-black/20 px-3 py-2">
+                  <p className="font-display text-sm font-semibold text-white">{member.name}</p>
+                  <p className="mt-1 text-[11px] uppercase text-slate-500">{member.role}</p>
+                </div>
+              ))}
+            </div>
+          </div>
           <div className="mt-8 flex flex-wrap gap-3">
-            <button type="button" className="primary-button" onClick={() => scrollToSection('live-stage')}>
-              <Play size={16} />
-              Start Live Demo
+            <button type="button" className="primary-button" onClick={onVideo}>
+              <Video size={16} />
+              Prepared Video
             </button>
             <button type="button" className="secondary-button" onClick={onPresentation}>
               <Maximize2 size={16} />
-              Fullscreen Demo
+              Live Roadshow
             </button>
+            <button type="button" className="primary-button" onClick={onExperience}>
+              <Sparkles size={16} />
+              Guest Experience
+            </button>
+            <button type="button" className="secondary-button" onClick={() => scrollToSection('live-stage')}>
+              <Monitor size={16} />
+              Workflow View
+            </button>
+          </div>
+          <div className="mt-6 grid max-w-5xl gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {roadshowEntries.map((entry, index) => {
+              const EntryIcon = entry.icon
+              return (
+                <button
+                  key={entry.title}
+                  type="button"
+                  className="rounded-lg border border-white/10 bg-white/[0.045] p-4 text-left transition hover:border-cyan/40 hover:bg-cyan/10"
+                  onClick={entry.onClick}
+                >
+                  <div className="mb-4 flex items-center justify-between">
+                    <div className="grid h-10 w-10 place-items-center rounded-md border border-cyan/25 bg-cyan/10 text-cyan">
+                      <EntryIcon size={18} />
+                    </div>
+                    <span className="font-mono text-xs text-slate-500">0{index + 1}</span>
+                  </div>
+                  <p className="text-sm font-semibold text-white">{entry.title}</p>
+                  <p className="mt-2 min-h-10 text-xs leading-5 text-slate-400">{entry.description}</p>
+                  <p className="mt-4 text-xs font-semibold uppercase text-gold">{entry.action}</p>
+                </button>
+              )
+            })}
           </div>
           <div className="mt-8 grid max-w-5xl gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {heroStats.map(([label, value]) => (
@@ -246,18 +390,141 @@ function HeroSection({ frame, onPresentation }) {
             </div>
             <ConductorSignalScene frame={frame} compact />
           </div>
-          <AssetPlaceholder
-            title={assetSlots[0].title}
-            path={assetSlots[0].path}
-            note={assetSlots[0].note}
-          />
+          <div className="glass-panel p-5">
+            <p className="flex items-center gap-2 text-sm font-semibold text-white">
+              <ShieldCheck size={16} className="text-mint" />
+              AIoT Action Chain
+            </p>
+            <p className="mt-3 text-sm leading-6 text-slate-300">
+              Every recognised gesture is translated into visible music, light, and database feedback.
+            </p>
+            <div className="mt-5 grid gap-2">
+              {actionChain.map(([label, value]) => (
+                <div key={label} className="rounded-md border border-white/10 bg-white/[0.045] px-3 py-2">
+                  <p className="text-[11px] uppercase text-slate-500">{label}</p>
+                  <p className="mt-1 text-sm font-semibold text-white">{value}</p>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 rounded-lg border border-white/10 bg-black/25 p-4">
+              <p className="text-xs uppercase text-slate-500">LED Matrix Preview</p>
+              <div className="mt-3 grid grid-cols-8 gap-1">
+                {Array.from({ length: 32 }, (_, index) => (
+                  <span
+                    key={index}
+                    className={`h-3 rounded-sm ${index % 5 === 0 ? 'bg-gold' : index % 3 === 0 ? 'bg-cyan' : 'bg-white/10'}`}
+                  />
+                ))}
+              </div>
+              <p className="mt-3 text-xs text-slate-300">{ledAction}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-8">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="flex items-center gap-2 text-sm font-semibold uppercase text-slate-300">
+                <Users size={16} className="text-cyan" />
+                Project Team
+              </p>
+              <p className="mt-1 text-sm text-slate-400">Five roles building the full AIoT conducting system.</p>
+            </div>
+            <span className="status-pill">5 Members</span>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            {teamMembers.map((member) => (
+              <div key={member.id} className="hero-stat min-h-[148px]">
+                <p className="text-[11px] uppercase text-cyan">{member.role}</p>
+                <p className="mt-2 font-display text-lg font-semibold text-white">{member.name}</p>
+                <p className="mt-1 font-mono text-[11px] text-slate-500">{member.id}</p>
+                <p className="mt-3 text-xs leading-5 text-slate-300">{member.focus}</p>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </section>
   )
 }
 
-function ConductorSignalScene({ frame, compact = false }) {
+function ExperienceGateway({ frame, onExperience }) {
+  return (
+    <section id="experience-gateway" className="section-shell">
+      <div className="grid items-center gap-5 lg:grid-cols-[0.9fr_1.1fr]">
+        <div>
+          <span className="eyebrow">
+            <Sparkles size={14} />
+            Visitor Experience
+          </span>
+          <h2 className="mt-4 font-display text-3xl font-semibold text-white sm:text-4xl">
+            Open Interaction Mode
+          </h2>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300 sm:text-base">
+            Visitors can stand in front of the Raspberry Pi camera, follow simple gesture cues, and watch the music respond through sound and live visual feedback.
+          </p>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <button type="button" className="primary-button" onClick={onExperience}>
+              <Play size={16} />
+              Launch Experience
+            </button>
+            <button type="button" className="secondary-button" onClick={() => scrollToSection('live-stage')}>
+              <Server size={16} />
+              Workflow View
+            </button>
+          </div>
+        </div>
+
+        <div className="glass-panel p-4">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <p className="flex items-center gap-2 text-sm font-semibold text-white">
+              <Hand size={16} className="text-gold" />
+              Gesture Scenarios
+            </p>
+            <span className="status-pill">{frame.music.bpm} BPM</span>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {experienceScenarios.map((scenario) => (
+              <button
+                key={scenario.gesture}
+                type="button"
+                className="rounded-lg border border-white/10 bg-white/[0.045] p-4 text-left transition hover:border-cyan/40 hover:bg-cyan/10"
+                onClick={onExperience}
+              >
+                <span className="mb-3 block h-1.5 w-14 rounded-full" style={{ backgroundColor: scenario.color }} />
+                <p className="text-sm font-semibold text-white">{scenario.label}</p>
+                <p className="mt-1 text-xs text-slate-400">{scenario.effect}</p>
+              </button>
+            ))}
+          </div>
+          <div className="mt-4 rounded-lg border border-dashed border-cyan/25 bg-cyan/5 p-4">
+            <p className="mb-3 text-xs font-semibold uppercase text-cyan">Real Hardware Slots</p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {reservedInterfaceSlots.map((slot) => (
+                <div key={slot.field} className="rounded-md border border-white/10 bg-black/20 px-3 py-2">
+                  <p className="text-xs font-semibold text-white">{slot.title}</p>
+                  <p className="mt-1 truncate font-mono text-[11px] text-cyan">{slot.field}</p>
+                </div>
+              ))}
+            </div>
+            <p className="mt-3 text-xs leading-5 text-slate-300">这里是后续真实树莓派摄像头、手部关键点和控制事件的接入口；素材替换说明保留中文，-演主界面仍保持英文。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function ConductorSignalScene({ frame, compact = false, heightClass = '' }) {
+  const [handTrails, setHandTrails] = useState({ left: [], right: [] })
+  const cameraWidth = Number(frame.camera?.width) || 640
+  const cameraHeight = Number(frame.camera?.height) || 480
+  const mediaSource = frame.camera?.streamUrl || frame.camera?.frameUrl || ''
+  const liveHands = useMemo(
+    () => (Array.isArray(frame.camera?.hands) ? frame.camera.hands : []).filter((hand) => hand?.landmarks?.length),
+    [frame.camera?.hands],
+  )
+  const hasLiveLandmarks = liveHands.length > 0
   const waveBars = useMemo(
     () =>
       Array.from({ length: compact ? 34 : 52 }, (_, index) => ({
@@ -267,36 +534,164 @@ function ConductorSignalScene({ frame, compact = false }) {
     [compact, frame.music.bpm],
   )
 
+  const toScenePoint = useCallback((point) => {
+    const rawX = Number(point?.x)
+    const rawY = Number(point?.y)
+    if (!Number.isFinite(rawX) || !Number.isFinite(rawY)) return null
+    const normalizedX = rawX > 1 ? rawX / cameraWidth : rawX
+    const normalizedY = rawY > 1 ? rawY / cameraHeight : rawY
+
+    return {
+      x: Math.max(0, Math.min(1, normalizedX)) * 900,
+      y: Math.max(0, Math.min(1, normalizedY)) * 360,
+    }
+  }, [cameraWidth, cameraHeight])
+
+  useEffect(() => {
+    if (!hasLiveLandmarks) {
+      setHandTrails({ left: [], right: [] })
+      return
+    }
+
+    setHandTrails((current) => {
+      const next = { left: current.left, right: current.right }
+      liveHands.forEach((hand) => {
+        const wrist = hand.landmarks.find((point) => point.id === 0) || hand.landmarks[0]
+        const point = toScenePoint(wrist)
+        if (!point) return
+        const key = hand.handedness?.includes('right') ? 'right' : 'left'
+        next[key] = [...(next[key] || []), point].slice(-16)
+      })
+      return next
+    })
+  }, [frame.timestamp, frame.camera?.frameId, hasLiveLandmarks, liveHands, toScenePoint])
+
+  const sceneHeight = heightClass || (compact ? 'h-52' : 'h-80')
+
   return (
-    <div className={`relative overflow-hidden rounded-lg border border-white/10 bg-void/75 ${compact ? 'h-52' : 'h-80'}`}>
-      <div className="absolute inset-0 stage-grid opacity-50" />
+    <div className={`relative overflow-hidden rounded-lg border border-white/10 bg-void/75 ${sceneHeight}`}>
+      {mediaSource ? (
+        isVideoSource(mediaSource) ? (
+          <video
+            className="absolute inset-0 h-full w-full object-cover opacity-70"
+            src={mediaSource}
+            autoPlay
+            muted
+            loop
+            playsInline
+          />
+        ) : (
+          <img
+            className="absolute inset-0 h-full w-full object-cover opacity-70"
+            src={mediaSource}
+            alt=""
+          />
+        )
+      ) : (
+        <div className="absolute inset-0 stage-grid opacity-50" />
+      )}
+      <div className="absolute inset-0 bg-black/25" />
       <div className="signal-ribbon absolute inset-x-0 top-0 h-16" />
-      <motion.div
-        className="absolute left-[22%] top-[26%] h-5 w-5 rounded-full bg-cyan shadow-[0_0_28px_rgba(56,189,248,0.8)]"
-        animate={{ x: [0, 42, 18, 64, 0], y: [0, -18, 32, 14, 0] }}
-        transition={{ duration: 4.2, repeat: Infinity, ease: 'easeInOut' }}
-      />
-      <motion.div
-        className="absolute right-[24%] top-[34%] h-5 w-5 rounded-full bg-gold shadow-[0_0_28px_rgba(244,199,107,0.8)]"
-        animate={{ x: [0, -28, -64, -24, 0], y: [0, 40, 18, -20, 0] }}
-        transition={{ duration: 3.6, repeat: Infinity, ease: 'easeInOut' }}
-      />
+      {!hasLiveLandmarks ? (
+        <>
+          <motion.div
+            className="absolute left-[22%] top-[26%] h-5 w-5 rounded-full bg-cyan shadow-[0_0_28px_rgba(56,189,248,0.8)]"
+            animate={{ x: [0, 42, 18, 64, 0], y: [0, -18, 32, 14, 0] }}
+            transition={{ duration: 4.2, repeat: Infinity, ease: 'easeInOut' }}
+          />
+          <motion.div
+            className="absolute right-[24%] top-[34%] h-5 w-5 rounded-full bg-gold shadow-[0_0_28px_rgba(244,199,107,0.8)]"
+            animate={{ x: [0, -28, -64, -24, 0], y: [0, 40, 18, -20, 0] }}
+            transition={{ duration: 3.6, repeat: Infinity, ease: 'easeInOut' }}
+          />
+        </>
+      ) : null}
       <svg className="absolute inset-0 h-full w-full" viewBox="0 0 900 360" role="presentation" aria-hidden="true">
-        <path
-          d="M140 190 C 240 80, 330 280, 430 150 S 610 90, 760 210"
-          fill="none"
-          stroke="rgba(56,189,248,0.55)"
-          strokeWidth="3"
-          strokeDasharray="9 10"
-        />
-        <path
-          d="M180 240 C 310 310, 380 120, 510 190 S 670 290, 800 110"
-          fill="none"
-          stroke="rgba(244,199,107,0.58)"
-          strokeWidth="3"
-          strokeDasharray="5 12"
-        />
+        {!hasLiveLandmarks ? (
+          <>
+            <path
+              d="M140 190 C 240 80, 330 280, 430 150 S 610 90, 760 210"
+              fill="none"
+              stroke="rgba(56,189,248,0.55)"
+              strokeWidth="3"
+              strokeDasharray="9 10"
+            />
+            <path
+              d="M180 240 C 310 310, 380 120, 510 190 S 670 290, 800 110"
+              fill="none"
+              stroke="rgba(244,199,107,0.58)"
+              strokeWidth="3"
+              strokeDasharray="5 12"
+            />
+          </>
+        ) : (
+          <>
+            {Object.entries(handTrails).map(([key, trail]) => (
+              trail.length > 1 ? (
+                <polyline
+                  key={key}
+                  points={trail.map((point) => `${point.x},${point.y}`).join(' ')}
+                  fill="none"
+                  stroke={key === 'right' ? 'rgba(244,199,107,0.78)' : 'rgba(56,189,248,0.78)'}
+                  strokeWidth="4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  opacity="0.85"
+                />
+              ) : null
+            ))}
+            {liveHands.map((hand, handIndex) => {
+              const points = new Map(
+                hand.landmarks
+                  .map((point, pointIndex) => [Number.isFinite(Number(point.id)) ? Number(point.id) : pointIndex, toScenePoint(point)])
+                  .filter(([, point]) => point),
+              )
+              const color = hand.handedness?.includes('right') ? 'rgba(244,199,107,0.92)' : 'rgba(56,189,248,0.92)'
+
+              return (
+                <g key={hand.handId || `${hand.handedness}-${handIndex}`}>
+                  {handConnections.map(([start, end]) => {
+                    const a = points.get(start)
+                    const b = points.get(end)
+                    if (!a || !b) return null
+                    return (
+                      <line
+                        key={`${start}-${end}`}
+                        x1={a.x}
+                        y1={a.y}
+                        x2={b.x}
+                        y2={b.y}
+                        stroke={color}
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        opacity="0.82"
+                      />
+                    )
+                  })}
+                  {[...points.entries()].map(([id, point]) => (
+                    <circle
+                      key={id}
+                      cx={point.x}
+                      cy={point.y}
+                      r={id === 0 ? 7 : 4.5}
+                      fill={color}
+                      stroke="rgba(255,255,255,0.9)"
+                      strokeWidth="1.5"
+                    />
+                  ))}
+                </g>
+              )
+            })}
+          </>
+        )}
       </svg>
+      {!mediaSource && !compact ? (
+        <div className="absolute left-1/2 top-1/2 w-[min(480px,calc(100%-48px))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-dashed border-cyan/30 bg-black/35 p-4 text-center backdrop-blur">
+          <p className="text-sm font-semibold text-white">Raspberry Pi Camera Preview</p>
+          <p className="mt-2 text-xs font-semibold uppercase text-cyan">Live hand tracking area</p>
+          <p className="mt-2 text-xs leading-5 text-slate-300">硬件接入后这里显示树莓派摄像头实时画面，不调用电脑本地摄像头；手部关键点和运动轨迹会叠加在画面上。</p>
+        </div>
+      ) : null}
       <div className="absolute inset-x-6 bottom-5 flex h-20 items-end justify-center gap-1.5">
         {waveBars.map((bar, index) => (
           <span
@@ -308,12 +703,18 @@ function ConductorSignalScene({ frame, compact = false }) {
       </div>
       <div className="absolute left-5 top-5 grid gap-2 text-xs">
         <span className="status-pill">
-          <StatusDot tone="green" />
-          Camera Connected
+          <StatusDot tone={frame.connection.camera === 'Connected' ? 'green' : 'gold'} />
+          {frame.connection.camera}
         </span>
         <span className="status-pill">
-          <StatusDot tone="cyan" />
-          Two Hands Detected
+          <StatusDot tone={hasLiveLandmarks ? 'cyan' : 'gold'} />
+          {hasLiveLandmarks ? `${liveHands.length} Live Hand${liveHands.length > 1 ? 's' : ''}` : frame.connection.hands}
+        </span>
+      </div>
+      <div className="absolute right-5 top-5">
+        <span className="status-pill">
+          <StatusDot tone={hasLiveLandmarks || mediaSource ? 'green' : 'gold'} />
+          {hasLiveLandmarks ? 'Hand Tracking Live' : mediaSource ? 'Pi Camera Live' : 'Pi Camera Preview'}
         </span>
       </div>
       <div className="absolute bottom-5 right-5 rounded-md border border-white/10 bg-black/35 px-3 py-2 text-right backdrop-blur">
@@ -328,9 +729,9 @@ function LiveStage({ frame, logs, onTransport }) {
   return (
     <section id="live-stage" className="section-shell">
       <SectionHeader
-        eyebrow="Live Conducting Stage"
-        title="Live Conducting Stage"
-        description="This is the main roadshow screen: camera tracking and hand trajectories on the left, AI recognition in the center, music parameters on the right, and Micro:bit sensor feedback below."
+        eyebrow="Tech Stack & Workflow"
+        title="Technology Stack and Work Chain"
+        description="A single performance loop turns hand movement into recognized intention, then into Sonic Pi music, LED feedback, and saved interaction records."
         icon={Monitor}
       />
 
@@ -360,16 +761,16 @@ function CameraGesturePanel({ frame }) {
         <div>
           <p className="flex items-center gap-2 text-sm font-semibold text-white">
             <Camera size={16} className="text-cyan" />
-            Live Camera View
+            Raspberry Pi Camera Feed
           </p>
-          <p className="mt-1 text-xs text-slate-400">Hand landmarks, skeleton lines, trajectory trail</p>
+          <p className="mt-1 text-xs text-slate-400">Pi camera frame, hand landmarks, skeleton lines, trajectory trail</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <span className="status-pill">FPS {frame.connection.fps}</span>
           <span className="status-pill">{frame.connection.latency} ms</span>
           <span className="status-pill">
             <StatusDot tone={frame.connection.piGatewayConnected ? 'green' : 'gold'} />
-            {frame.connection.piGateway}
+            {frame.connection.piGatewayConnected ? frame.connection.piGateway : 'Pi Ready'}
           </span>
         </div>
       </div>
@@ -472,10 +873,10 @@ function MusicControlCenter({ frame, onTransport }) {
     { label: 'Energy', value: frame.music.energy, icon: Zap, suffix: '%' },
     { label: 'Density', value: frame.music.density, icon: SlidersHorizontal, suffix: '%' },
   ]
-  const sonicPiStatus = frame.music.sonicPiConnected ? 'Sonic Pi Live' : 'Sonic Pi Waiting'
+  const sonicPiDisplay = getSonicPiDisplayState(frame.music)
   const TransportIcon = frame.music.playing ? Pause : Play
   const transportAction = frame.music.playing ? 'pause' : 'start'
-  const transportLabel = frame.music.playing ? 'Pause Sonic Pi' : 'Start Sonic Pi'
+  const transportLabel = frame.music.playing ? 'Pause Music' : 'Play Music'
   const uiReceivedAt = Number(frame.music.uiReceivedAt) || clockNow / 1000
   const secondsSinceFrame = frame.music.playing
     ? Math.max(0, Math.min(clockNow / 1000 - uiReceivedAt, 1.25))
@@ -533,9 +934,7 @@ function MusicControlCenter({ frame, onTransport }) {
         </p>
         <div className="flex flex-wrap justify-end gap-2">
           <span className="status-pill">{frame.music.style}</span>
-          <span className={frame.music.sonicPiConnected ? 'status-pill border-emerald-400/40 text-emerald-200' : 'status-pill'}>
-            {sonicPiStatus}
-          </span>
+          <span className={sonicPiDisplay.pillClass}>{sonicPiDisplay.label}</span>
         </div>
       </div>
 
@@ -544,6 +943,7 @@ function MusicControlCenter({ frame, onTransport }) {
           <div>
             <p className="text-sm font-semibold text-white">{frame.music.title}</p>
             <p className="text-xs text-slate-400">Key: {frame.music.key} | Engine: {frame.music.engine}</p>
+            {sonicPiDisplay.hint ? <p className="mt-1 text-[11px] text-gold/80">{sonicPiDisplay.hint}</p> : null}
           </div>
           <button
             type="button"
@@ -718,7 +1118,7 @@ function DecisionFlow({ frame, connectionState }) {
       <SectionHeader
         eyebrow="AI Intelligence"
         title="AI Decision Flow"
-        description="This view explains how the system fuses camera and Micro:bit data, then maps recognized conducting intentions into real-time music control."
+        description="Camera tracking and Micro:bit motion signals are fused so the system can understand conducting intention while the performance is happening."
         icon={Brain}
       />
 
@@ -788,9 +1188,9 @@ function ValidationHighlights() {
   return (
     <section id="validation" className="section-shell">
       <SectionHeader
-        eyebrow="Proof Points"
-        title="Key Proof Points"
-        description="A compact evidence layer for the roadshow: AI reasoning, sensor fusion value, real-time performance, data logging, and demo reliability."
+        eyebrow="System Highlights"
+        title="What the System Demonstrates"
+        description="The project brings together gesture recognition, multi-sensor fusion, real-time music control, and interaction records in one complete AIoT experience."
         icon={ShieldCheck}
       />
 
@@ -801,8 +1201,8 @@ function ValidationHighlights() {
               <ShieldCheck size={22} />
             </div>
             <div>
-              <p className="text-sm font-semibold text-white">Roadshow Defense Layer</p>
-              <p className="text-xs text-slate-400">Evidence for a complete AIoT workflow</p>
+              <p className="text-sm font-semibold text-white">Complete AIoT Loop</p>
+              <p className="text-xs text-slate-400">From motion input to visible and audible response</p>
             </div>
           </div>
 
@@ -857,7 +1257,7 @@ function AnalyticsDashboard() {
       <SectionHeader
         eyebrow="Data Analytics"
         title="Historical Analytics"
-        description="This dashboard shows the database loop: raw sensor data, extracted features, AI predictions, and final music actions."
+        description="Every meaningful gesture can be recorded as sensor input, AI prediction, music response, latency, and performance history."
         icon={BarChart3}
       />
 
@@ -998,7 +1398,7 @@ function CalibrationTraining() {
       <SectionHeader
         eyebrow="Calibration & Training"
         title="Calibration and Training Mode"
-        description="A reliability workflow that calibrates camera position, hand range, IMU zero point, and gesture baselines for different performers."
+        description="Before performance, the system can learn the performer's hand range and motion baseline so recognition feels more stable and personal."
         icon={Settings}
       />
 
@@ -1104,9 +1504,25 @@ function AboutProject() {
                 title={slot.title}
                 path={slot.path}
                 note={slot.note}
-                type={index === 0 || index === 1 ? 'video' : 'image'}
+                type={slot.type || (index === 0 || index === 1 ? 'video' : 'image')}
               />
             ))}
+          </div>
+          <div className="mt-5 rounded-lg border border-dashed border-gold/30 bg-gold/5 p-4">
+            <p className="mb-3 flex items-center gap-2 text-sm font-semibold text-white">
+              <Server size={16} className="text-gold" />
+              Reserved Interface Slots
+            </p>
+            <div className="space-y-3">
+              {reservedInterfaceSlots.map((slot) => (
+                <div key={slot.field} className="rounded-md border border-white/10 bg-black/20 p-3">
+                  <p className="text-sm font-semibold text-white">{slot.title}</p>
+                  <p className="mt-1 font-mono text-[11px] text-gold">{slot.field}</p>
+                  <p className="mt-1 font-mono text-[11px] text-slate-500">fallback: {slot.fallback}</p>
+                  <p className="mt-2 text-xs leading-5 text-slate-300">{slot.note}</p>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>
@@ -1114,18 +1530,591 @@ function AboutProject() {
   )
 }
 
-function PresentationMode({ open, onClose, frame }) {
+function ExperienceMode({ open, onClose, frame, onTransport }) {
+  const [selectedIndex, setSelectedIndex] = useState(0)
+  const [transportPending, setTransportPending] = useState(false)
+  const [countdown, setCountdown] = useState(0)
+  const [sessionActive, setSessionActive] = useState(false)
+  const [guestPlaybackActive, setGuestPlaybackActive] = useState(false)
+  const scenario = experienceScenarios[selectedIndex]
+  const liveInputReady = Boolean(
+    frame.camera?.hasLiveLandmarks ||
+    frame.camera?.hasLiveVideo ||
+    frame.connection.piGatewayConnected,
+  )
+  const displayBpm = Math.max(72, Math.min(148, Number(frame.music.bpm || 108) + scenario.bpmOffset))
+  const displayPlaying = liveInputReady ? frame.music.playing : guestPlaybackActive && scenario.gesture !== 'cutoff'
+  const fallbackFrame = {
+    ...frame,
+    prediction: {
+      ...frame.prediction,
+      gesture: scenario.gesture,
+      label: scenario.label.toUpperCase(),
+      confidence: scenario.gesture === 'cutoff' ? 91 : 94,
+      response: scenario.effect,
+      top3: [
+        { label: scenario.label, value: scenario.gesture === 'cutoff' ? 91 : 94 },
+        { label: 'Idle', value: 4 },
+        { label: 'Tempo Hold', value: 2 },
+      ],
+    },
+    music: {
+      ...frame.music,
+      bpm: displayBpm,
+      volume: scenario.volume,
+      energy: scenario.energy,
+      density: scenario.gesture === 'tempo_up' ? 72 : scenario.gesture === 'crescendo' ? 68 : scenario.gesture === 'cutoff' ? 22 : 52,
+      playing: displayPlaying,
+      beatStrength: scenario.gesture === 'downbeat' ? 100 : frame.music.beatStrength,
+    },
+  }
+  const displayFrame = liveInputReady ? frame : fallbackFrame
+  const sonicPiDisplay = getSonicPiDisplayState(frame.music)
+  const experienceMusicStatus = frame.music.sonicPiConnected
+    ? displayFrame.music.playing ? 'Playing' : 'Paused'
+    : sonicPiDisplay.label
+  const activeExperience = liveInputReady
+    ? {
+        label: frame.prediction.label,
+        subtitle: 'Real camera + Micro:bit input',
+        effect: frame.prediction.response,
+        color: '#38bdf8',
+      }
+    : scenario
+  const fallbackLedAction = scenario.gesture === 'cutoff'
+    ? 'Red cutoff flash'
+    : scenario.gesture === 'crescendo'
+      ? 'Energy wave'
+      : scenario.gesture === 'tempo_up'
+        ? 'Tempo meter sweep'
+        : 'Beat flash'
+  const liveLedBrightness = Number(displayFrame.actuation?.led?.brightness || 0)
+  const liveLedBrightnessPct = liveLedBrightness <= 1 ? Math.round(liveLedBrightness * 100) : Math.round(liveLedBrightness)
+  const liveLed = displayFrame.actuation?.led?.pattern
+    ? `${displayFrame.actuation.led.pattern} · ${liveLedBrightnessPct}%`
+    : 'LED Ready'
+  const experienceLedAction = liveInputReady ? liveLed.replace(/\s.\s(?=\d+%$)/, ' ') : fallbackLedAction
+  const experienceActionChain = [
+    ['Detected Gesture', displayFrame.prediction.label],
+    ['AI Confidence', `${displayFrame.prediction.confidence}%`],
+    ['Music Action', liveInputReady ? displayFrame.prediction.response : scenario.effect],
+    ['LED Action', experienceLedAction],
+    ['Database', displayFrame.actuation?.databaseSaved || frame.connection.backend === 'REST Online' ? 'Saved' : 'Ready'],
+  ]
+  const guestStatus = countdown > 0 ? `Starting in ${countdown}` : sessionActive ? 'Guest Session Live' : 'Ready for Guest'
+  const musicParameterVisuals = [
+    {
+      label: 'BPM',
+      value: displayFrame.music.bpm,
+      source: 'Faster right-hand beats raise tempo',
+      bar: Math.min(100, Math.max(0, ((Number(displayFrame.music.bpm) - 72) / 76) * 100)),
+      color: 'from-cyan to-gold',
+    },
+    {
+      label: 'Volume',
+      value: `${displayFrame.music.volume}%`,
+      source: 'Lift the left hand to make it louder',
+      bar: displayFrame.music.volume,
+      color: 'from-gold to-amber-300',
+    },
+    {
+      label: 'Energy',
+      value: `${displayFrame.music.energy}%`,
+      source: 'Bigger motion increases intensity',
+      bar: displayFrame.music.energy,
+      color: 'from-mint to-cyan',
+    },
+    {
+      label: 'Density',
+      value: `${displayFrame.music.density}%`,
+      source: 'Continuous movement thickens texture',
+      bar: displayFrame.music.density,
+      color: 'from-violet-400 to-cyan',
+    },
+    {
+      label: 'Beat Power',
+      value: `${displayFrame.music.beatStrength}%`,
+      source: 'Sharp wrist strike triggers accent',
+      bar: displayFrame.music.beatStrength,
+      color: 'from-coral to-gold',
+    },
+    {
+      label: 'Confidence',
+      value: `${displayFrame.prediction.confidence}%`,
+      source: 'AI confidence for current gesture',
+      bar: displayFrame.prediction.confidence,
+      color: 'from-cyan to-mint',
+    },
+  ]
+  const gestureGuide = [
+    ['Raise left hand', 'Increase Volume / Energy'],
+    ['Right wrist strike', 'Trigger Beat / Accent'],
+    ['Move faster', 'Increase BPM / Density'],
+    ['Cutoff gesture', 'Pause Music + Save Action'],
+  ]
+
+  useEffect(() => {
+    if (!open) {
+      setCountdown(0)
+      setSessionActive(false)
+      setGuestPlaybackActive(false)
+    }
+  }, [open])
+
+  useEffect(() => {
+    if (countdown <= 0) return undefined
+    const timer = window.setTimeout(() => {
+      setCountdown((value) => {
+        const next = Math.max(0, value - 1)
+        if (next === 0) setSessionActive(true)
+        return next
+      })
+    }, 1000)
+    return () => window.clearTimeout(timer)
+  }, [countdown])
+
+  useEffect(() => {
+    if (!sessionActive) return undefined
+    const timer = window.setTimeout(() => {
+      setSessionActive(false)
+      setGuestPlaybackActive(false)
+      setSelectedIndex(0)
+    }, 45000)
+    return () => window.clearTimeout(timer)
+  }, [sessionActive])
+
+  const startGuestSession = () => {
+    setSelectedIndex(0)
+    setSessionActive(true)
+    setGuestPlaybackActive(true)
+    setCountdown(0)
+    void handleTransport('start')
+  }
+
+  const pauseGuestMusic = () => {
+    setGuestPlaybackActive(false)
+    void handleTransport('pause')
+  }
+
+  const resetGuestSession = () => {
+    setCountdown(0)
+    setSessionActive(false)
+    setGuestPlaybackActive(false)
+    setSelectedIndex(0)
+    void handleTransport('reset')
+  }
+
+  async function handleTransport(action) {
+    if (!onTransport || transportPending) return
+    setTransportPending(true)
+    try {
+      await onTransport(action)
+    } catch (error) {
+      console.error(error)
+    } finally {
+      setTransportPending(false)
+    }
+  }
+
+  return (
+    <AnimatePresence>
+      {open ? (
+        <motion.div
+          className="fixed inset-0 z-50 overflow-hidden presentation-backdrop px-3 py-1.5 text-slate-100 sm:px-4"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+        >
+          <div className="mx-auto flex h-full max-w-7xl flex-col">
+            <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-1.5">
+              <div>
+                <p className="eyebrow">
+                  <Sparkles size={14} />
+                  Visitor Experience
+                </p>
+                <h2 className="mt-1 font-display text-2xl font-semibold text-white sm:text-3xl">
+                  Try Conducting the System
+                </h2>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="status-pill">
+                  <StatusDot tone={sessionActive ? 'green' : countdown > 0 ? 'gold' : 'cyan'} />
+                  {guestStatus}
+                </span>
+                <span className="status-pill">
+                  <StatusDot tone={liveInputReady ? 'green' : 'gold'} />
+                  {liveInputReady ? 'Real Input Ready' : 'Gesture Preview Ready'}
+                </span>
+                <button type="button" className="secondary-button" onClick={onClose}>
+                  <X size={16} />
+                  Exit
+                </button>
+              </div>
+            </div>
+
+            <div className="grid min-h-0 flex-1 content-start gap-3 py-1.5">
+              <div className="grid min-h-0 items-start gap-3 xl:grid-cols-[1.12fr_0.88fr]">
+                <div className="glass-panel flex min-h-0 flex-col p-3">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-white">{activeExperience.label}</p>
+                    <p className="mt-1 text-xs text-slate-400">{activeExperience.subtitle}</p>
+                  </div>
+                  <span className="status-pill" style={{ borderColor: `${activeExperience.color}66`, color: activeExperience.color }}>
+                    {activeExperience.effect}
+                  </span>
+                </div>
+                <div className="relative min-h-0 flex-1">
+                  <ConductorSignalScene frame={displayFrame} heightClass="h-[48vh] min-h-[300px] max-h-[560px]" />
+                  {countdown > 0 ? (
+                    <div className="absolute inset-0 grid place-items-center rounded-lg bg-black/55 backdrop-blur-sm">
+                      <div className="text-center">
+                        <p className="text-xs font-semibold uppercase text-cyan">Guest session starts in</p>
+                        <p className="mt-2 font-display text-7xl font-semibold text-white">{countdown}</p>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+                </div>
+
+                <div className="grid min-h-0 gap-2 xl:grid-rows-[auto_auto_minmax(0,1fr)]">
+                <div className="glass-panel p-2.5">
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <p className="flex items-center gap-2 text-sm font-semibold text-white">
+                      <Hand size={16} className="text-gold" />
+                      Gesture Control Guide
+                    </p>
+                    <span className="status-pill">Follow the Pi camera view</span>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {gestureGuide.map(([gesture, result], index) => (
+                      <div key={gesture} className="rounded-md border border-white/10 bg-white/[0.045] p-2">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <p className="text-sm font-semibold text-white">{gesture}</p>
+                          <span className="font-mono text-[11px] text-gold">0{index + 1}</span>
+                        </div>
+                        <p className="text-xs leading-5 text-slate-300">{result}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-2 rounded-md border border-dashed border-cyan/25 bg-cyan/5 p-2">
+                    <p className="text-xs leading-5 text-slate-300">
+                      Stand inside the Pi camera area. Move slowly first, then make a clear gesture and watch the music parameters change below the video.
+                    </p>
+                  </div>
+                  {!liveInputReady ? (
+                    <div className="mt-2 grid gap-2 sm:grid-cols-4">
+                      {experienceScenarios.map((item, index) => (
+                        <button
+                          key={item.gesture}
+                          type="button"
+                          className={`rounded-md border px-3 py-1.5 text-left transition ${
+                            index === selectedIndex
+                              ? 'border-gold/50 bg-gold/10'
+                              : 'border-white/10 bg-white/[0.045] hover:border-cyan/35 hover:bg-cyan/10'
+                          }`}
+                          onClick={() => setSelectedIndex(index)}
+                        >
+                          <span className="mb-2 block h-1 w-10 rounded-full" style={{ backgroundColor: item.color }} />
+                          <p className="text-xs font-semibold text-white">{item.label}</p>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="glass-panel p-2.5">
+                  <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-white">
+                    <Zap size={16} className="text-cyan" />
+                    Live Action Chain
+                  </p>
+                  <div className="grid gap-2 sm:grid-cols-5 xl:grid-cols-5">
+                    {experienceActionChain.map(([label, value]) => (
+                      <div key={label} className="rounded-md border border-white/10 bg-white/[0.045] px-2 py-1.5">
+                        <p className="truncate text-[10px] uppercase text-slate-500">{label}</p>
+                        <p className="mt-1 truncate text-xs font-semibold text-white">{value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="glass-panel flex min-h-0 flex-col p-2.5">
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <p className="flex items-center gap-2 text-sm font-semibold text-white">
+                    <Music2 size={16} className="text-gold" />
+                    Music Control
+                    </p>
+                    <span className={frame.music.sonicPiConnected ? 'status-pill' : sonicPiDisplay.pillClass}>
+                      {experienceMusicStatus}
+                    </span>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    <button type="button" className="primary-button py-2" disabled={transportPending} onClick={startGuestSession}>
+                      <Sparkles size={16} />
+                      Start Guest
+                    </button>
+                    <button type="button" className="secondary-button py-2" disabled={transportPending} onClick={pauseGuestMusic}>
+                      <Pause size={16} />
+                      Pause
+                    </button>
+                    <button type="button" className="secondary-button py-2" disabled={transportPending} onClick={resetGuestSession}>
+                      <RefreshCw size={16} />
+                      Reset
+                    </button>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {[
+                      ['Pi Camera', frame.camera?.hasLiveVideo ? 'Live' : 'Preview'],
+                      ['Landmarks', frame.camera?.hasLiveLandmarks ? `${frame.camera.hands.length} Hands` : 'Preview'],
+                      ['Sonic Pi', frame.music.sonicPiConnected ? 'Live' : sonicPiDisplay.label],
+                    ].map(([label, value]) => (
+                      <span key={label} className="status-pill">
+                        <span className="text-slate-500">{label}</span>
+                        <span className="font-semibold text-white">{value}</span>
+                      </span>
+                    ))}
+                  </div>
+                  <div className="mt-2 grid flex-1 min-h-[72px] gap-2 rounded-md border border-white/10 bg-black/20 p-2 sm:grid-cols-[0.9fr_1.1fr]">
+                    <div>
+                      <p className="text-[10px] uppercase text-slate-500">Current Track</p>
+                      <p className="mt-1 truncate text-sm font-semibold text-white">{displayFrame.music.title}</p>
+                      <p className="mt-1 font-mono text-[11px] text-slate-400">
+                        {displayFrame.music.bpm} BPM / {displayFrame.music.section}
+                      </p>
+                    </div>
+                    <div className="flex items-end gap-1">
+                      {Array.from({ length: 18 }, (_, index) => (
+                        <span
+                          key={index}
+                          className="flex-1 rounded-t-sm bg-gradient-to-t from-cyan to-gold"
+                          style={{
+                            height: `${30 + ((index * 17 + displayFrame.music.beatStrength) % 56)}%`,
+                            opacity: index % 4 === 0 ? 1 : 0.62,
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              </div>
+
+              <div className="glass-panel p-2.5">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <p className="flex items-center gap-2 text-sm font-semibold text-white">
+                    <SlidersHorizontal size={16} className="text-cyan" />
+                    Music Parameter Visualization
+                  </p>
+                  <span className="status-pill">{displayFrame.music.title}</span>
+                </div>
+                <div className="grid gap-2 md:grid-cols-3 xl:grid-cols-6">
+                  {musicParameterVisuals.map((item) => (
+                    <div key={item.label} className="rounded-md border border-white/10 bg-white/[0.045] p-2.5">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="text-[10px] uppercase text-slate-500">{item.label}</p>
+                          <p className="mt-1 font-display text-xl font-semibold text-white">{item.value}</p>
+                        </div>
+                        <span className="rounded-md border border-white/10 bg-black/25 px-1.5 py-0.5 text-[9px] uppercase text-slate-400">
+                          Live
+                        </span>
+                      </div>
+                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
+                        <motion.div className={`h-full bg-gradient-to-r ${item.color}`} animate={{ width: `${item.bar}%` }} />
+                      </div>
+                      <p className="mt-1.5 line-clamp-2 text-[10px] leading-4 text-slate-400">{item.source}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
+  )
+}
+
+function RoadshowVideoModal({ open, onClose }) {
+  const [videoError, setVideoError] = useState(false)
+  const videoSlot = assetSlots[0]
+
+  useEffect(() => {
+    if (open) setVideoError(false)
+  }, [open])
+
+  return (
+    <AnimatePresence>
+      {open ? (
+        <motion.div
+          className="fixed inset-0 z-50 overflow-y-auto bg-black/85 px-4 py-6 text-slate-100 backdrop-blur"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+        >
+          <div className="mx-auto flex min-h-full max-w-6xl flex-col">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="eyebrow">
+                  <Video size={14} />
+                  Prepared Roadshow Video
+                </p>
+                <h2 className="mt-3 font-display text-3xl font-semibold text-white sm:text-5xl">
+                  Recorded Demo Opening
+                </h2>
+              </div>
+              <button type="button" className="secondary-button" onClick={onClose}>
+                <X size={16} />
+                Exit
+              </button>
+            </div>
+
+            <div className="glass-panel flex-1 p-5">
+              {!videoError ? (
+                <video
+                  className="aspect-video w-full rounded-lg border border-white/10 bg-black object-contain"
+                  src={videoSlot.path}
+                  controls
+                  playsInline
+                  onError={() => setVideoError(true)}
+                />
+              ) : (
+                <div className="grid min-h-[52vh] place-items-center rounded-lg border border-dashed border-cyan/35 bg-cyan/5 p-6 text-center">
+                  <div className="max-w-xl">
+                    <div className="mx-auto grid h-14 w-14 place-items-center rounded-md border border-cyan/30 bg-cyan/10 text-cyan">
+                      <Video size={26} />
+                    </div>
+                    <p className="mt-5 text-xl font-semibold text-white">{videoSlot.title}</p>
+                    <p className="mt-2 font-mono text-sm text-cyan">{videoSlot.path}</p>
+                    <p className="mt-4 text-sm leading-6 text-slate-300">{videoSlot.note}</p>
+                  </div>
+                </div>
+              )}
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                {[
+                  ['Gesture Input', 'The conductor moves naturally instead of using keyboard or touch controls.'],
+                  ['AI Understanding', 'Camera and Micro:bit signals are fused into one conducting intention.'],
+                  ['Live Music', 'Sonic Pi turns the recognized intention into changing tempo, volume, and rhythm.'],
+                ].map(([title, body]) => (
+                  <div key={title} className="rounded-md border border-white/10 bg-white/[0.045] p-4">
+                    <p className="text-sm font-semibold text-white">{title}</p>
+                    <p className="mt-2 text-xs leading-5 text-slate-400">{body}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
+  )
+}
+
+function PresentationMode({ open, onClose, frame, onTransport }) {
   const [step, setStep] = useState(0)
+  const [presentationVideoError, setPresentationVideoError] = useState(false)
+  const [transportPending, setTransportPending] = useState(false)
+  const videoSlot = assetSlots[0]
   const steps = [
-    { title: 'Raise Your Hands to Start', sub: 'The system detects both hands and enters live conducting mode.', icon: Hand },
-    { title: frame.prediction.label, sub: `${frame.prediction.zh} · ${frame.prediction.response}`, icon: Brain },
-    { title: `BPM ${Math.max(92, frame.music.bpm - 6)} -> ${frame.music.bpm}`, sub: 'A right-hand drop triggers the downbeat and synchronizes the musical tempo.', icon: Activity },
-    { title: 'Performance Summary', sub: 'Duration 01:42 · Gestures 26 · Confidence 93.2% · Latency 84 ms', icon: ShieldCheck },
+    { title: 'Prepared Video', headline: 'Recorded Demo Opening', sub: 'A complete preview of gesture-driven music interaction.', icon: Video },
+    { title: 'Workflow', headline: 'Technology Stack and Work Chain', sub: 'From hand motion to musical response in one connected loop.', icon: Network },
+    { title: 'Music Control', headline: 'Gesture Changes Music Parameters', sub: 'BPM, volume, energy, density, and beat power update from hand movement.', icon: Activity },
+    { title: 'Guest Mode', headline: 'Audience Interaction Mode', sub: 'Visitors can step in, follow gesture cues, and control the music.', icon: Sparkles },
+    { title: 'Live Demo', headline: 'Live Raspberry Pi Performance', sub: 'The real camera, sensors, AI, and Sonic Pi perform together.', icon: Camera },
   ]
   const current = steps[step]
   const StepIcon = current.icon
-  const presentationTitles = ['Opening', 'AI Recognition', 'Music Control', 'Summary']
+  const PresentationTransportIcon = frame.music.playing ? Pause : Play
+  const presentationTransportAction = frame.music.playing ? 'pause' : 'start'
+  const presentationTransportLabel = frame.music.playing ? 'Pause Music' : 'Play Music'
+  const presentationTitles = steps.map((item) => item.title)
+  const sonicPiDisplay = getSonicPiDisplayState(frame.music)
+  const presentationMusicStatus = frame.music.sonicPiConnected
+    ? frame.music.playing ? 'Playing' : 'Paused'
+    : sonicPiDisplay.label
   const microbitLive = [frame.microbit.left.signal, frame.microbit.right.signal].some((value) => !/waiting/i.test(String(value)))
+  const musicParameterTiles = [
+    {
+      label: 'BPM',
+      value: frame.music.bpm,
+      source: 'Right-hand beat / strike',
+      tone: 'text-cyan',
+      bar: Math.min(100, Math.max(0, ((Number(frame.music.bpm) - 72) / 76) * 100)),
+    },
+    {
+      label: 'Volume',
+      value: `${frame.music.volume}%`,
+      source: 'Left-hand height',
+      tone: 'text-gold',
+      bar: frame.music.volume,
+    },
+    {
+      label: 'Energy',
+      value: `${frame.music.energy}%`,
+      source: 'Motion intensity',
+      tone: 'text-mint',
+      bar: frame.music.energy,
+    },
+    {
+      label: 'Density',
+      value: `${frame.music.density}%`,
+      source: 'Gesture duration',
+      tone: 'text-violet-300',
+      bar: frame.music.density,
+    },
+    {
+      label: 'Beat Power',
+      value: `${frame.music.beatStrength}%`,
+      source: 'Acceleration peak',
+      tone: 'text-coral',
+      bar: frame.music.beatStrength,
+    },
+    {
+      label: 'Section',
+      value: frame.music.section,
+      source: 'Gesture event',
+      tone: 'text-white',
+      bar: frame.music.playing ? 100 : 45,
+    },
+  ]
+  const actionChain = [
+    ['Gesture', frame.prediction.label],
+    ['Confidence', `${frame.prediction.confidence}%`],
+    ['Music', frame.prediction.response],
+    ['LED', frame.actuation?.led?.pattern || 'Ready'],
+    ['Database', frame.actuation?.databaseSaved || frame.connection.backend === 'REST Online' ? 'Saved' : 'Ready'],
+  ]
+  const workflowItems = [
+    ['Raspberry Pi Camera', 'Captures the performer and outputs Pi-side hand landmark data.'],
+    ['Micro:bit L/R', 'Measures wrist acceleration, beat strength, and motion intensity.'],
+    ['Local AI', 'Classifies conducting intention from camera and sensor features.'],
+    ['Sonic Pi', 'Receives transport, BPM, volume, energy, and accent commands.'],
+    ['LED + Database', 'Shows physical feedback and records every sensor/action event.'],
+  ]
+  const techStackItems = ['React', 'Vite', 'Tailwind CSS', 'Flask REST', 'Raspberry Pi', 'MediaPipe', 'Micro:bit', 'Sonic Pi', 'SQLite']
+  const guestModeItems = [
+    ['Watch your hand', 'The Pi camera view shows the visitor and hand tracking overlay.'],
+    ['Try a gesture', 'Raise left hand, strike right wrist, move faster, or perform cutoff.'],
+    ['See music change', 'BPM, volume, energy, density, and beat power update visually.'],
+    ['Reset quickly', 'The session resets quickly so the next visitor can try it immediately.'],
+  ]
+
+  useEffect(() => {
+    if (open) setPresentationVideoError(false)
+  }, [open])
+
+  async function handlePresentationTransport(action) {
+    if (!onTransport || transportPending) return
+    setTransportPending(true)
+    try {
+      await onTransport(action)
+    } catch (error) {
+      console.error(error)
+    } finally {
+      setTransportPending(false)
+    }
+  }
+
   const liveStatusItems = [
     {
       label: 'Camera',
@@ -1135,31 +2124,31 @@ function PresentationMode({ open, onClose, frame }) {
     },
     {
       label: 'Micro:bit',
-      value: microbitLive ? 'L/R Online' : 'Waiting',
+      value: microbitLive ? 'L/R Online' : 'Sensors Ready',
       active: microbitLive,
       icon: Radio,
     },
     {
       label: 'Raspberry Pi',
-      value: frame.connection.piGatewayConnected ? 'Connected' : frame.connection.piGateway,
+      value: frame.connection.piGatewayConnected ? 'Pi Live' : 'Pi Stream Ready',
       active: frame.connection.piGatewayConnected || frame.connection.piGatewayRunning,
       icon: Server,
     },
     {
       label: 'AI Model',
-      value: frame.connection.model,
+      value: frame.connection.model || 'Model Ready',
       active: frame.connection.model === 'Model Loaded' || frame.prediction.confidence > 0,
       icon: Brain,
     },
     {
       label: 'Sonic Pi',
-      value: frame.music.sonicPiConnected ? 'Live' : 'Waiting',
+      value: frame.music.sonicPiConnected ? 'Live' : 'Music Standby',
       active: frame.music.sonicPiConnected,
       icon: Music2,
     },
     {
       label: 'Database',
-      value: frame.connection.backend === 'REST Online' ? 'Logging' : 'Standby',
+      value: frame.connection.backend === 'REST Online' ? 'Logging' : 'Ready to Record',
       active: frame.connection.backend === 'REST Online',
       icon: Database,
     },
@@ -1167,21 +2156,33 @@ function PresentationMode({ open, onClose, frame }) {
   const renderSlide = () => {
     if (step === 0) {
       return (
-        <div className="grid min-h-[68vh] items-center gap-8 lg:grid-cols-[0.9fr_1.1fr]">
-          <div>
-            <p className="eyebrow mb-5">Live Demonstration</p>
-            <h2 className="font-display text-5xl font-semibold leading-tight text-white sm:text-7xl">
-              Conduct Music with Motion
-            </h2>
-            <p className="mt-6 max-w-xl text-xl leading-9 text-slate-300">
-              Camera tracking and Micro:bit motion data become real-time musical control.
+        <div className="grid min-h-[54vh] items-center gap-4 lg:grid-cols-[0.88fr_1.12fr]">
+          <div className="min-w-0">
+            <p className="eyebrow mb-4">Prepared Opening</p>
+            <h2 className="font-display text-4xl font-semibold leading-tight text-white sm:text-6xl">{current.headline}</h2>
+            <p className="mt-4 max-w-xl text-lg leading-8 text-slate-300">
+              A human conducting gesture becomes visible musical change. The opening video shows the complete experience before the live performance begins.
             </p>
-            <div className="mt-8 grid max-w-xl grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+            <div className="mt-5 rounded-lg border border-white/10 bg-white/[0.055] p-3">
+              <p className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase text-cyan">
+                <Users size={16} />
+                Project Team
+              </p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {teamMembers.map((member) => (
+                  <div key={member.id} className="rounded-md border border-white/10 bg-black/20 px-3 py-2">
+                    <p className="font-display text-base font-semibold text-white">{member.name}</p>
+                    <p className="mt-1 text-[11px] uppercase text-slate-500">{member.role}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="mt-4 grid max-w-xl grid-cols-2 gap-3 text-sm sm:grid-cols-4">
               {[
                 ['Camera', frame.connection.camera],
                 ['Hands', frame.connection.hands],
-                ['Pi Link', frame.connection.piGateway],
-                ['Sonic Pi', frame.music.sonicPiConnected ? 'Live' : 'Waiting'],
+                ['Pi Link', frame.connection.piGatewayConnected ? 'Pi Live' : 'Pi Ready'],
+                ['Sonic Pi', frame.music.sonicPiConnected ? 'Live' : 'Music Ready'],
               ].map(([label, value]) => (
                 <div key={label} className="rounded-md border border-white/10 bg-white/[0.055] p-3">
                   <p className="text-slate-500">{label}</p>
@@ -1190,16 +2191,43 @@ function PresentationMode({ open, onClose, frame }) {
               ))}
             </div>
           </div>
-          <div className="relative min-h-[460px] overflow-hidden rounded-lg border border-cyan/20 bg-black/25">
-            <div className="absolute inset-0 stage-grid opacity-70" />
-            <div className="absolute inset-0 signal-ribbon" />
-            <div className="relative h-full p-6">
-              <ConductorSignalScene frame={frame} />
+          <div className="glass-panel p-4">
+            {!presentationVideoError ? (
+              <video
+                className="aspect-video w-full rounded-lg border border-white/10 bg-black object-contain"
+                src={videoSlot.path}
+                controls
+                playsInline
+                onError={() => setPresentationVideoError(true)}
+              />
+            ) : (
+              <div className="grid aspect-video place-items-center rounded-lg border border-dashed border-cyan/35 bg-cyan/5 p-6 text-center">
+                <div className="max-w-lg">
+                  <div className="mx-auto grid h-14 w-14 place-items-center rounded-md border border-cyan/30 bg-cyan/10 text-cyan">
+                    <Video size={26} />
+                  </div>
+                  <p className="mt-5 text-xl font-semibold text-white">{videoSlot.title}</p>
+                  <p className="mt-2 font-mono text-sm text-cyan">{videoSlot.path}</p>
+                  <p className="mt-4 text-sm leading-6 text-slate-300">{videoSlot.note}</p>
+                </div>
+              </div>
+            )}
+            <div className="mt-3 grid gap-2 sm:grid-cols-3">
+              {[
+                ['Motion Input', 'Camera and wrist sensors capture the conductor movement.'],
+                ['AI Interpretation', 'The system recognizes intention such as tempo, accent, and cutoff.'],
+                ['Musical Response', 'Sonic Pi turns the decision into audible changes in real time.'],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-md border border-white/10 bg-white/[0.045] px-3 py-2">
+                  <p className="text-xs font-semibold text-white">{label}</p>
+                  <p className="mt-1 text-[11px] leading-4 text-slate-400">{value}</p>
+                </div>
+              ))}
             </div>
           </div>
           <div className="lg:col-span-2">
             <div className="grid gap-2 sm:grid-cols-5">
-              {['Camera', 'Micro:bit', 'Raspberry Pi', 'Local AI', 'Sonic Pi'].map((item, index) => (
+              {['Prepared Video', 'Workflow', 'Music Control', 'Guest Mode', 'Live Demo'].map((item, index) => (
                 <div key={item} className="rounded-md border border-white/10 bg-white/[0.045] px-4 py-3 text-center">
                   <p className="text-xs text-slate-500">0{index + 1}</p>
                   <p className="mt-1 text-sm font-semibold text-cyan">{item}</p>
@@ -1212,54 +2240,37 @@ function PresentationMode({ open, onClose, frame }) {
     }
 
     if (step === 1) {
-      const featureValues = [
-        ['Left hand Y', `${Math.round(frame.camera.leftHandY * 100)}%`],
-        ['Right hand X', `${Math.round(frame.camera.rightHandX * 100)}%`],
-        ['Motion speed', `${frame.camera.movementSpeed} m/s`],
-        ['Latency', `${frame.connection.latency} ms`],
-        ['Bar / Beat', `${frame.music.lastBar}.${frame.music.lastBeat}`],
-        ['Beat power', `${frame.music.beatStrength}%`],
-      ]
-
       return (
-        <div className="grid min-h-[68vh] gap-6 lg:grid-cols-[0.95fr_1.05fr]">
-          <div className="flex flex-col justify-center">
-            <p className="eyebrow mb-5">AI Intention</p>
-            <h2 className="font-display text-6xl font-semibold text-white sm:text-8xl">{frame.prediction.label}</h2>
-            <p className="mt-5 text-2xl text-gold">{frame.prediction.response}</p>
-            <div className="mt-8 flex items-end gap-5">
-              <p className="font-display text-8xl font-semibold text-cyan">{frame.prediction.confidence}%</p>
-              <p className="mb-4 text-sm uppercase text-slate-500">Confidence</p>
-            </div>
-            <div className="mt-8 space-y-3">
-              {frame.prediction.top3.map((item) => (
-                <div key={item.label}>
-                  <div className="mb-1 flex justify-between text-sm">
-                    <span className="text-slate-300">{item.label}</span>
-                    <span className="font-mono text-white">{item.value}%</span>
-                  </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-white/10">
-                    <motion.div className="h-full bg-cyan" animate={{ width: `${item.value}%` }} />
-                  </div>
-                </div>
+        <div className="grid min-h-[54vh] items-center gap-5 lg:grid-cols-[0.9fr_1.1fr]">
+          <div>
+            <p className="eyebrow mb-4">Tech Stack & Workflow</p>
+            <h2 className="font-display text-4xl font-semibold leading-tight text-white sm:text-6xl">{current.headline}</h2>
+            <p className="mt-4 text-lg leading-8 text-slate-300">
+              The system connects sensing, intelligence, music output, visual feedback, and data logging into one real-time performance loop.
+            </p>
+            <div className="mt-6 flex flex-wrap gap-2">
+              {techStackItems.map((item) => (
+                <span key={item} className="rounded-md border border-white/10 bg-white/[0.055] px-3 py-2 text-sm font-semibold text-cyan">
+                  {item}
+                </span>
               ))}
             </div>
           </div>
-          <div className="grid content-center gap-4">
-            <div className="rounded-lg border border-white/10 bg-white/[0.055] p-5">
-              <p className="mb-4 text-sm font-semibold uppercase text-slate-400">Live Feature Vector</p>
-              <div className="grid gap-3 sm:grid-cols-2">
-                {featureValues.map(([label, value]) => (
-                  <div key={label} className="rounded-md border border-white/10 bg-black/20 p-4">
-                    <p className="text-xs text-slate-500">{label}</p>
-                    <p className="mt-2 font-mono text-2xl font-semibold text-white">{value}</p>
+          <div className="glass-panel p-5">
+            <div className="grid gap-3">
+              {workflowItems.map(([label, detail], index) => (
+                <div key={label} className="grid items-center gap-3 rounded-lg border border-white/10 bg-white/[0.045] p-4 sm:grid-cols-[64px_1fr]">
+                  <div className="flex items-center gap-3">
+                    <span className="grid h-11 w-11 place-items-center rounded-md border border-cyan/25 bg-cyan/10 font-mono text-sm font-semibold text-cyan">
+                      0{index + 1}
+                    </span>
                   </div>
-                ))}
-              </div>
-            </div>
-            <div className="rounded-lg border border-cyan/15 bg-cyan/5 p-5">
-              <p className="text-sm font-semibold text-cyan">Decision Output</p>
-              <p className="mt-2 text-lg text-white">{frame.prediction.zh}</p>
+                  <div>
+                    <p className="text-base font-semibold text-white">{label}</p>
+                    <p className="mt-1 text-sm leading-6 text-slate-300">{detail}</p>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -1268,76 +2279,180 @@ function PresentationMode({ open, onClose, frame }) {
 
     if (step === 2) {
       return (
-        <div className="grid min-h-[68vh] gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-          <div className="flex flex-col justify-center">
-            <p className="eyebrow mb-5">Music Engine</p>
-            <h2 className="font-display text-5xl font-semibold text-white sm:text-7xl">{frame.music.title}</h2>
-            <p className="mt-4 text-xl text-slate-300">
-              Sonic Pi receives gesture-driven transport, tempo, energy, and accent commands.
+        <div className="grid min-h-[54vh] gap-5 xl:grid-cols-[0.85fr_1.15fr]">
+          <div className="grid content-center gap-4">
+            <p className="eyebrow w-fit">Music Mapping</p>
+            <h2 className="font-display text-4xl font-semibold leading-tight text-white sm:text-6xl">{current.headline}</h2>
+            <p className="text-lg leading-8 text-slate-300">
+              Instead of pressing buttons, the performer shapes the music by moving their hands. The screen shows every musical change as it happens.
             </p>
-            <div className="mt-8 h-3 overflow-hidden rounded-full bg-white/10">
-              <motion.div className="h-full bg-gradient-to-r from-cyan to-gold" animate={{ width: `${frame.music.progress}%` }} />
-            </div>
-            <div className="mt-3 flex justify-between font-mono text-sm text-slate-400">
-              <span>{formatDuration(frame.music.elapsedSeconds)}</span>
-              <span>Loop {formatDuration(frame.music.durationSeconds)}</span>
-            </div>
-            <div className="mt-8 grid grid-cols-4 gap-2">
-              {Array.from({ length: 16 }, (_, index) => (
-                <motion.div
-                  key={index}
-                  className={`h-20 rounded-md ${index % 4 === 0 ? 'bg-gold' : 'bg-cyan/60'}`}
-                  animate={{
-                    scaleY: index % 4 === frame.music.lastBeat - 1 ? 1 : 0.42,
-                    opacity: index % 4 === frame.music.lastBeat - 1 ? 1 : 0.42,
-                  }}
-                  style={{ transformOrigin: 'bottom' }}
-                />
-              ))}
+            <div className="rounded-lg border border-cyan/20 bg-cyan/5 p-5">
+              <p className="mb-4 text-sm font-semibold uppercase text-cyan">Gesture Mapping</p>
+              <div className="grid gap-3">
+                {[
+                  ['Left hand height', 'Volume / Energy'],
+                  ['Right wrist strike', 'Beat / Accent'],
+                  ['Faster movement', 'BPM / Density'],
+                  ['Cutoff gesture', 'Pause / Save action'],
+                ].map(([gesture, output]) => (
+                  <div key={gesture} className="flex items-center justify-between gap-4 rounded-md border border-white/10 bg-black/20 px-4 py-3">
+                    <span className="text-sm font-semibold text-white">{gesture}</span>
+                    <span className="text-sm text-gold">{output}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
           <div className="grid content-center gap-4">
-            {[
-              ['BPM', frame.music.bpm],
-              ['Volume', `${frame.music.volume}%`],
-              ['Energy', `${frame.music.energy}%`],
-              ['Density', `${frame.music.density}%`],
-            ].map(([label, value]) => (
-              <div key={label} className="rounded-lg border border-white/10 bg-white/[0.055] p-5">
-                <p className="text-sm text-slate-500">{label}</p>
-                <p className="mt-2 font-display text-5xl font-semibold text-white">{value}</p>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {musicParameterTiles.map((item) => (
+                <div key={item.label} className="rounded-lg border border-white/10 bg-white/[0.055] p-5">
+                  <p className="text-xs uppercase text-slate-500">{item.label}</p>
+                  <p className={`mt-2 font-display text-4xl font-semibold ${item.tone}`}>{item.value}</p>
+                  <p className="mt-2 text-xs text-slate-400">{item.source}</p>
+                  <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
+                    <motion.div className="h-full bg-gradient-to-r from-cyan to-gold" animate={{ width: `${item.bar}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    if (step === 3) {
+      return (
+        <div className="grid min-h-[54vh] items-center gap-5 lg:grid-cols-[0.9fr_1.1fr]">
+          <div>
+            <p className="eyebrow mb-4">Audience Experience</p>
+            <h2 className="font-display text-4xl font-semibold leading-tight text-white sm:text-6xl">{current.headline}</h2>
+            <p className="mt-4 text-lg leading-8 text-slate-300">
+              Visitors can stand in the camera area, follow the gesture guide, and hear the music respond to their own movement.
+            </p>
+            <div className="mt-6 rounded-lg border border-gold/25 bg-gold/10 p-5">
+              <p className="text-sm font-semibold uppercase text-gold">Guest Control Guide</p>
+              <div className="mt-4 grid gap-3">
+                {guestModeItems.map(([title, body], index) => (
+                  <div key={title} className="rounded-md border border-white/10 bg-black/20 px-4 py-3">
+                    <p className="font-semibold text-white">0{index + 1} · {title}</p>
+                    <p className="mt-1 text-sm leading-6 text-slate-300">{body}</p>
+                  </div>
+                ))}
               </div>
-            ))}
+            </div>
+          </div>
+          <div className="grid gap-4">
+            <div className="rounded-lg border border-white/10 bg-white/[0.055] p-5">
+              <p className="mb-4 text-sm font-semibold uppercase text-slate-400">One-screen Experience Layout</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {[
+                  ['Pi camera view', 'Visitor image + hand landmarks'],
+                  ['Gesture tutorial', 'Clear actions and expected music result'],
+                  ['Music visualization', 'BPM, volume, energy, density, beat power'],
+                  ['Fast reset', 'Ready for the next visitor'],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-md border border-white/10 bg-black/20 p-4">
+                    <p className="text-sm font-semibold text-white">{label}</p>
+                    <p className="mt-2 text-xs leading-5 text-slate-400">{value}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-lg border border-cyan/15 bg-cyan/5 p-5">
+              <p className="mb-4 text-sm font-semibold uppercase text-cyan">Action Feedback</p>
+              <div className="grid gap-2">
+                {actionChain.map(([label, value]) => (
+                  <div key={label} className="flex justify-between gap-3 rounded-md border border-white/10 bg-black/20 px-3 py-2">
+                    <span className="text-xs uppercase text-slate-500">{label}</span>
+                    <span className="truncate text-sm font-semibold text-white">{value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       )
     }
 
     return (
-      <div className="grid min-h-[68vh] items-center gap-8 lg:grid-cols-[0.85fr_1.15fr]">
+      <div className="grid min-h-[54vh] items-center gap-4 lg:grid-cols-[1.1fr_0.9fr]">
         <div>
-          <p className="eyebrow mb-5">Performance Complete</p>
-          <h2 className="font-display text-5xl font-semibold leading-tight text-white sm:text-7xl">
-            AIoT Conducting System
-          </h2>
-          <p className="mt-6 text-xl leading-9 text-slate-300">
-            Camera, Micro:bit, edge AI, Sonic Pi, and database logging form a complete live interaction loop.
+          <p className="eyebrow mb-4">Final Live Demonstration</p>
+          <h2 className="font-display text-4xl font-semibold leading-tight text-white sm:text-6xl">{current.headline}</h2>
+          <p className="mt-4 text-lg leading-8 text-slate-300">
+            The final performance is live: the conductor's real movement drives the music, while the screen shows recognition, response, and saved event data.
           </p>
+          <div className="mt-5">
+            <ConductorSignalScene frame={frame} heightClass="h-[38vh] min-h-[300px]" />
+          </div>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          {[
-            ['Track loop', formatDuration(frame.music.durationSeconds)],
-            ['Current section', frame.music.section],
-            ['AI confidence', `${frame.prediction.confidence}%`],
-            ['System latency', `${frame.connection.latency} ms`],
-            ['Gesture', frame.prediction.label],
-            ['Sonic Pi', frame.music.sonicPiConnected ? 'Connected' : 'Waiting'],
-          ].map(([label, value]) => (
-            <div key={label} className="rounded-lg border border-white/10 bg-white/[0.055] p-5">
-              <p className="text-sm text-slate-500">{label}</p>
-              <p className="mt-3 text-2xl font-semibold text-white">{value}</p>
+        <div className="grid gap-2.5">
+          <div className="rounded-lg border border-gold/25 bg-gold/10 p-3">
+            <p className="text-xs uppercase text-gold">Current Intention</p>
+            <p className="mt-2 font-display text-3xl font-semibold text-white">{frame.prediction.label}</p>
+            <p className="mt-1 text-base text-gold">{frame.prediction.response}</p>
+            <div className="mt-2 flex items-end gap-4">
+              <p className="font-display text-4xl font-semibold text-cyan">{frame.prediction.confidence}%</p>
+              <p className="mb-2 text-xs uppercase text-slate-500">Confidence</p>
             </div>
-          ))}
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {[
+              ['BPM', frame.music.bpm],
+              ['Volume', `${frame.music.volume}%`],
+              ['Energy', `${frame.music.energy}%`],
+              ['Beat Power', `${frame.music.beatStrength}%`],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-lg border border-white/10 bg-white/[0.055] p-2.5">
+                <p className="text-xs uppercase text-slate-500">{label}</p>
+                <p className="mt-1 font-display text-2xl font-semibold text-white">{value}</p>
+              </div>
+            ))}
+          </div>
+          <div className="rounded-lg border border-white/10 bg-white/[0.055] p-3">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <p className="flex items-center gap-2 text-sm font-semibold text-white">
+                <Music2 size={16} className="text-gold" />
+                Sonic Pi Control
+              </p>
+              <span className={frame.music.sonicPiConnected ? 'status-pill' : sonicPiDisplay.pillClass}>
+                {presentationMusicStatus}
+              </span>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                className="primary-button py-1.5"
+                disabled={transportPending}
+                onClick={() => handlePresentationTransport(presentationTransportAction)}
+              >
+                <PresentationTransportIcon size={16} />
+                {presentationTransportLabel}
+              </button>
+              <button
+                type="button"
+                className="secondary-button py-1.5"
+                disabled={transportPending}
+                onClick={() => handlePresentationTransport('reset')}
+              >
+                <RefreshCw size={16} />
+                Reset Music
+              </button>
+            </div>
+            {sonicPiDisplay.hint ? <p className="mt-2 text-[11px] leading-4 text-gold/80">{sonicPiDisplay.hint}</p> : null}
+          </div>
+          <div className="rounded-lg border border-cyan/15 bg-cyan/5 p-3">
+            <p className="mb-2 text-sm font-semibold uppercase text-cyan">Live Chain</p>
+            <div className="grid gap-1.5">
+              {actionChain.map(([label, value]) => (
+                <div key={label} className="flex justify-between gap-3 rounded-md border border-white/10 bg-black/20 px-3 py-1">
+                  <span className="text-xs uppercase text-slate-500">{label}</span>
+                  <span className="truncate text-sm font-semibold text-white">{value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     )
@@ -1348,12 +2463,12 @@ function PresentationMode({ open, onClose, frame }) {
   return (
     <AnimatePresence>
       <motion.div
-        className="presentation-backdrop fixed inset-0 z-50 overflow-auto"
+        className="presentation-backdrop fixed inset-0 z-50 overflow-hidden"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
       >
-        <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-5 py-5">
+        <div className="mx-auto flex h-screen max-w-7xl flex-col px-4 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="grid h-11 w-11 place-items-center rounded-md border border-gold/35 bg-gold/10 text-gold">
@@ -1370,12 +2485,12 @@ function PresentationMode({ open, onClose, frame }) {
             </button>
           </div>
 
-          <div className="mt-4 grid gap-2 rounded-lg border border-white/10 bg-black/25 p-2 shadow-glow sm:grid-cols-3 xl:grid-cols-6">
+          <div className="mt-3 grid gap-2 rounded-lg border border-white/10 bg-black/25 p-1.5 shadow-glow sm:grid-cols-3 xl:grid-cols-6">
             {liveStatusItems.map((item) => {
               const Icon = item.icon
               return (
-                <div key={item.label} className="flex items-center gap-3 rounded-md border border-white/10 bg-white/[0.045] px-3 py-2">
-                  <div className={`grid h-9 w-9 place-items-center rounded-md border ${item.active ? 'border-emerald-400/35 bg-emerald-400/10 text-emerald-300' : 'border-gold/30 bg-gold/10 text-gold'}`}>
+                <div key={item.label} className="flex items-center gap-2 rounded-md border border-white/10 bg-white/[0.045] px-3 py-1.5">
+                  <div className={`grid h-8 w-8 place-items-center rounded-md border ${item.active ? 'border-emerald-400/35 bg-emerald-400/10 text-emerald-300' : 'border-gold/30 bg-gold/10 text-gold'}`}>
                     <Icon size={17} />
                   </div>
                   <div className="min-w-0">
@@ -1387,7 +2502,7 @@ function PresentationMode({ open, onClose, frame }) {
             })}
           </div>
 
-          <div className="grid flex-1 place-items-center py-10">
+          <div className="grid min-h-0 flex-1 place-items-center py-4">
             <motion.div
               key={step}
               initial={{ opacity: 0, y: 18 }}
@@ -1398,7 +2513,7 @@ function PresentationMode({ open, onClose, frame }) {
             </motion.div>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-5">
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-3">
             <div className="flex gap-2">
               {steps.map((item, index) => (
                 <button
@@ -1430,6 +2545,8 @@ function PresentationMode({ open, onClose, frame }) {
 function App() {
   const { frame, logs, connectionState, sendSonicPiTransport } = useConductorFeed()
   const [presentationOpen, setPresentationOpen] = useState(false)
+  const [experienceOpen, setExperienceOpen] = useState(false)
+  const [videoOpen, setVideoOpen] = useState(false)
 
   const openPresentation = () => {
     setPresentationOpen(true)
@@ -1445,11 +2562,28 @@ function App() {
     }
   }
 
+  const openExperience = () => {
+    setExperienceOpen(true)
+  }
+
+  const closeExperience = () => {
+    setExperienceOpen(false)
+  }
+
+  const openRoadshowVideo = () => {
+    setVideoOpen(true)
+  }
+
+  const closeRoadshowVideo = () => {
+    setVideoOpen(false)
+  }
+
   return (
     <div className="min-h-screen bg-transparent text-slate-100">
-      <TopNav onPresentation={openPresentation} connectionState={connectionState} />
+      <TopNav onPresentation={openPresentation} onExperience={openExperience} connectionState={connectionState} />
       <main>
-        <HeroSection frame={frame} onPresentation={openPresentation} />
+        <HeroSection frame={frame} onPresentation={openPresentation} onExperience={openExperience} onVideo={openRoadshowVideo} />
+        <ExperienceGateway frame={frame} onExperience={openExperience} />
         <LiveStage frame={frame} logs={logs} onTransport={sendSonicPiTransport} />
         <DecisionFlow frame={frame} connectionState={connectionState} />
         <ValidationHighlights />
@@ -1458,7 +2592,9 @@ function App() {
         <CalibrationTraining />
         <AboutProject />
       </main>
-      <PresentationMode open={presentationOpen} onClose={closePresentation} frame={frame} />
+      <RoadshowVideoModal open={videoOpen} onClose={closeRoadshowVideo} />
+      <ExperienceMode open={experienceOpen} onClose={closeExperience} frame={frame} onTransport={sendSonicPiTransport} />
+      <PresentationMode open={presentationOpen} onClose={closePresentation} frame={frame} onTransport={sendSonicPiTransport} />
     </div>
   )
 }
