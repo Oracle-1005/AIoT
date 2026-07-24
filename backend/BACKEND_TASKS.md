@@ -17,8 +17,9 @@
 请求：
 
 1. 选定触发源并接线。建议路径：`fused_frame` 上行 → 按 hand 分路、**按 `sample_sequence` 去重** → 滑窗特征 → `model_service.predict()` → `integration.accept_prediction()` → 落库 + `/api/gesture/current` + `sonic_pi.publish_prediction()`；
-2. **必须去重**：micro:bit 原始采样名义仅 6.7 Hz（提频实验中，目标 ≥10 Hz），而 `fused_frame` 以 30 Hz 相机帧率对同一微比样本做最近邻重复引用——不去重的话特征窗里全是同一样本的拷贝；
-3. `window_features` 上行类型：要么在 `message_router.py` 注册（`app.py:6` 和 `README.md:7` 声称接受 4 类），要么从文档删掉——当前文档与实现不一致。
+2. 模型输入契约按 `docs/TASK_ASSIGNMENT.md` 1.3 节：**camera_features 为主**（轨迹/速度/张合度，30 fps——摄像头是手势识别主传感器，7/24 团队已确认），**microbit_features 为辅**（窗口聚合值，耐稀疏；缺数据时填 0 + `available` 标志），外加 `cross_modal_features`。窗口特征的计算归模型侧（我方），后端负责把窗口数据喂进 `predict()`；
+3. **必须去重**：micro:bit 原始采样名义仅 6.7 Hz（辅助通道，不追高采样率），而 `fused_frame` 以 30 Hz 相机帧率对同一 micro:bit 样本做最近邻重复引用——不去重的话特征窗里全是同一样本的拷贝；
+4. `window_features` 上行类型：要么在 `message_router.py` 注册（`app.py:6` 和 `README.md:7` 声称接受 4 类），要么从文档删掉——当前文档与实现不一致。
 
 ## 任务 2：冻结 `led_command` 下行 schema
 

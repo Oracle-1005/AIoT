@@ -36,7 +36,7 @@ Raspberry Pi fusion_pipeline -> TCP:9000 -> PC backend
 | ESP32 micro:bit BLE 广播转 Wi-Fi 网关 | `hardware/esp32/microbit_ble_wifi_gateway/README.md` | 说明 ESP32 Arduino 固件配置、Wi-Fi/Pi IP 修改、BLE 广播解析、UDP 网关帧和正式融合验证。 | 配置或重新上传 ESP32 网关固件。 |
 | ESP32 BLE 网关到树莓派 UDP 接收器 | `hardware/raspberry_pi/esp32_ble_gateway_to_Pi/README.md` | 说明 Pi 端 `esp32_gateway_receiver` 的安装、命令行接收、模拟包验证和 `8787` 预览接入。 | 单独验证 Pi 是否能收到 ESP32 UDP 数据。 |
 | 旧 BLE 直连实验归档 | `hardware/microbit/legacy_ble_connection_tests/README_BLE.md` | 记录旧 MakeCode BLE UART/GATT 直连实验。该方案不属于当前正式链路。 | 仅作历史参考，不作为验收标准。 |
-| 硬件侧任务清单 | `hardware/HARDWARE_TASKS.md` | micro:bit 采样率提频实验（目标有效 ≥10 Hz）、ESP32 固件确认、micro:bit 重烧注意、LED 改 GPIO19/ws2812-pio 的文档更正。 | 硬件组员当前待办入口；采样率对齐实验操作说明。 |
+| 硬件侧任务清单 | `hardware/HARDWARE_TASKS.md` | micro:bit 发射功率实验（辅助传感器，目标稳定在线 + 有效 ≥3 Hz）、ESP32 固件确认、micro:bit 重烧注意、LED 改 GPIO19/ws2812-pio 的文档更正。 | 硬件组员当前待办入口；采样率确认实验操作说明。 |
 
 ## 3. 摄像头与融合数据
 
