@@ -2,6 +2,8 @@
 
 本文档说明 `camera_to_Pi` 工程中如何打开摄像头采集、如何进行浏览器可视预览，以及后续树莓派侧需要为摄像头关键点降噪、双 micro:bit 时间同步和多源数据整合预留的数据输出方式。
 
+> 当前正式链路由 `pi-fusion.service` 独占摄像头，并使用 `http://<Pi-IP>:8790/` 联合预览。本文中的 `8765` 和 `visual_verify.py` 只用于停止正式服务后的摄像头独立调试。正式链路的颜色通道、MediaPipe 阈值、检出率和预览短时保持见 `hardware/fusion_pipeline/CAMERA_MEDIAPIPE_TUNING.md`。
+
 ## 1. 运行环境
 
 当前工程统一使用同一个虚拟环境：

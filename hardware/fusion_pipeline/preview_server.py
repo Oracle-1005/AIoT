@@ -135,7 +135,10 @@ HTML = """<!doctype html>
       <img class="video" src="/stream" alt="camera preview">
       <div class="grid">
         <div class="metric"><span class="label">frame</span><span id="frame-id" class="value">--</span></div>
-        <div class="metric"><span class="label">hands</span><span id="hands" class="value">--</span></div>
+        <div class="metric"><span class="label">raw hands</span><span id="hands" class="value">--</span></div>
+        <div class="metric"><span class="label">5s detection</span><span id="detection-rate" class="value">--</span></div>
+        <div class="metric"><span class="label">miss streak</span><span id="misses" class="value">--</span></div>
+        <div class="metric"><span class="label">preview held</span><span id="held" class="value">--</span></div>
         <div class="metric"><span class="label">clock</span><span id="clock" class="value">--</span></div>
         <div class="metric"><span class="label">latency</span><span id="latency" class="value">--</span></div>
       </div>
@@ -214,6 +217,9 @@ HTML = """<!doctype html>
         const cam = data.latest_camera || {};
         $("frame-id").textContent = cam.frame_id ?? "--";
         $("hands").textContent = cam.hands_detected ?? "--";
+        $("detection-rate").textContent = cam.hand_detection_rate_5s !== undefined ? `${Math.round(cam.hand_detection_rate_5s * 100)}%` : "--";
+        $("misses").textContent = cam.consecutive_missed_frames ?? "--";
+        $("held").textContent = cam.preview_interpolated_hands ?? "--";
         $("clock").textContent = cam.clock_ready ? "ready" : "warming";
         $("latency").textContent = cam.processing_latency_ms !== undefined ? `${Math.round(cam.processing_latency_ms)} ms` : "--";
         $("camera-json").textContent = pretty(cam);
@@ -441,4 +447,3 @@ class PreviewServer:
                 self.send_error(404)
 
         return Handler
-

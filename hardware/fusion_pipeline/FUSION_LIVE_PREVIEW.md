@@ -85,6 +85,10 @@ preview:
 - `frame_id`
 - `ts_ns`
 - `hands_detected`
+- `raw_hands_detected`
+- `hand_detection_rate_5s`
+- `consecutive_missed_frames`
+- `preview_interpolated_hands`
 - `processing_latency_ms`
 - `clock_ready`
 - `hands`
@@ -93,6 +97,12 @@ preview:
 - `features`
 
 如果 `hands=[]`，说明当前帧没有检测到手，发送给 PC 的 `fused_frame.camera.hands` 也会为空。
+
+视频骨架允许对最多 4 个连续漏检帧沿用上次结果，以减少视觉闪断。页面中的 `preview held` 表示当前使用了多少只短时保持手。该保持只影响视频叠加，不进入 `camera.hands`，也不会作为真实训练关键点发送到 PC。
+
+发送到 PC 的 `fused_frame.camera.detection_quality` 会附带 `hand_detection_rate_5s`、`consecutive_missed_frames` 和 `preview_interpolated_hands`，用于后端记录和训练前质量筛选。
+
+页面中的 `confidence`/`handedness_confidence` 是左右手分类置信度，不是 MediaPipe 检测置信度。摄像头颜色通道、阈值和漏检指标的详细说明见 `hardware/fusion_pipeline/CAMERA_MEDIAPIPE_TUNING.md`。
 
 ### micro:bit 刚采集/刚解码数据
 

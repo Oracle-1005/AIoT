@@ -48,6 +48,12 @@ class CameraAdapter:
         fps: int = 30,
         max_hands: int = 2,
         frame_queue_size: int = 10,
+        pixel_format: str = "BGR888",
+        min_hand_detection_confidence: float = 0.35,
+        min_hand_presence_confidence: float = 0.35,
+        min_tracking_confidence: float = 0.40,
+        max_missing_frames: int = 4,
+        detection_window_seconds: float = 5.0,
         buffer_max_age_s: float = 10.0,
         clock_min_points: int = 10,
         clock_max_points: int = 60,
@@ -60,6 +66,12 @@ class CameraAdapter:
         self._fps = fps
         self._max_hands = max_hands
         self._frame_queue_size = frame_queue_size
+        self._pixel_format = pixel_format
+        self._min_hand_detection_confidence = min_hand_detection_confidence
+        self._min_hand_presence_confidence = min_hand_presence_confidence
+        self._min_tracking_confidence = min_tracking_confidence
+        self._max_missing_frames = max_missing_frames
+        self._detection_window_seconds = detection_window_seconds
         self._enable_preview_jpeg = enable_preview_jpeg
         self._preview_jpeg_quality = preview_jpeg_quality
         self._preview_jpeg_every_n_frames = preview_jpeg_every_n_frames
@@ -95,6 +107,12 @@ class CameraAdapter:
                 fps=self._fps,
                 max_hands=self._max_hands,
                 frame_queue_size=self._frame_queue_size,
+                pixel_format=self._pixel_format,
+                min_hand_detection_confidence=self._min_hand_detection_confidence,
+                min_hand_presence_confidence=self._min_hand_presence_confidence,
+                min_tracking_confidence=self._min_tracking_confidence,
+                max_missing_frames=self._max_missing_frames,
+                detection_window_seconds=self._detection_window_seconds,
                 enable_preview_jpeg=self._enable_preview_jpeg,
                 preview_jpeg_quality=self._preview_jpeg_quality,
                 preview_jpeg_every_n_frames=self._preview_jpeg_every_n_frames,
@@ -162,6 +180,10 @@ class CameraAdapter:
             "height": camera_frame.height,
             "hands": hands,
             "hands_detected": len(hands),
+            "raw_hands_detected": camera_frame.raw_hands_detected,
+            "preview_interpolated_hands": camera_frame.preview_interpolated_hands,
+            "hand_detection_rate_5s": round(camera_frame.hand_detection_rate_5s, 3),
+            "consecutive_missed_frames": camera_frame.consecutive_missed_frames,
             "processing_latency_ms": camera_frame.processing_latency_ms,
             "clock_ready": camera_frame.clock_ready,
             "preview_jpeg": camera_frame.preview_jpeg,
@@ -181,6 +203,7 @@ class CameraAdapter:
     def get_status(self) -> dict:
         """Return camera status for the periodic status message."""
         fps = 0.0
+        status: dict = {}
         if self._sensor:
             try:
                 status = self._sensor.get_status()
@@ -191,14 +214,27 @@ class CameraAdapter:
                 pass
 
         hands_detected = 0
+        detection_rate = 0.0
+        consecutive_misses = 0
+        preview_interpolated_hands = 0
         if self._latest_frame:
             hands_detected = self._latest_frame.get("hands_detected", 0)
+            detection_rate = self._latest_frame.get("hand_detection_rate_5s", 0.0)
+            consecutive_misses = self._latest_frame.get("consecutive_missed_frames", 0)
+            preview_interpolated_hands = self._latest_frame.get(
+                "preview_interpolated_hands", 0
+            )
 
         return {
             "fps": round(fps, 1),
             "hands_detected": hands_detected,
+            "hand_detection_rate_5s": detection_rate,
+            "consecutive_missed_frames": consecutive_misses,
+            "preview_interpolated_hands": preview_interpolated_hands,
             "dropped_capture_frames": self._dropped_frames,
             "clock_ready": self._clock_ready,
+            "detector": status.get("thresholds", {}),
+            "pixel_format": status.get("pixel_format", self._pixel_format),
         }
 
     def is_running(self) -> bool:

@@ -12,8 +12,12 @@ import logging
 import threading
 import queue
 import time
-from dataclasses import dataclass, field
+from collections import deque
+from copy import deepcopy
+from dataclasses import dataclass
 from pathlib import Path
+
+import numpy as np
 
 from pi_pc import LandmarkSmoother, CameraClockSync
 
@@ -36,6 +40,10 @@ class CameraFrame:
     processing_latency_ms: float = 0.0
     clock_ready: bool = False  # Whether CameraClockSync is ready
     preview_jpeg: bytes | None = None
+    raw_hands_detected: int = 0
+    preview_interpolated_hands: int = 0
+    hand_detection_rate_5s: float = 0.0
+    consecutive_missed_frames: int = 0
 
 
 class CameraSensor:
@@ -57,6 +65,12 @@ class CameraSensor:
         fps: int = 30,
         max_hands: int = 2,
         frame_queue_size: int = 10,
+        pixel_format: str = "BGR888",
+        min_hand_detection_confidence: float = 0.35,
+        min_hand_presence_confidence: float = 0.35,
+        min_tracking_confidence: float = 0.40,
+        max_missing_frames: int = 4,
+        detection_window_seconds: float = 5.0,
         enable_preview_jpeg: bool = False,
         preview_jpeg_quality: int = 70,
         preview_jpeg_every_n_frames: int = 2,
@@ -65,6 +79,19 @@ class CameraSensor:
         self._height = height
         self._fps = fps
         self._max_hands = max_hands
+        self._pixel_format = pixel_format.upper()
+        if self._pixel_format not in {"BGR888", "RGB888"}:
+            raise ValueError("pixel_format must be BGR888 or RGB888")
+        self._min_hand_detection_confidence = self._validate_confidence(
+            "min_hand_detection_confidence", min_hand_detection_confidence
+        )
+        self._min_hand_presence_confidence = self._validate_confidence(
+            "min_hand_presence_confidence", min_hand_presence_confidence
+        )
+        self._min_tracking_confidence = self._validate_confidence(
+            "min_tracking_confidence", min_tracking_confidence
+        )
+        self._max_missing_frames = max(0, int(max_missing_frames))
         self._enable_preview_jpeg = enable_preview_jpeg
         self._preview_jpeg_quality = max(30, min(95, preview_jpeg_quality))
         self._preview_jpeg_every_n_frames = max(1, preview_jpeg_every_n_frames)
@@ -80,11 +107,17 @@ class CameraSensor:
         self._last_frame_time_ns = 0
         self._processing_latency_ms = 0.0
         self._connected = False
+        self._detection_window_seconds = max(1.0, float(detection_window_seconds))
+        self._detection_window: deque[tuple[float, int]] = deque()
+        self._detection_lock = threading.Lock()
+        self._consecutive_missed_frames = 0
+        self._preview_tracks: dict[str, dict] = {}
+        self._preview_interpolated_hands = 0
 
         # Lazy imports
         self._picam2 = None
         self._mp = None
-        self._mp_hands = None
+        self._hand_landmarker = None
         self._mp_drawing = None
         self._cv2 = None
 
@@ -139,13 +172,16 @@ class CameraSensor:
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=3.0)
         self._connected = False
+        self._preview_tracks.clear()
+        self._preview_interpolated_hands = 0
 
         # Release MediaPipe
-        if self._mp_hands:
+        if self._hand_landmarker:
             try:
-                self._mp_hands.close()
+                self._hand_landmarker.close()
             except Exception:
                 pass
+            self._hand_landmarker = None
 
         # Release Picamera2
         if self._picam2:
@@ -192,6 +228,15 @@ class CameraSensor:
             "processing_latency_ms": round(self._processing_latency_ms, 1),
             "clock_ready": self._camera_clock.clock_ready,
             "clock_points": self._camera_clock.point_count,
+            "pixel_format": self._pixel_format,
+            "hand_detection_rate_5s": round(self._hand_detection_rate(), 3),
+            "consecutive_missed_frames": self._consecutive_missed_frames,
+            "preview_interpolated_hands": self._preview_interpolated_hands,
+            "thresholds": {
+                "detection": self._min_hand_detection_confidence,
+                "presence": self._min_hand_presence_confidence,
+                "tracking": self._min_tracking_confidence,
+            },
         }
 
     # ---- Internal: Initialization ----
@@ -203,7 +248,10 @@ class CameraSensor:
 
             self._picam2 = Picamera2()
             config = self._picam2.create_video_configuration(
-                main={"size": (self._width, self._height), "format": "RGB888"},
+                main={
+                    "size": (self._width, self._height),
+                    "format": self._pixel_format,
+                },
                 controls={"FrameRate": self._fps},
             )
             self._picam2.configure(config)
@@ -211,7 +259,13 @@ class CameraSensor:
             # Warm up: capture a few frames to stabilize exposure/AWB
             for _ in range(5):
                 self._picam2.capture_array("main")
-            logger.info("Picamera2 initialized: %dx%d @ %d FPS", self._width, self._height, self._fps)
+            logger.info(
+                "Picamera2 initialized: %dx%d @ %d FPS, format=%s",
+                self._width,
+                self._height,
+                self._fps,
+                self._pixel_format,
+            )
 
         except ImportError:
             raise RuntimeError("picamera2 not installed. Run: pip install picamera2")
@@ -238,9 +292,9 @@ class CameraSensor:
                 base_options=mp_python.BaseOptions(model_asset_path=str(model_path)),
                 running_mode=vision.RunningMode.VIDEO,
                 num_hands=self._max_hands,
-                min_hand_detection_confidence=0.5,
-                min_hand_presence_confidence=0.5,
-                min_tracking_confidence=0.5,
+                min_hand_detection_confidence=self._min_hand_detection_confidence,
+                min_hand_presence_confidence=self._min_hand_presence_confidence,
+                min_tracking_confidence=self._min_tracking_confidence,
             )
             self._hand_landmarker = vision.HandLandmarker.create_from_options(options)
 
@@ -297,7 +351,8 @@ class CameraSensor:
                 t_start = time.monotonic()
 
                 # Capture frame + metadata
-                frame_array = self._picam2.capture_array("main")
+                captured_array = self._picam2.capture_array("main")
+                frame_array = self._to_rgb_array(captured_array)
                 metadata = self._picam2.capture_metadata()
                 sensor_ts_ns = metadata.get("SensorTimestamp", time.monotonic_ns())
 
@@ -319,13 +374,14 @@ class CameraSensor:
 
                 # Extract hand data
                 hands_data = self._extract_hand_data(result, sensor_ts_ns)
+                preview_hands = self._update_preview_hands(hands_data)
 
                 # Optional video tap (in-process MJPEG stream). Defensive:
                 # a streamer exception must never break capture.
                 cb = self.frame_image_callback
                 if cb is not None:
                     try:
-                        cb(frame_array, hands_data)
+                        cb(frame_array, preview_hands)
                     except Exception:
                         pass
 
@@ -336,7 +392,7 @@ class CameraSensor:
 
                 # Create CameraFrame
                 self._frame_counter += 1
-                preview_jpeg = self._make_preview_jpeg(frame_array, hands_data)
+                preview_jpeg = self._make_preview_jpeg(frame_array, preview_hands)
                 frame = CameraFrame(
                     frame_id=self._frame_counter,
                     sensor_timestamp_ns=sensor_ts_ns,
@@ -347,6 +403,10 @@ class CameraSensor:
                     processing_latency_ms=latency_ms,
                     clock_ready=self._camera_clock.clock_ready,
                     preview_jpeg=preview_jpeg,
+                    raw_hands_detected=len(hands_data),
+                    preview_interpolated_hands=self._preview_interpolated_hands,
+                    hand_detection_rate_5s=self._hand_detection_rate(),
+                    consecutive_missed_frames=self._consecutive_missed_frames,
                 )
 
                 # Push to queue
@@ -373,6 +433,77 @@ class CameraSensor:
             except Exception as e:
                 logger.error("Camera capture error: %s", e, exc_info=True)
                 time.sleep(0.1)
+
+    @staticmethod
+    def _validate_confidence(name: str, value: float) -> float:
+        normalized = float(value)
+        if not 0.0 <= normalized <= 1.0:
+            raise ValueError(f"{name} must be between 0 and 1")
+        return normalized
+
+    def _to_rgb_array(self, frame_array: np.ndarray) -> np.ndarray:
+        """Return contiguous RGB data for MediaPipe and preview encoders.
+
+        Picamera2/libcamera format names describe packed pixels. A BGR888
+        stream is exposed by capture_array as [R, G, B], while RGB888 is
+        exposed as [B, G, R].
+        """
+        if self._pixel_format == "BGR888":
+            return np.ascontiguousarray(frame_array)
+        return np.ascontiguousarray(frame_array[:, :, ::-1])
+
+    def _update_preview_hands(self, hands: list[dict]) -> list[dict]:
+        """Bridge short detector gaps for display without altering raw samples."""
+        detected = bool(hands)
+        now = time.monotonic()
+        with self._detection_lock:
+            self._detection_window.append((now, 1 if detected else 0))
+            self._prune_detection_window(now)
+        self._consecutive_missed_frames = (
+            0 if detected else self._consecutive_missed_frames + 1
+        )
+
+        display_hands: list[dict] = []
+        current_keys: set[str] = set()
+        for index, hand in enumerate(hands):
+            key = str(hand.get("hand_id") or f"unknown-{index}")
+            current_keys.add(key)
+            current = deepcopy(hand)
+            current["interpolated"] = False
+            current["missing_frames"] = 0
+            self._preview_tracks[key] = {"hand": deepcopy(current), "misses": 0}
+            display_hands.append(current)
+
+        for key, track in list(self._preview_tracks.items()):
+            if key in current_keys:
+                continue
+            track["misses"] += 1
+            if track["misses"] > self._max_missing_frames:
+                del self._preview_tracks[key]
+                continue
+            held = deepcopy(track["hand"])
+            held["interpolated"] = True
+            held["missing_frames"] = track["misses"]
+            display_hands.append(held)
+
+        self._preview_interpolated_hands = sum(
+            1 for hand in display_hands if hand.get("interpolated")
+        )
+        return display_hands
+
+    def _hand_detection_rate(self) -> float:
+        with self._detection_lock:
+            self._prune_detection_window(time.monotonic())
+            if not self._detection_window:
+                return 0.0
+            return sum(value for _, value in self._detection_window) / len(
+                self._detection_window
+            )
+
+    def _prune_detection_window(self, now: float) -> None:
+        cutoff = now - self._detection_window_seconds
+        while self._detection_window and self._detection_window[0][0] < cutoff:
+            self._detection_window.popleft()
 
     def _make_preview_jpeg(self, frame_array, hands: list[dict]) -> bytes | None:
         """Encode a lightweight JPEG preview frame for the in-process dashboard."""
@@ -443,14 +574,21 @@ class CameraSensor:
             return []
 
         hands = []
+        used_hand_ids: set[str] = set()
         for idx, landmarks in enumerate(mp_result.hand_landmarks):
             # Handedness
             handedness = "unknown"
             confidence = 0.0
             if mp_result.handedness and idx < len(mp_result.handedness):
-                for h in mp_result.handedness[idx]:
-                    handedness = h.category_name.lower()
-                    confidence = h.score
+                categories = mp_result.handedness[idx]
+                if categories:
+                    handedness = categories[0].category_name.lower()
+                    confidence = categories[0].score
+
+            hand_id = handedness if handedness in {"left", "right"} else f"unknown-{idx}"
+            if hand_id in used_hand_ids:
+                hand_id = f"{hand_id}-{idx}"
+            used_hand_ids.add(hand_id)
 
             # Normalized landmarks as [[x,y,z], ...]
             landmarks_raw = [
@@ -465,7 +603,6 @@ class CameraSensor:
 
             # Apply temporal smoothing to reduce MediaPipe jitter
             timestamp_s = sensor_ts_ns / 1_000_000_000.0
-            hand_id = f"{handedness}-{idx}"
             landmarks_normalized = self._landmark_smoother.smooth_landmarks(
                 hand_id, landmarks_raw, timestamp_s
             )
@@ -483,10 +620,14 @@ class CameraSensor:
             )
 
             hand_data = {
-                "hand_id": f"{handedness}-{idx}",
+                "hand_id": hand_id,
                 "handedness": handedness,
                 "confidence": confidence,
+                "handedness_confidence": confidence,
+                "confidence_type": "handedness",
                 "valid": confidence >= 0.5,
+                "interpolated": False,
+                "missing_frames": 0,
                 "landmarks_normalized": landmarks_normalized,
                 "world_landmarks": world_landmarks,
                 "features": features,
