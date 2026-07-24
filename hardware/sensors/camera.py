@@ -103,6 +103,13 @@ class CameraSensor:
             outlier_offset_factor=3.0,
         )
 
+        # Optional hook for the in-process MJPEG video stream
+        # (fusion_pipeline/video_stream.py).  Signature:
+        #     cb(frame_array_rgb, hands_data) -> None
+        # Invoked from the capture thread right after MediaPipe; must be
+        # fast and non-blocking.  None = disabled (zero cost).
+        self.frame_image_callback = None
+
     # ---- Public API ----
 
     def start(self) -> bool:
@@ -312,6 +319,15 @@ class CameraSensor:
 
                 # Extract hand data
                 hands_data = self._extract_hand_data(result, sensor_ts_ns)
+
+                # Optional video tap (in-process MJPEG stream). Defensive:
+                # a streamer exception must never break capture.
+                cb = self.frame_image_callback
+                if cb is not None:
+                    try:
+                        cb(frame_array, hands_data)
+                    except Exception:
+                        pass
 
                 # Compute processing latency
                 t_end = time.monotonic()

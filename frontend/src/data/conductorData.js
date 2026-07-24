@@ -1,12 +1,46 @@
 export const navItems = [
-  { id: 'hero', label: 'Hero', short: 'Hero' },
-  { id: 'live-stage', label: 'Live Stage', short: 'Live' },
+  { id: 'home', label: 'Home', short: 'Home' },
+  { id: 'experience-gateway', label: 'Experience', short: 'Try' },
+  { id: 'live-stage', label: 'Workflow View', short: 'Workflow' },
   { id: 'ai-flow', label: 'AI Flow', short: 'AI' },
-  { id: 'validation', label: 'Proof Points', short: 'Proof' },
+  { id: 'validation', label: 'Highlights', short: 'Value' },
   { id: 'analytics', label: 'Analytics', short: 'Data' },
   { id: 'architecture', label: 'Architecture', short: 'Arch' },
   { id: 'training', label: 'Calibration', short: 'Train' },
   { id: 'about', label: 'About', short: 'About' },
+]
+
+export const teamMembers = [
+  {
+    name: 'WANG YIZHE',
+    id: 't0939395',
+    role: 'Team Lead / AI Model',
+    focus: 'MediaPipe and Random Forest gesture inference pipeline',
+  },
+  {
+    name: 'WANG XIDA',
+    id: 't0939390',
+    role: 'Frontend',
+    focus: 'Roadshow homepage, live dashboard, and visitor interaction display',
+  },
+  {
+    name: 'LUO ZICHAO',
+    id: 't0939291',
+    role: 'Backend',
+    focus: 'Flask API, SQLite logging, and Sonic Pi control bridge',
+  },
+  {
+    name: 'WANG JUNZHI',
+    id: 't0939382',
+    role: 'Hardware',
+    focus: 'Micro:bit firmware, ESP32 gateway, and wearable sensing',
+  },
+  {
+    name: 'WANG QINGYUAN',
+    id: 't0939384',
+    role: 'Hardware',
+    focus: 'Raspberry Pi 5, Pi Camera, fusion pipeline, and LED matrix',
+  },
 ]
 
 export const gestureCatalog = [
@@ -93,22 +127,108 @@ export const assetSlots = [
   {
     title: 'Main roadshow video',
     path: '/media/roadshow-demo.mp4',
+    type: 'video',
     note: '建议录制 20-40 秒横屏视频：同学双手指挥，屏幕音乐参数同步变化。',
   },
   {
     title: 'Camera recognition capture',
     path: '/media/live-camera-demo.mp4',
+    type: 'video',
     note: '建议录制带手部关键点叠加的屏幕片段，替换实时舞台中的占位画面。',
   },
   {
     title: 'Micro:bit wrist photo',
     path: '/media/microbit-wrist.jpg',
+    type: 'image',
     note: '建议拍摄左右手佩戴 Micro:bit 或固定在手腕上的清晰照片。',
   },
   {
     title: 'Team or setup photo',
     path: '/media/team-roadshow.jpg',
+    type: 'image',
     note: '建议拍摄答辩现场、设备连接或小组调试照片，用于项目介绍页。',
+  },
+  {
+    title: 'Guest experience recording',
+    path: '/media/guest-experience-demo.mp4',
+    type: 'video',
+    note: '建议录制路人体验片段：体验者挥手、前端显示轨迹、Sonic Pi 音乐参数同步变化。',
+  },
+  {
+    title: 'Full setup wide photo',
+    path: '/media/stage-setup-wide.jpg',
+    type: 'image',
+    note: '建议拍摄完整设备布置：电脑、树莓派、摄像头、Micro:bit、音响或 LED 装置同框。',
+  },
+]
+
+export const reservedInterfaceSlots = [
+  {
+    title: 'Raspberry Pi camera live stream',
+    field: 'sensors_live.camera.stream_url',
+    fallback: 'VITE_CAMERA_STREAM_URL',
+    note: '预留给树莓派摄像头实时画面，不是电脑本地摄像头；推荐 MJPEG 图片流或可直接访问的视频流 URL。',
+  },
+  {
+    title: 'Single camera frame',
+    field: 'sensors_live.camera.frame_url',
+    fallback: 'VITE_CAMERA_FRAME_URL',
+    note: '如果暂时没有连续视频流，可以先提供不断更新的单帧图片地址。',
+  },
+  {
+    title: 'Hand landmarks',
+    field: 'sensors_live.camera.hands[].landmarks_normalized',
+    fallback: 'image_landmarks / landmarks',
+    note: '预留 21 个手部关键点，坐标可为 0-1 归一化值，也可为像素坐标。',
+  },
+  {
+    title: 'Gesture control event',
+    field: 'pi_status.runtime.last_control_event.payload.event',
+    fallback: 'music_state.current_gesture',
+    note: '预留真实手势控制音乐的事件入口，前端会优先显示后端最新控制事件。',
+  },
+]
+
+export const experienceScenarios = [
+  {
+    gesture: 'downbeat',
+    label: 'Downbeat',
+    subtitle: 'Right-hand beat cue',
+    effect: 'Accent pulse + tempo lock',
+    bpmOffset: 0,
+    volume: 82,
+    energy: 78,
+    color: '#38bdf8',
+  },
+  {
+    gesture: 'crescendo',
+    label: 'Crescendo',
+    subtitle: 'Build intensity',
+    effect: 'Volume and energy rise',
+    bpmOffset: 2,
+    volume: 92,
+    energy: 90,
+    color: '#f4c76b',
+  },
+  {
+    gesture: 'tempo_up',
+    label: 'Tempo Up',
+    subtitle: 'Accelerate motion',
+    effect: 'BPM increases',
+    bpmOffset: 12,
+    volume: 78,
+    energy: 84,
+    color: '#22c55e',
+  },
+  {
+    gesture: 'cutoff',
+    label: 'Cutoff',
+    subtitle: 'Stop gesture',
+    effect: 'Performance pauses',
+    bpmOffset: -4,
+    volume: 42,
+    energy: 28,
+    color: '#fb7185',
   },
 ]
 
@@ -189,9 +309,9 @@ export const trainingSteps = [
 
 export const validationCards = [
   {
-    title: 'AI Recognition Evidence',
-    claim: 'The system exposes the recognition process instead of hiding it behind one final label. It combines hand landmarks, time-window features, and acceleration peaks into event evidence.',
-    evidence: 'Confidence scores, event payloads, inference logs, and live feature panels reveal the Pi-side decision process.',
+    title: 'AI Recognition Process',
+    claim: 'The system makes the recognition process visible by combining hand landmarks, time-window features, and acceleration peaks.',
+    evidence: 'Confidence scores, event payloads, inference logs, and live feature panels show how the Pi-side decision is formed.',
     demo: 'During wrist strikes and downbeat gestures, watch confidence, event type, BPM, and volume update together.',
   },
   {
@@ -213,10 +333,10 @@ export const validationCards = [
     demo: 'After a performance, store the session and replay the key interaction events.',
   },
   {
-    title: 'Demo Reliability',
-    claim: 'Calibration, training samples, and reserved video slots reduce the risk of hardware instability during the roadshow.',
-    evidence: 'The calibration view tracks Camera Position, IMU Zero Point, Gesture Baseline, and related checks.',
-    demo: 'Use live mode when hardware is stable, and switch to recorded material or mock data when signals fluctuate.',
+    title: 'Performance Readiness',
+    claim: 'Calibration, training samples, and prepared media help the audience see both the designed experience and the live interaction.',
+    evidence: 'The calibration view tracks camera position, IMU zero point, gesture baseline, and related checks.',
+    demo: 'Start with the recorded overview, then move into the live performance when the conductor is ready.',
   },
 ]
 
@@ -259,11 +379,11 @@ export function createConductorFrame(tick = 0) {
       tracking: 'Stable',
       fps: 30,
       latency,
-      piGateway: 'Mock Pi Feed',
+      piGateway: 'Pi Preview',
       piGatewayConnected: false,
       piGatewayRunning: false,
       piGatewayHost: '0.0.0.0:9000',
-      piLastMessage: 'Mock fused frame',
+      piLastMessage: 'Preview fused frame',
       piMessageCounts: {
         fused_frame: tick + 12,
         control_event: Math.floor(tick / 3),
@@ -272,11 +392,22 @@ export function createConductorFrame(tick = 0) {
       piLastError: null,
     },
     camera: {
+      source: 'mock',
+      frameId: null,
+      width: 640,
+      height: 480,
+      fps: 30,
       leftHandY: Number((0.62 + Math.sin(phase) * 0.16).toFixed(2)),
       rightHandX: Number((0.58 + Math.cos(phase / 1.2) * 0.18).toFixed(2)),
       handDistance: Number((0.48 + Math.sin(phase / 1.7) * 0.11).toFixed(2)),
       movementSpeed: Number((1.2 + Math.abs(Math.cos(phase)) * 0.9).toFixed(2)),
       trajectoryAngle: Math.round(72 + Math.sin(phase) * 18),
+      hands: [],
+      streamUrl: '',
+      frameUrl: '',
+      hasLiveVideo: false,
+      hasLiveLandmarks: false,
+      raw: {},
     },
     microbit: {
       left: {
@@ -305,6 +436,14 @@ export function createConductorFrame(tick = 0) {
       confidence,
       response: gesture.response,
       top3: predictionSets[tick % predictionSets.length],
+    },
+    actuation: {
+      led: {
+        pattern: gesture.key === 'cutoff' ? 'red_cutoff_flash' : 'beat_pulse',
+        brightness: gesture.key === 'crescendo' ? 0.85 : 0.55,
+        durationMs: 120,
+      },
+      databaseSaved: tick > 0,
     },
     music: {
       title: 'Ode to Joy Conductor Mix',

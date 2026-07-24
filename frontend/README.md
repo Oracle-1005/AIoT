@@ -45,6 +45,8 @@ Create `.env.local`:
 
 ```bash
 VITE_BACKEND_BASE_URL=http://localhost:5000
+VITE_CAMERA_STREAM_URL=
+VITE_CAMERA_FRAME_URL=
 ```
 
 The current backend endpoints are:
@@ -169,6 +171,70 @@ VITE_CONDUCTOR_WS_URL=ws://localhost:8000/ws/frontend
 
 The data adapter is in `src/hooks/useConductorFeed.js`.
 
+## Reserved Real Camera / Hand Tracking Inputs
+
+These fields are already reserved in the frontend. The backend can add them later without changing the page structure.
+The camera source is the Raspberry Pi camera feed, not the laptop or PC webcam. The frontend does not call `getUserMedia`; it only renders the URL supplied by the backend or `.env.local`.
+
+```json
+{
+  "sensors_live": {
+    "camera": {
+      "stream_url": "http://<pi-or-backend-host>:<port>/camera.mjpg",
+      "frame_url": "http://<pi-or-backend-host>:<port>/camera/latest.jpg",
+      "frame_id": 4821,
+      "width": 640,
+      "height": 480,
+      "fps": 30,
+      "hands": [
+        {
+          "handedness": "left",
+          "confidence": 0.97,
+          "landmarks_normalized": [
+            [0.514, 0.742, -0.012]
+          ],
+          "features": {
+            "wrist_velocity": [0.18, -0.43, 0.02]
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+Frontend behavior:
+
+- If `camera.stream_url` or `VITE_CAMERA_STREAM_URL` exists, the camera area shows the real Raspberry Pi camera stream.
+- If `camera.frame_url` or `VITE_CAMERA_FRAME_URL` exists, the camera area can show a repeatedly updated single-frame image.
+- If `camera.hands[].landmarks_normalized`, `image_landmarks`, or `landmarks` exists, the frontend overlays a 21-point hand skeleton and motion trail.
+- If these fields are missing, the UI keeps the reserved slot visible and falls back to the designed mock visualization.
+- Gesture-to-music control still comes from `/api/pi/status.runtime.last_control_event.payload.event` or `/api/music/state.current_gesture`.
+- LED feedback is reserved through `/api/pi/status.runtime.last_control_event.payload.led_control`.
+
+Recommended `control_event` addition:
+
+```json
+{
+  "event": {
+    "type": "downbeat",
+    "hand": "right",
+    "confidence": 0.94,
+    "strength": 0.83
+  },
+  "music_control": {
+    "estimated_bpm": 118,
+    "volume": 0.73,
+    "intensity": 0.81
+  },
+  "led_control": {
+    "pattern": "right_pulse",
+    "brightness": 0.55,
+    "duration_ms": 120
+  }
+}
+```
+
 ## Real Media Slots
 
 The UI intentionally reserves space for real project video and photos. Add final media files under `public/media/`.
@@ -179,6 +245,8 @@ The UI intentionally reserves space for real project video and photos. Add final
 | Camera recognition capture | `public/media/live-camera-demo.mp4` | Live Conducting Stage |
 | Micro:bit wrist photo | `public/media/microbit-wrist.jpg` | Dual Micro:bit cards |
 | Team / site photo | `public/media/team-roadshow.jpg` | About section |
+| Guest experience recording | `public/media/guest-experience-demo.mp4` | Visitor / Guest Mode notes |
+| Full setup wide photo | `public/media/stage-setup-wide.jpg` | About / setup documentation |
 
 Recommended shots:
 

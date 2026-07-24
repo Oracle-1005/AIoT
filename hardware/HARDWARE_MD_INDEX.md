@@ -26,6 +26,7 @@ Raspberry Pi fusion_pipeline -> TCP:9000 -> PC backend
 | 融合管线部署与验证指南 | `hardware/FUSION_PIPELINE_DEPLOY.md` | 说明 `pi-fusion.service`、`fusion_pipeline`、ESP32 网关、摄像头和 PC 后端的部署与验证。 | 部署或重启 Pi 正式融合服务。 |
 | 端到端传输验证流程 | `hardware/END_TO_END_TRANSMISSION_VERIFICATION.md` | 给出从 micro:bit、ESP32、Pi Camera、Pi fusion 到 PC backend 的完整验证步骤。 | 做整链路验收；确认 `status`、`fused_frame`、`control_event` 是否到达 PC。 |
 | Raspberry Pi 与 PC 后端通信方案 | `hardware/PI_BACKEND_COMMUNICATION_PLAN.md` | 说明 Pi 到 PC 的 TCP JSON Lines 上行消息，以及 PC 到 Pi 的 LED/system 下行预留。 | 对接后端、模型、Sonic Pi 或后续 LED 控制。 |
+| 现场链路测试手册（硬件组交接） | `hardware/LIVE_TEST_RUNBOOK.md` | 当前运行环境、8790 进程内预览入口、九动作现场测试流程与判定标准、已知问题（机位倒置、Pi 改动未入库等）。 | 硬件组员现场执行链路测试的操作依据。 |
 
 ## 2. micro:bit 与 ESP32
 
@@ -59,6 +60,7 @@ Raspberry Pi fusion_pipeline -> TCP:9000 -> PC backend
 | 目标 | 优先查看 |
 | --- | --- |
 | 想跑完整链路验证 | `hardware/END_TO_END_TRANSMISSION_VERIFICATION.md` |
+| 想做现场链路测试（交接流程） | `hardware/LIVE_TEST_RUNBOOK.md` |
 | 想部署或重启 `pi-fusion` | `hardware/FUSION_PIPELINE_DEPLOY.md` |
 | 想看 PC 是否收到 Pi 数据 | `hardware/END_TO_END_TRANSMISSION_VERIFICATION.md`、`hardware/PI_BACKEND_COMMUNICATION_PLAN.md` |
 | 想烧录或调整 micro:bit | `hardware/microbit/microbit_to_pi/README.md` |

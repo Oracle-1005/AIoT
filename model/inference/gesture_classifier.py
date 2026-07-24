@@ -86,22 +86,25 @@ def _hand_series(items: list[dict] | None) -> dict:
         openness.append(_as_float(op) if isinstance(op, (int, float)) else None)
 
     speeds, vys = [], []
+    # 先用全部正间隔的中位数判断时间戳单位（30fps：s≈0.033 / ms≈33 / ns≈3.3e7），
+    # 比按单个间隔猜量级稳健（纪元秒 1.7e9 会被误判成 ns）。
+    raw_dts = sorted(ts[i] - ts[i - 1] for i in range(1, len(ts))
+                     if ts[i] > ts[i - 1])
+    med_dt = raw_dts[len(raw_dts) // 2] if raw_dts else 0.0
+    unit_scale = 1e9 if med_dt > 1e5 else (1e3 if med_dt > 0.5 else 1.0)
+
     for i in range(1, len(pos)):
-        dt = ts[i] - ts[i - 1]
-        if dt <= 0:
-            continue
-        # 时间戳可能是 ns：间隔大于 1e6 视为 ns 并换算
-        if dt > 1e6:
-            dt /= 1e9
-        elif dt > 1e3:
-            dt /= 1e3
+        dt = (ts[i] - ts[i - 1]) / unit_scale
         if dt <= 0 or dt > 1.0:   # 丢帧大洞不参与速度统计
             continue
         dx = (pos[i][0] - pos[i - 1][0]) / dt
         dy = (pos[i][1] - pos[i - 1][1]) / dt
         dz = (pos[i][2] - pos[i - 1][2]) / dt
-        speeds.append(math.sqrt(dx * dx + dy * dy + dz * dz))
-        vys.append(dy)
+        # 生物力学上限截断：归一化坐标下 30fps 不存在 >5 单位/秒的手腕速度，
+        # 防突发发送/相位跳变产生的离群速度淹没阈值判断
+        speed = min(5.0, math.sqrt(dx * dx + dy * dy + dz * dz))
+        speeds.append(speed)
+        vys.append(max(-5.0, min(5.0, dy)))
 
     def _valid_open(values: list[float | None]) -> list[float]:
         return [v for v in values if v is not None]
@@ -278,7 +281,7 @@ class GestureClassifier:
 
         # 开始：起点静止 → 末端运动（静到动的爬升）
         if d["start_speed"] < t["still_speed"] and d["end_speed"] > t["active_speed"]:
-            scores["gesture_start"] += 1.8
+            scores["gesture_start"] += 2.2
 
         # 强拍/弱拍：竖直方向速度峰值主导（图像坐标 +dy 向下）
         if d["vy_down_peak"] > t["downbeat_vy"] and d["p90_speed"] > t["strong_speed"]:
@@ -300,13 +303,16 @@ class GestureClassifier:
             if d["open_delta"] < -0.1:
                 scores["decrescendo"] += 0.3
 
-        # 左/右手提示：一侧活跃另一侧静止
-        if (stats["left"]["p90_speed"] > t["cue_min_speed"]
-                and stats["left"]["p90_speed"] > t["cue_ratio"] * max(stats["right"]["p90_speed"], 1e-6)):
-            scores["left_cue"] += 1.6
-        if (stats["right"]["p90_speed"] > t["cue_min_speed"]
-                and stats["right"]["p90_speed"] > t["cue_ratio"] * max(stats["left"]["p90_speed"], 1e-6)):
-            scores["right_cue"] += 1.6
+        # 左/右手提示：一侧活跃另一侧静止；且该侧无强拍/趋势模式
+        # （否则任何单手手势都会被误判成提示）
+        for cue_hand, cue_label in (("left", "left_cue"), ("right", "right_cue")):
+            other = "right" if cue_hand == "left" else "left"
+            c, w = stats[cue_hand], stats[other]
+            if (c["p90_speed"] > t["cue_min_speed"]
+                    and c["p90_speed"] > t["cue_ratio"] * max(w["p90_speed"], 1e-6)
+                    and c["vy_down_peak"] < t["downbeat_vy"]
+                    and abs(c["trend"]) < t["trend_delta"]):
+                scores[cue_label] += 1.6
 
         # softmax 归一化（温度 0.9，规则分布别太平）
         exps = {g: math.exp(min(20.0, s * mb_boost) / 0.9) for g, s in scores.items()}

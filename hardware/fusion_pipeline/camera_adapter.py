@@ -204,6 +204,16 @@ class CameraAdapter:
     def is_running(self) -> bool:
         return self._running
 
+    def set_frame_image_callback(self, callback) -> None:
+        """Attach a raw-frame callback on the underlying CameraSensor.
+
+        The callback receives (rgb_frame_array, hands_data) from the
+        capture thread — used by the optional MJPEG video stream
+        (fusion_pipeline/video_stream.py).  Pass None to detach.
+        """
+        if self._sensor is not None:
+            self._sensor.frame_image_callback = callback
+
     # ── Internal ───────────────────────────────────────────────────────────
 
     def _prune(self, current_ns: int) -> int:

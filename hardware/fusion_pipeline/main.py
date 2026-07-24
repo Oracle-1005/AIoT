@@ -98,6 +98,17 @@ DEFAULT_CONFIG: dict = {
         "max_queue_size": 500,
         "connect_timeout_s": 5.0,
     },
+    "video_stream": {
+        # In-process MJPEG live view (see video_stream.py).  Lets a browser
+        # watch the camera WHILE pi-fusion runs — the standalone previews
+        # (8765/8790) can't, since the camera is single-owner.
+        "enabled": False,
+        "host": "0.0.0.0",
+        "port": 8791,
+        "fps": 10,
+        "quality": 70,
+        "annotate": True,
+    },
     "general": {
         "pi_id": "raspberrypi-01",
         "schema_version": "1.0",
@@ -158,6 +169,7 @@ class FusionApp:
         self._tcp: TcpJsonlClient | None = None
         self._preview_state: PreviewState | None = None
         self._preview_server: PreviewServer | None = None
+        self._video = None  # MjpegStreamer | None — optional, config-gated
 
         self._running = False
         self._shutdown_event = asyncio.Event()
@@ -244,6 +256,23 @@ class FusionApp:
         else:
             logger.info("Camera started.")
 
+        # ── Optional MJPEG video stream (in-process camera tap) ──────
+        vs_cfg = self._cfg.get("video_stream", {})
+        if camera_ok and vs_cfg.get("enabled"):
+            from fusion_pipeline.video_stream import MjpegStreamer  # noqa: PLC0415
+
+            self._video = MjpegStreamer(
+                host=vs_cfg.get("host", "0.0.0.0"),
+                port=vs_cfg.get("port", 8791),
+                fps=vs_cfg.get("fps", 10),
+                quality=vs_cfg.get("quality", 70),
+                annotate=vs_cfg.get("annotate", True),
+            )
+            if self._video.start():
+                self._camera.set_frame_image_callback(self._video.submit)
+            else:
+                self._video = None
+
         self._running = True
         if self._preview_state:
             self._preview_state.set_running(True)
@@ -255,6 +284,11 @@ class FusionApp:
         self._running = False
         self._shutdown_event.set()
 
+        if self._video:
+            if self._camera:
+                self._camera.set_frame_image_callback(None)
+            self._video.stop()
+            self._video = None
         if self._camera:
             self._camera.stop()
         if self._gateway:
