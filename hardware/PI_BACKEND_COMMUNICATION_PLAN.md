@@ -117,7 +117,7 @@ backend/message_router.py
 
 | type | 触发 | 后端用途 |
 | --- | --- | --- |
-| `fused_frame` | 摄像头帧驱动，约 30 Hz | 更新实时传感器状态、保留融合数据 |
+| `fused_frame` | 摄像头帧驱动，约 15~20 Hz | 更新实时传感器状态、保留融合数据 |
 | `control_event` | micro:bit 按键事件 | 更新音乐控制状态，转发 Sonic Pi 控制 |
 | `status` | 约 1 Hz | 更新 Pi、camera、micro:bit 链路健康状态 |
 
@@ -138,7 +138,12 @@ backend/message_router.py
     "frame_sequence": 456,
     "time_delta_ms": 0.0,
     "hands_detected": 1,
-    "hands": []
+    "hands": [],
+    "detection_quality": {
+      "hand_detection_rate_5s": 0.92,
+      "consecutive_missed_frames": 0,
+      "preview_interpolated_hands": 0
+    }
   },
   "microbits": [
     {
@@ -255,10 +260,19 @@ backend/message_router.py
     }
   },
   "camera": {
-    "fps": 27.5,
+    "fps": 18.2,
     "hands_detected": 1,
+    "hand_detection_rate_5s": 0.92,
+    "consecutive_missed_frames": 0,
+    "preview_interpolated_hands": 0,
     "dropped_capture_frames": 0,
-    "clock_ready": true
+    "clock_ready": true,
+    "pixel_format": "BGR888",
+    "detector": {
+      "detection": 0.35,
+      "presence": 0.35,
+      "tracking": 0.4
+    }
   },
   "jitter": {
     "configured_delay_ms": 250.0,

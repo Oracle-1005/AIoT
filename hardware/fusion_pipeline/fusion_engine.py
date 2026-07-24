@@ -237,8 +237,19 @@ class FusionEngine:
         status["camera"] = {
             "fps": camera_status.get("fps", 0.0),
             "hands_detected": camera_status.get("hands_detected", 0),
+            "hand_detection_rate_5s": camera_status.get(
+                "hand_detection_rate_5s", 0.0
+            ),
+            "consecutive_missed_frames": camera_status.get(
+                "consecutive_missed_frames", 0
+            ),
+            "preview_interpolated_hands": camera_status.get(
+                "preview_interpolated_hands", 0
+            ),
             "dropped_capture_frames": camera_status.get("dropped_capture_frames", 0),
             "clock_ready": camera_status.get("clock_ready", False),
+            "pixel_format": camera_status.get("pixel_format", ""),
+            "detector": deepcopy(camera_status.get("detector", {})),
         }
         # Jitter buffer stats
         status["jitter"] = {
@@ -357,6 +368,17 @@ class FusionEngine:
             "time_delta_ms": 0.0,  # Camera frame IS the time target
             "hands_detected": camera_frame.get("hands_detected", 0),
             "hands": camera_frame.get("hands", []),
+            "detection_quality": {
+                "hand_detection_rate_5s": camera_frame.get(
+                    "hand_detection_rate_5s", 0.0
+                ),
+                "consecutive_missed_frames": camera_frame.get(
+                    "consecutive_missed_frames", 0
+                ),
+                "preview_interpolated_hands": camera_frame.get(
+                    "preview_interpolated_hands", 0
+                ),
+            },
         }
 
     @staticmethod

@@ -1,7 +1,7 @@
 ﻿# AIoT 融合管线部署与验证指南
 
-**版本**: 1.1
-**日期**: 2026-07-23
+**版本**: 1.2
+**日期**: 2026-07-24
 **关联文档**: `hardware/raspberry_pi/MICROBIT_ESP32_CAMERA_DATA_FLOW.md`
 
 **本机环境**:
@@ -49,7 +49,7 @@
 
 | type | 频率 | 触发源 |
 |------|------|--------|
-| `fused_frame` | ~30 Hz | 摄像头帧驱动，jitter buffer 延迟 250ms 后输出 |
+| `fused_frame` | 约 15~20 Hz | 摄像头帧驱动，jitter buffer 延迟 250ms 后输出 |
 | `control_event` | 事件驱动 | micro:bit 按键，快速通道，不等融合 |
 | `status` | 1 Hz | 链路健康，含 micro:bit age/rssi、camera fps、jitter buffer |
 
@@ -70,7 +70,7 @@
 
 - [ ] Pi：Raspberry Pi OS (64-bit, Bookworm)，Python 3.11+
 - [ ] Pi：已安装 `picamera2`、`mediapipe`、`pyyaml`
-- [ ] PC：后端代码已部署，`backend/app.py` 可启动
+- [ ] PC：后端代码已部署，`backend/tools/start_backend.ps1` 或 `backend/app.py` 可启动
 
 ---
 
@@ -190,6 +190,13 @@ camera:
   width: 640
   height: 480
   fps: 30
+  pixel_format: "BGR888"
+  max_hands: 2
+  min_hand_detection_confidence: 0.35
+  min_hand_presence_confidence: 0.35
+  min_tracking_confidence: 0.40
+  max_missing_frames: 4
+  detection_window_seconds: 5.0
 
 fusion:
   max_age_ms: 120            # micro:bit 样本最大有效期
@@ -255,6 +262,24 @@ cd /home/ag1_client/aiot_conductor/project/hardware/fusion_pipeline
 ```bash
 # 在 PC PowerShell 上
 cd G:\code\AIoT\AIoT
+powershell -ExecutionPolicy Bypass -File backend\tools\start_backend.ps1 -Restart
+
+# 预期输出:
+# Backend process started: <pid>
+# Flask: http://127.0.0.1:5000
+# Pi TCP: 0.0.0.0:9000
+```
+
+后台日志位置：
+
+```text
+backend\logs\backend_stdout.log
+backend\logs\backend_stderr.log
+```
+
+如果需要前台观察日志，可运行：
+
+```powershell
 backend\.venv\Scripts\python.exe backend\app.py
 
 # 预期输出:
@@ -439,6 +464,8 @@ cd /home/ag1_client/aiot_conductor/project/hardware/fusion_pipeline
 | `GatewayAdapter` 无数据 | ESP32 未连接、Pi IP 配错或 Wi-Fi 问题 | 先停止 fusion，启动 `8787` 预览确认左右 micro:bit 是否持续刷新 |
 | 大量 `missing_sources` | Jitter buffer 太小或 BLE 信号差 | 增大 `jitter_buffer_ms` 到 300-350ms |
 | `Jitter buffer overflow` | 摄像头帧率远超消费速率 | 降低 `camera.fps` 或增大 `fusion_poll_interval_s` |
+| 关键点频繁消失 | 颜色通道、手部像素太小、弱光或运动模糊 | 打开 `8790` 查看 `5s detection` 和 `miss streak`，按 `CAMERA_MEDIAPIPE_TUNING.md` 排查 |
+| 视频骨架仍在但 `camera.hands=[]` | 正在使用最多 4 帧的预览短时保持 | 属于预期；训练数据仍保持原始漏检状态 |
 | Pi 端 `ImportError` | 依赖缺失或路径不对 | 运行 4.2 节导入验证，确认 venv 已安装 pyyaml |
 | 微:bit 数据不到达 | ESP32 扫描不到 BLE 广播 | 缩短 micro:bit 与 ESP32 距离 (30cm~1m)；两块 micro:bit 不要贴在一起 |
 | `Permission denied` 登录 Pi | 密码或用户不对 | 确认用户 `ag1_client`，密码 `123123` |

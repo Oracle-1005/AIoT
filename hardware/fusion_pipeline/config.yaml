@@ -18,10 +18,19 @@ gateway:
 
 # ── Camera (Picamera2 + MediaPipe Hand Landmarker) ──────────────────────
 camera:
+  # BGR888 is exposed by Picamera2 capture_array as [R, G, B], which is
+  # the channel order expected by MediaPipe SRGB input.
   width: 640
   height: 480
   fps: 30
+  pixel_format: "BGR888"
   max_hands: 2
+  min_hand_detection_confidence: 0.35
+  min_hand_presence_confidence: 0.35
+  min_tracking_confidence: 0.40
+  # Preview-only gap bridging. Raw hands sent to fusion are never synthesized.
+  max_missing_frames: 4
+  detection_window_seconds: 5.0
   frame_queue_size: 10
   buffer_max_age_s: 10.0
   clock_min_points: 10

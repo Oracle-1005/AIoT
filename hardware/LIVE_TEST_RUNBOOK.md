@@ -9,7 +9,7 @@
 ## 0. 一句话现状
 
 ```text
-micro:bit ×2 ──BLE──→ ESP32 ──UDP:17778──→ Pi fusion ──TCP:9000──→ PC 后端 (192.168.43.117)
+micro:bit ×2 ──BLE──→ ESP32 ──UDP:17778──→ Pi fusion ──TCP:9000──→ PC 后端 (192.168.43.209)
 Camera ──→ Pi (MediaPipe) ──┘                    │
                                           进程内预览页 :8790（视频+数据）
 ```
@@ -23,9 +23,9 @@ Camera ──→ Pi (MediaPipe) ──┘                    │
 
 | 组件 | 位置 | 状态 |
 |------|------|------|
-| PC 后端 | `192.168.43.117`（Flask `:5000` REST + TCP `:9000`） | 运行中，`model_loaded=true` |
-| pi-fusion | Pi `192.168.43.221`，`pi-fusion.service`（systemd） | active，已连 `.117:9000` |
-| 摄像头 | Pi Camera（ov5647，640×480 @ 30fps + MediaPipe） | 由 pi-fusion 独占 |
+| PC 后端 | `192.168.43.209`（Flask `:5000` REST + TCP `:9000`） | 运行中，`model_loaded=true` |
+| pi-fusion | Pi `192.168.43.221`，`pi-fusion.service`（systemd） | active，已连 `.209:9000` |
+| 摄像头 | Pi Camera（ov5647，配置 640×480 @ 30fps，实际约 16~17fps + MediaPipe） | 由 pi-fusion 独占 |
 | micro:bit ×2 / ESP32 | 广播 150ms → UDP:17778 | 在线（后端 `microbit_left/right=true`） |
 | 进程内预览页 | `http://192.168.43.221:8790/` | 随 pi-fusion 同进程运行 |
 
@@ -33,10 +33,16 @@ Pi 上关键配置（`/home/ag1_client/aiot_conductor/project/hardware/fusion_pi
 
 ```yaml
 tcp:
-  host: "192.168.43.117"   # ← 当前指向本机后端；后端若搬回 .209 需改回并 restart
+  host: "192.168.43.209"   # ← 当前 PC 后端 IP；PC 换网后需同步修改并 restart
   port: 9000
 video_stream:
-  enabled: true            # 备用视频流配置（当前 main.py 未使用，见 §6.3）
+  enabled: true            # 可选独立 MJPEG 视频流；主预览仍优先使用 8790
+camera:
+  pixel_format: "BGR888"
+  min_hand_detection_confidence: 0.35
+  min_hand_presence_confidence: 0.35
+  min_tracking_confidence: 0.40
+  max_missing_frames: 4    # 仅视频预览保持，不伪造训练关键点
 ```
 
 ---
@@ -59,6 +65,8 @@ video_stream:
 
 - 正对摄像头 **1~1.5 米**，双手入画，光线充足；
 - 先在 8790 页面确认能看到自己、手部关键点叠加正常跟随。
+- 手持续入画时观察 `5s detection`，建议稳定在 85% 以上；`miss streak` 不应频繁超过 4。
+- `preview held` 偶尔为 1/2 表示视频使用短时保持，不代表该帧已经生成真实关键点。
 
 ### 3.2 九动作序列
 
@@ -98,7 +106,7 @@ sudo systemctl restart pi-fusion
 sudo journalctl -u pi-fusion -f
 
 # 关键日志标志
-#   "TCP connected to 192.168.43.117:9000"  → 上行链路正常
+#   "TCP connected to 192.168.43.209:9000"  → 上行链路正常
 #   "Fusion preview listening on ...:8790"  → 预览页正常
 #   "Camera started."                        → 摄像头正常
 ```
@@ -107,7 +115,7 @@ sudo journalctl -u pi-fusion -f
 `live_preview.py`）会抢占摄像头/UDP:17778，**不能与 pi-fusion 同时运行**。
 但 12:49 起 8790 是 fusion 进程内预览，不互斥，可直接使用。
 
-**后端切回 .209**：改 `config.yaml` 的 `tcp.host` 后 `sudo systemctl restart pi-fusion`。
+**后端换 IP**：改 `config.yaml` 的 `tcp.host` 后 `sudo systemctl restart pi-fusion`。
 
 ---
 
@@ -131,15 +139,9 @@ sudo journalctl -u pi-fusion -f
 1. **摄像头画面物理倒置**：装机时镜头上下颠倒，画面旋转 180°。会导致
    下砸/上挑（downbeat/upbeat）方向互换。**请先把机位正过来再测**；
    不便物理调整时可改 picamera2 Transform 软件翻转（联系后端侧）。
-2. **Pi 上改动未入库**：`preview_server.py` 及配套 `main.py` 改动目前只存在于
-   Pi 本地（仓库最新提交为 `6cf4715`）。**请硬件组员尽快 commit & push**，
-   否则下次代码同步会覆盖丢失。
-3. **两套视频流并存待合并**：仓库内 `video_stream.py`（8791，config 开关）
-   与 Pi 上 `preview_server.py`（8790，功能更全）功能重叠。当前以 8790 为准，
-   后续合并时二选一，8791 默认关闭不影响任何链路。
-4. **单目标上行**：`tcp.host` 只能指向一台后端。`.117`（本机）与 `.209`
-   不要同时期望接收同一 Pi 的数据，切换时群里知会。
-5. **Windows 防火墙**：`.117` 的 `:9000` 入站已实测放行，无需操作；
+2. **8790 与 8791 的关系**：`8790` 是正式链路联合预览，展示摄像头、micro:bit 和发送前融合数据；`8791` 是可选独立 MJPEG 摄像头流。两者均在 `pi-fusion` 进程内复用摄像头，不应再单独启动 `8765` 摄像头预览。
+3. **单目标上行**：`tcp.host` 只能指向一台后端。当前指向 `.209`，如果后端换机器运行，需要同步修改 Pi 的 `config.yaml` 并重启 `pi-fusion`。
+4. **Windows 防火墙**：`.209` 的 `:9000` 入站已实测放行，无需操作；
    若后端换机器运行，需重新验证 `nc -zv <新IP> 9000`。
 
 ---
@@ -149,4 +151,4 @@ sudo journalctl -u pi-fusion -f
 | 范围 | 负责人 |
 |------|--------|
 | Pi 服务 / 摄像头 / ESP32 / micro:bit / 现场执行 | 硬件组员 |
-| 后端 / 推理链 / 识别结果异常分析 | 后端侧（本机 `.117`） |
+| 后端 / 推理链 / 识别结果异常分析 | 后端侧（本机 `.209`） |

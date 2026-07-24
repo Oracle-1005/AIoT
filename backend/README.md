@@ -20,6 +20,16 @@ backend\.venv\Scripts\python.exe backend\test_backend.py
 backend\.venv\Scripts\python.exe backend\app.py
 ```
 
+Windows 后台运行推荐使用：
+
+```powershell
+cd <project-root>
+powershell -ExecutionPolicy Bypass -File backend\tools\start_backend.ps1 -Restart
+```
+
+该脚本使用 `backend\.venv`，关闭 Flask debug 模式，并将日志写入
+`backend\logs\backend_stdout.log` 和 `backend\logs\backend_stderr.log`。
+
 The PC listens on:
 
 - Flask: `0.0.0.0:5000`
@@ -28,7 +38,7 @@ The PC listens on:
 
 ## Verify live Pi data
 
-After starting `backend/app.py` and the Raspberry Pi `fusion_pipeline`, run:
+After starting the backend and the Raspberry Pi `fusion_pipeline`, run:
 
 ```powershell
 cd <project-root>
