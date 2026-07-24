@@ -41,6 +41,18 @@ tcp:
   max_queue_size: 500
   connect_timeout_s: 5.0
 
+# ── Live video stream (optional, in-process MJPEG) ──────────────────────
+# Watch the camera (with MediaPipe overlay) in a browser WHILE pi-fusion
+# runs: http://<pi-ip>:8791/  — taps frames inside the fusion process, so
+# the camera stays single-owner and there is no preview-port conflict.
+video_stream:
+  enabled: false
+  host: "0.0.0.0"
+  port: 8791
+  fps: 10
+  quality: 70
+  annotate: true
+
 # ── General ─────────────────────────────────────────────────────────────
 general:
   pi_id: "raspberrypi-01"

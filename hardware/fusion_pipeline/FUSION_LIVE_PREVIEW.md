@@ -39,6 +39,12 @@ pkill -f live_preview_server.py || true
 
 如果 `pi-fusion` 正在运行，联合预览可能无法绑定 UDP `17778`，或者摄像头初始化失败。
 
+> **想在 pi-fusion 运行期间同时观看摄像头画面？** 用 `config.yaml` 里的
+> `video_stream`（默认端口 `8791`，见 `video_stream.py`）。它在 fusion 进程
+> 内部抽取摄像头帧做 MJPEG 推流，不二次占用摄像头，与正式服务不互斥，
+> 且画面上叠加了 MediaPipe 关键点。默认关闭，调试时把 `enabled` 改为
+> `true` 后重启 pi-fusion 即可。
+
 ## 运行方式
 
 在树莓派上进入统一项目目录：
