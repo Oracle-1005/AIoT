@@ -278,8 +278,10 @@ class PreviewState:
             self.running = running
 
     def set_camera(self, frame: dict[str, Any]) -> None:
+        item = dict(frame)
+        item.pop("preview_jpeg", None)
         with self._lock:
-            self.latest_camera = deepcopy(frame)
+            self.latest_camera = deepcopy(item)
             self.update_times_ns["camera"] = time.monotonic_ns()
             self.counters["camera_frames"] += 1
 

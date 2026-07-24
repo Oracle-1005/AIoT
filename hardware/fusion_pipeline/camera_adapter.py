@@ -51,12 +51,18 @@ class CameraAdapter:
         buffer_max_age_s: float = 10.0,
         clock_min_points: int = 10,
         clock_max_points: int = 60,
+        enable_preview_jpeg: bool = False,
+        preview_jpeg_quality: int = 70,
+        preview_jpeg_every_n_frames: int = 2,
     ) -> None:
         self._width = width
         self._height = height
         self._fps = fps
         self._max_hands = max_hands
         self._frame_queue_size = frame_queue_size
+        self._enable_preview_jpeg = enable_preview_jpeg
+        self._preview_jpeg_quality = preview_jpeg_quality
+        self._preview_jpeg_every_n_frames = preview_jpeg_every_n_frames
 
         # Camera frame buffer: time-sorted, oldest at index 0.
         # Each entry: {"ts_ns": pi_aligned_timestamp_ns, "frame_id": ..., "hands": [...]}
@@ -89,6 +95,9 @@ class CameraAdapter:
                 fps=self._fps,
                 max_hands=self._max_hands,
                 frame_queue_size=self._frame_queue_size,
+                enable_preview_jpeg=self._enable_preview_jpeg,
+                preview_jpeg_quality=self._preview_jpeg_quality,
+                preview_jpeg_every_n_frames=self._preview_jpeg_every_n_frames,
             )
         except ImportError as exc:
             logger.error("Camera not available: %s", exc)
@@ -155,6 +164,7 @@ class CameraAdapter:
             "hands_detected": len(hands),
             "processing_latency_ms": camera_frame.processing_latency_ms,
             "clock_ready": camera_frame.clock_ready,
+            "preview_jpeg": camera_frame.preview_jpeg,
         }
 
         # Push to internal buffer and prune

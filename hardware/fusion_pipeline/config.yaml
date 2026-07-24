@@ -48,3 +48,12 @@ general:
   log_level: "INFO"
   status_interval_s: 1.0
   fusion_poll_interval_s: 0.005  # ~200 Hz poll for camera frames
+
+# In-process browser preview. This runs inside pi-fusion and shares the same
+# camera, ESP32 UDP receiver, fusion output, and PC backend sender.
+preview:
+  enabled: true
+  host: "0.0.0.0"
+  port: 8790
+  jpeg_quality: 70
+  jpeg_every_n_frames: 2

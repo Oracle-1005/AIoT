@@ -56,6 +56,7 @@ from fusion_pipeline.fusion_engine import FusionEngine
 from fusion_pipeline.gateway_adapter import GatewayAdapter, MicrobitSample
 from fusion_pipeline.camera_adapter import CameraAdapter
 from fusion_pipeline.tcp_client import TcpJsonlClient
+from fusion_pipeline.preview_server import PreviewServer, PreviewState
 
 logger = logging.getLogger("fusion_pipeline")
 
@@ -104,6 +105,13 @@ DEFAULT_CONFIG: dict = {
         "status_interval_s": 1.0,
         "fusion_poll_interval_s": 0.005,
     },
+    "preview": {
+        "enabled": True,
+        "host": "0.0.0.0",
+        "port": 8790,
+        "jpeg_quality": 70,
+        "jpeg_every_n_frames": 2,
+    },
 }
 
 
@@ -148,6 +156,8 @@ class FusionApp:
         self._camera: CameraAdapter | None = None
         self._fusion: FusionEngine | None = None
         self._tcp: TcpJsonlClient | None = None
+        self._preview_state: PreviewState | None = None
+        self._preview_server: PreviewServer | None = None
 
         self._running = False
         self._shutdown_event = asyncio.Event()
@@ -162,6 +172,21 @@ class FusionApp:
     async def start(self) -> None:
         """Initialize all subsystems."""
         logger.info("=== AIoT Fusion Pipeline ===")
+
+        preview_cfg = self._cfg.get("preview", {})
+        if preview_cfg.get("enabled", False):
+            self._preview_state = PreviewState()
+            self._preview_server = PreviewServer(
+                host=preview_cfg.get("host", "0.0.0.0"),
+                port=int(preview_cfg.get("port", 8790)),
+                state=self._preview_state,
+            )
+            try:
+                self._preview_server.start()
+            except Exception:
+                logger.exception("Preview server failed to start; continuing without preview.")
+                self._preview_server = None
+                self._preview_state = None
 
         # ── TCP Client ────────────────────────────────────────────────
         tcp_cfg = self._cfg["tcp"]
@@ -191,6 +216,7 @@ class FusionApp:
             allowed_hands=allowed,
             event_dedup_ttl_s=gw_cfg["event_dedup_ttl_s"],
             noise_filter_config=gw_cfg.get("noise_filter", {}),
+            on_raw_sensor_state=self._on_raw_microbit_sample,
             on_sensor_state=self._on_microbit_sample,
             on_control_event=self._on_control_event,
         )
@@ -207,6 +233,9 @@ class FusionApp:
             buffer_max_age_s=cam_cfg["buffer_max_age_s"],
             clock_min_points=cam_cfg["clock_min_points"],
             clock_max_points=cam_cfg["clock_max_points"],
+            enable_preview_jpeg=bool(preview_cfg.get("enabled", False)),
+            preview_jpeg_quality=int(preview_cfg.get("jpeg_quality", 70)),
+            preview_jpeg_every_n_frames=int(preview_cfg.get("jpeg_every_n_frames", 2)),
         )
 
         camera_ok = self._camera.start()
@@ -216,6 +245,8 @@ class FusionApp:
             logger.info("Camera started.")
 
         self._running = True
+        if self._preview_state:
+            self._preview_state.set_running(True)
         logger.info("=== Fusion Pipeline started ===")
 
     async def stop(self) -> None:
@@ -230,6 +261,10 @@ class FusionApp:
             await self._gateway.stop()
         if self._tcp:
             await self._tcp.stop()
+        if self._preview_server:
+            self._preview_server.stop()
+        if self._preview_state:
+            self._preview_state.set_running(False)
 
         logger.info(
             "=== Fusion Pipeline stopped. "
@@ -265,11 +300,15 @@ class FusionApp:
                 if self._camera and self._camera.is_running():
                     camera_frame = self._camera.poll_frame()
                     if camera_frame is not None:
+                        if self._preview_state:
+                            self._preview_state.set_camera(camera_frame)
                         self._fusion.enqueue_camera_frame(camera_frame)
 
                 # Drain jitter buffer: pop frames whose delay has expired
                 for fused in self._fusion.drain_ready_frames():
                     if self._tcp:
+                        if self._preview_state:
+                            self._preview_state.add_outbound(fused)
                         self._tcp.send(fused)
                         self._fused_count += 1
 
@@ -283,6 +322,9 @@ class FusionApp:
                 if now - last_status >= status_s:
                     status_msg = self._build_status()
                     if self._tcp:
+                        if self._preview_state:
+                            self._preview_state.add_outbound(status_msg)
+                            self._preview_state.set_tcp_status(self._tcp.get_status())
                         self._tcp.send(status_msg)
                         self._status_count += 1
                     last_status = now
@@ -299,8 +341,15 @@ class FusionApp:
 
     # ── Callbacks ─────────────────────────────────────────────────────
 
+    def _on_raw_microbit_sample(self, item: dict) -> None:
+        """GatewayAdapter -> preview before sequence tracking and filtering."""
+        if self._preview_state:
+            self._preview_state.set_raw_microbit(item)
+
     def _on_microbit_sample(self, sample: MicrobitSample) -> None:
         """GatewayAdapter → FusionEngine buffer."""
+        if self._preview_state:
+            self._preview_state.set_filtered_microbit(sample.to_dict())
         if self._fusion:
             self._fusion.push_microbit_sample(sample)
 
@@ -308,6 +357,8 @@ class FusionApp:
         """GatewayAdapter → FusionEngine control event queue + direct send."""
         # Send immediately (fast path — don't wait for camera frame)
         if self._tcp:
+            if self._preview_state:
+                self._preview_state.add_outbound(event)
             self._tcp.send(event)
             self._event_count += 1
 

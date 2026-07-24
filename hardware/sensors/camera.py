@@ -35,6 +35,7 @@ class CameraFrame:
     hands: list[dict]        # List of hand dicts per the fused_frame schema
     processing_latency_ms: float = 0.0
     clock_ready: bool = False  # Whether CameraClockSync is ready
+    preview_jpeg: bytes | None = None
 
 
 class CameraSensor:
@@ -56,11 +57,17 @@ class CameraSensor:
         fps: int = 30,
         max_hands: int = 2,
         frame_queue_size: int = 10,
+        enable_preview_jpeg: bool = False,
+        preview_jpeg_quality: int = 70,
+        preview_jpeg_every_n_frames: int = 2,
     ):
         self._width = width
         self._height = height
         self._fps = fps
         self._max_hands = max_hands
+        self._enable_preview_jpeg = enable_preview_jpeg
+        self._preview_jpeg_quality = max(30, min(95, preview_jpeg_quality))
+        self._preview_jpeg_every_n_frames = max(1, preview_jpeg_every_n_frames)
 
         self._thread: threading.Thread | None = None
         self._running = threading.Event()
@@ -79,6 +86,7 @@ class CameraSensor:
         self._mp = None
         self._mp_hands = None
         self._mp_drawing = None
+        self._cv2 = None
 
         # Per-hand state for velocity computation
         self._prev_wrist_pos: dict[str, tuple[float, float, float] | None] = {}
@@ -236,6 +244,18 @@ class CameraSensor:
         except Exception as e:
             raise RuntimeError(f"MediaPipe init failed: {e}")
 
+    def _init_preview_encoder(self) -> None:
+        """Initialize optional OpenCV JPEG encoder for browser preview."""
+        if not self._enable_preview_jpeg:
+            return
+        try:
+            import cv2
+
+            self._cv2 = cv2
+        except Exception as exc:
+            self._cv2 = None
+            logger.warning("Preview JPEG disabled: OpenCV import failed: %s", exc)
+
     @staticmethod
     def _find_hand_landmarker_model() -> Path | None:
         """Locate the MediaPipe hand landmarker model in known project paths."""
@@ -263,6 +283,7 @@ class CameraSensor:
         """
         fps_window: list[float] = []  # For actual FPS calculation
         last_fps_update = time.monotonic()
+        self._init_preview_encoder()
 
         while self._running.is_set():
             try:
@@ -299,6 +320,7 @@ class CameraSensor:
 
                 # Create CameraFrame
                 self._frame_counter += 1
+                preview_jpeg = self._make_preview_jpeg(frame_array, hands_data)
                 frame = CameraFrame(
                     frame_id=self._frame_counter,
                     sensor_timestamp_ns=sensor_ts_ns,
@@ -308,6 +330,7 @@ class CameraSensor:
                     hands=hands_data,
                     processing_latency_ms=latency_ms,
                     clock_ready=self._camera_clock.clock_ready,
+                    preview_jpeg=preview_jpeg,
                 )
 
                 # Push to queue
@@ -334,6 +357,59 @@ class CameraSensor:
             except Exception as e:
                 logger.error("Camera capture error: %s", e, exc_info=True)
                 time.sleep(0.1)
+
+    def _make_preview_jpeg(self, frame_array, hands: list[dict]) -> bytes | None:
+        """Encode a lightweight JPEG preview frame for the in-process dashboard."""
+        if not self._enable_preview_jpeg or self._cv2 is None:
+            return None
+        if self._frame_counter % self._preview_jpeg_every_n_frames != 0:
+            return None
+
+        try:
+            cv2 = self._cv2
+            bgr = cv2.cvtColor(frame_array, cv2.COLOR_RGB2BGR)
+            height, width = bgr.shape[:2]
+            for hand in hands:
+                points = [
+                    (int(p[0] * width), int(p[1] * height))
+                    for p in hand.get("landmarks_normalized", [])
+                ]
+                color = (60, 220, 120) if hand.get("valid") else (50, 180, 255)
+                for a, b in (
+                    (0, 1), (1, 2), (2, 3), (3, 4),
+                    (0, 5), (5, 6), (6, 7), (7, 8),
+                    (5, 9), (9, 10), (10, 11), (11, 12),
+                    (9, 13), (13, 14), (14, 15), (15, 16),
+                    (13, 17), (17, 18), (18, 19), (19, 20), (0, 17),
+                ):
+                    if a < len(points) and b < len(points):
+                        cv2.line(bgr, points[a], points[b], color, 2, cv2.LINE_AA)
+                for point in points:
+                    cv2.circle(bgr, point, 3, (255, 255, 255), -1, cv2.LINE_AA)
+                if points:
+                    label = f"{hand.get('handedness', 'hand')} {hand.get('confidence', 0.0):.2f}"
+                    cv2.putText(
+                        bgr,
+                        label,
+                        (max(0, points[0][0] - 20), max(24, points[0][1] - 12)),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.55,
+                        color,
+                        2,
+                        cv2.LINE_AA,
+                    )
+
+            ok, encoded = cv2.imencode(
+                ".jpg",
+                bgr,
+                [int(cv2.IMWRITE_JPEG_QUALITY), self._preview_jpeg_quality],
+            )
+            if not ok:
+                return None
+            return encoded.tobytes()
+        except Exception:
+            logger.debug("Preview JPEG encode failed", exc_info=True)
+            return None
 
     # ---- Internal: Hand Feature Extraction ----
 
