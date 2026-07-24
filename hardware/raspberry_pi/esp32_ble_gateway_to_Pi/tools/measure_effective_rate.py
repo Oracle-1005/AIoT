@@ -6,19 +6,19 @@ Reads esp32_gateway_receiver JSON Lines (file argument or stdin) and reports
 per hand: packets received, sequence gaps, arrival %, effective Hz, RSSI.
 
 Usage:
-  # 先落盘 60 秒再统计（推荐，预览和 pi-fusion 互斥，先停 pi-fusion）
+  # Capture 60 s, then analyze (stop pi-fusion first; UDP 17778 is exclusive):
   python -m esp32_gateway_receiver.app --config config.json --log-level WARNING \
       > /tmp/mb_60s.jsonl
   python tools/measure_effective_rate.py /tmp/mb_60s.jsonl
 
-  # 或边收边统计
+  # Or pipe live:
   python -m esp32_gateway_receiver.app --config config.json --log-level WARNING \
       | python tools/measure_effective_rate.py
 
-判断参考（2026-07-24 采样率对齐实验）：
-  - 目标：每侧有效 >= 10 Hz（理想 20+），arrival >= 80%，RSSI 均值 > -75 dBm
-  - 当前固件基线（SAMPLE_PERIOD_MS=150, REPEAT=1, TX=-12dBm）：
-    名义 6.7 Hz，2026-07-23 实测抵达率 ~25% -> 有效 ~1.7 Hz
+Reference targets for the 2026-07-24 sampling-rate experiments:
+  - per-hand effective rate >= 10 Hz (ideally 20+), arrival >= 80%, RSSI > -75 dBm
+  - current firmware baseline (SAMPLE_PERIOD_MS=150, REPEAT=1, TX=-12dBm):
+    nominal 6.7 Hz, measured 2026-07-23 ~25% arrival -> ~1.7 Hz effective
 """
 
 import json
@@ -26,7 +26,7 @@ import sys
 from collections import defaultdict
 
 WRAP = 0x10000  # uint16 sample_sequence
-GAP_SANITY = 500  # 跳号超过此值视为设备重启/乱序，不计入丢包
+GAP_SANITY = 500  # larger jumps count as device restart / reorder, not loss
 
 
 def new_stats():
@@ -54,19 +54,21 @@ def observe(line, stats):
 
     src = str(d.get("source", "?")).lower()
     s = stats[src]
-    s["received"] += 1
 
     seq = d.get("sample_sequence")
     if isinstance(seq, int):
+        if seq == s["last_seq"]:
+            return  # duplicate: not a new sample, ignore entirely
         if s["last_seq"] is not None:
-            if seq == s["last_seq"]:
-                return  # 重复包，不计时间也不计丢包
             gap = (seq - s["last_seq"] - 1) % WRAP
-            if 0 < gap <= GAP_SANITY:
+            if gap == 0:
+                pass  # in order
+            elif gap <= GAP_SANITY:
                 s["gaps"] += gap
             else:
                 s["restarts"] += 1
         s["last_seq"] = seq
+    s["received"] += 1
 
     ts = d.get("device_timestamp_ms")
     if isinstance(ts, (int, float)):
@@ -84,7 +86,8 @@ def observe(line, stats):
 
 def report(stats):
     if not stats:
-        print("没有收到任何 microbit_sensor_state 行——检查 receiver 是否在跑、ESP32 是否已上电。")
+        print("No microbit_sensor_state lines seen -- "
+              "is the receiver running and the ESP32 powered?")
         return 1
     print(f"{'source':<8} {'recv':>6} {'gaps':>6} {'arrival':>8} {'eff_Hz':>7} "
           f"{'RSSI avg/min/max':>20} {'restarts':>8}")
@@ -98,7 +101,7 @@ def report(stats):
                 if s["rssi_n"] else "n/a")
         print(f"{src:<8} {s['received']:>6} {s['gaps']:>6} {arrival:>7.0f}% "
               f"{eff_hz:>7.1f} {rssi:>20} {s['restarts']:>8}")
-    print("\n参考：目标 eff_Hz >= 10、arrival >= 80%、RSSI avg > -75 dBm")
+    print("\nReference: target eff_Hz >= 10, arrival >= 80%, RSSI avg > -75 dBm")
     return 0
 
 
