@@ -91,7 +91,7 @@ preview:
 # (udev rule), otherwise commands are logged and dropped.
 led:
   enabled: true
-  default_pattern: "breathing"
+  default_pattern: "idle"      # 静息全黑（"breathing" = 蓝色慢呼吸）
   brightness_limit: 0.25   # safety cap — keep <= 0.25 for first light
   refresh_hz: 50
 

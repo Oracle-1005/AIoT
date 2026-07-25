@@ -665,7 +665,7 @@ class LedController:
         self._fill_panel(1, self._color(0, 0, 255, 0.08))
 
     def _render_right(self, elapsed: float) -> None:
-        """右手提示: right panel blue flash, left panel dim. 1s cycle."""
+        """右手提示: right panel pink flash, left panel dim. 1s cycle."""
         pulse = (math.sin(elapsed * 2 * math.pi) + 1) / 2
-        self._fill_panel(0, self._color(0, 0, 255, 0.08))
-        self._fill_panel(1, self._color(0, 0, 255, 0.3 + 0.7 * pulse))
+        self._fill_panel(0, self._color(255, 64, 160, 0.08))
+        self._fill_panel(1, self._color(255, 64, 160, 0.3 + 0.7 * pulse))

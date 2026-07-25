@@ -55,3 +55,7 @@ backend/*.log
 
 # Session state (working notes live outside the repo)
 session-summary.md
+
+# local training artifacts (labels / model reports stay local)
+data/training_sessions*.jsonl
+model/models/*.report.json
