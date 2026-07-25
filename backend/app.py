@@ -135,9 +135,21 @@ def create_app() -> Flask:
         if not isinstance(body, dict):
             return jsonify({"error": "request body must be a JSON object"}), 400
         action = str(body.get("action", "")).strip()
-        if action not in {"start", "resume", "play", "pause", "stop", "cutoff", "reset"}:
+        allowed_actions = {
+            "start",
+            "resume",
+            "play",
+            "pause",
+            "stop",
+            "cutoff",
+            "reset",
+            "next",
+            "previous",
+            "prev",
+        }
+        if action not in allowed_actions:
             return jsonify({
-                "error": "action must be one of start, resume, play, pause, stop, cutoff, reset"
+                "error": "action must be one of start, resume, play, pause, stop, cutoff, reset, next, previous"
             }), 400
         sent = sonic_pi_adapter.send_transport(action)
         if sent:

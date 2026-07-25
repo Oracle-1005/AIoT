@@ -256,6 +256,30 @@ def main() -> None:
         == "/conductor/transport"
     )
 
+    next_track = client.post(
+        "/api/sonic-pi/transport",
+        json={
+            "action": "next",
+        },
+    )
+    assert next_track.status_code == 200
+    next_payload = next_track.get_json()
+    assert next_payload["sonic_pi"]["last_sent_command"]["args"][1] == "next"
+    assert next_payload["music"]["title"] == "Canon in D Conductor Mix"
+    assert next_payload["music"]["track_index"] == 1
+
+    previous_track = client.post(
+        "/api/sonic-pi/transport",
+        json={
+            "action": "previous",
+        },
+    )
+    assert previous_track.status_code == 200
+    previous_payload = previous_track.get_json()
+    assert previous_payload["sonic_pi"]["last_sent_command"]["args"][1] == "previous"
+    assert previous_payload["music"]["title"] == "Ode to Joy Conductor Mix"
+    assert previous_payload["music"]["track_index"] == 0
+
     recorded_types = {
         record["message_type"]
         for record in get_pi_message_history(limit=10)

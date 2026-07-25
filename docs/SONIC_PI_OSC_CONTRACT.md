@@ -42,7 +42,7 @@ Transport controls playback.
 | Field | Type | Example | Notes |
 |---|---|---|---|
 | `command_id` | string | `cmd-0001` | Backend-generated id for ack matching |
-| `action` | string | `start` | Supported: `start`, `resume`, `play`, `pause`, `stop`, `cutoff`, `reset` |
+| `action` | string | `start` | Supported: `start`, `resume`, `play`, `pause`, `stop`, `cutoff`, `reset`, `next`, `previous` |
 
 ### `/conductor/state`
 
@@ -94,6 +94,7 @@ The provided Sonic Pi script sends these feedback paths.
 
 | OSC path | Arguments | Purpose |
 |---|---|---|
+| `/music/track` | `piece_id, title, key, total_bars, beats_per_bar, default_bpm` | Current track metadata after startup or track switching |
 | `/music/beat` | `bar, beat, bpm, beat_strength` | Beat-accurate feedback for frontend/LED display |
 | `/music/bar` | `bar, section` | Section and bar counter |
 | `/music/state` | `playing, bpm, section, energy` | Actual music execution state |
@@ -146,11 +147,26 @@ Optional fields after the OSC adapter is added:
 
 ## Roadshow Script
 
-Use:
+Primary script:
+
+```text
+music/sonic_pi/aiot_conductor_roadshow_set.rb
+```
+
+This is the recommended roadshow script. It starts with Ode to Joy and lets the
+frontend switch tracks in a loop:
+
+```text
+Ode to Joy -> Canon in D -> Ode to Joy -> ...
+```
+
+Single-piece scripts:
 
 ```text
 music/sonic_pi/aiot_conductor_ode_to_joy.rb
+music/sonic_pi/aiot_conductor_canon_in_d.rb
 ```
 
-Paste the full Ruby script into Sonic Pi and press `Run`. The script can play
-standalone before backend OSC integration is ready.
+Paste one full Ruby script into Sonic Pi and press `Run`. The roadshow set and
+both single-piece scripts can play standalone before backend OSC integration is
+ready, and they keep the same OSC control paths.

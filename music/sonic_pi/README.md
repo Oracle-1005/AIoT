@@ -2,7 +2,19 @@
 
 This folder contains the roadshow music script for the AIoT Smart Conducting Performance System.
 
-## Recommended Piece
+## Available Pieces
+
+`aiot_conductor_roadshow_set.rb`
+
+Recommended for the roadshow. This single Sonic Pi buffer starts with Ode to
+Joy and supports frontend track switching:
+
+```text
+Ode to Joy -> Canon in D -> Ode to Joy -> ...
+```
+
+Use this script when you want the frontend Previous / Next buttons to control
+the live Sonic Pi output.
 
 `aiot_conductor_ode_to_joy.rb`
 
@@ -13,10 +25,22 @@ and easy to control with conducting gestures.
 The current roadshow version is a 24-bar loop. At the default 108 BPM it lasts
 about 53 seconds and moves through Intro, Theme, Build, and Finale sections.
 
+`aiot_conductor_canon_in_d.rb`
+
+The second roadshow option is a Sonic Pi arrangement inspired by the
+public-domain "Canon in D" progression. It is smoother and more layered than
+Ode to Joy, so it works well when demonstrating crescendo, decrescendo, tempo
+changes, and sustained conducting gestures.
+
+The current roadshow version is a 32-bar loop. At the default 96 BPM it lasts
+about 80 seconds and also supports the same Intro, Theme, Build, and Finale
+sections.
+
 ## How To Run
 
 1. Open Sonic Pi on the PC.
-2. Open `aiot_conductor_ode_to_joy.rb` in a text editor.
+2. Open `aiot_conductor_roadshow_set.rb` for the full roadshow set, or open one
+   of the single-piece scripts for a fixed-track demo.
 3. Copy the full script into a Sonic Pi buffer.
 4. Press `Run`.
 5. Use the frontend Music Control Center to pause or resume it during the demo.
@@ -40,6 +64,7 @@ The script already listens for the OSC paths planned in the design document:
 It also sends basic feedback paths back to the PC backend:
 
 ```text
+/music/track
 /music/beat
 /music/bar
 /music/state

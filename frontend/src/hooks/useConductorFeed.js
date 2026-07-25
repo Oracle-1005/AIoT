@@ -6,7 +6,7 @@ const REST_POLL_INTERVAL_MS = 250
 const TRANSPORT_FETCH_TIMEOUT_MS = 1200
 const CAMERA_STREAM_ENV = import.meta.env.VITE_CAMERA_STREAM_URL || ''
 const CAMERA_FRAME_ENV = import.meta.env.VITE_CAMERA_FRAME_URL || ''
-const PLAY_ACTIONS = new Set(['start', 'resume', 'play', 'reset'])
+const PLAY_ACTIONS = new Set(['start', 'resume', 'play', 'reset', 'next', 'previous', 'prev'])
 const PAUSE_ACTIONS = new Set(['pause', 'stop', 'cutoff'])
 
 const gestureResponses = {
@@ -523,7 +523,7 @@ function createTransportOverride(action, currentMusic = {}, status = 'sending', 
 function applyTransportOverride(nextFrame, override) {
   if (!override || !nextFrame?.music) return nextFrame
 
-  const resetMusic = override.action === 'reset'
+  const resetMusic = ['reset', 'next', 'previous', 'prev'].includes(override.action)
 
   return {
     ...nextFrame,

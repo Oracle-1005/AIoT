@@ -25,6 +25,8 @@ import {
   Server,
   Settings,
   ShieldCheck,
+  SkipBack,
+  SkipForward,
   SlidersHorizontal,
   Sparkles,
   Upload,
@@ -913,11 +915,11 @@ function MusicControlCenter({ frame, onTransport }) {
     })
   }, [frame.music.playing, loopDuration, rawLoopElapsed])
 
-  const handleTransport = async () => {
+  const handleTransport = async (action = transportAction) => {
     if (!onTransport || transportPending) return
     setTransportPending(true)
     try {
-      await onTransport(transportAction)
+      await onTransport(action)
     } catch (error) {
       console.error(error)
     } finally {
@@ -945,16 +947,38 @@ function MusicControlCenter({ frame, onTransport }) {
             <p className="text-xs text-slate-400">Key: {frame.music.key} | Engine: {frame.music.engine}</p>
             {sonicPiDisplay.hint ? <p className="mt-1 text-[11px] text-gold/80">{sonicPiDisplay.hint}</p> : null}
           </div>
-          <button
-            type="button"
-            className="grid h-10 w-10 place-items-center rounded-md bg-gold text-slate-950 transition hover:bg-[#ffe08a] disabled:cursor-wait disabled:opacity-60"
-            aria-label={transportLabel}
-            title={transportLabel}
-            disabled={transportPending}
-            onClick={handleTransport}
-          >
-            <TransportIcon size={18} />
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              className="grid h-10 w-10 place-items-center rounded-md border border-white/10 bg-white/[0.055] text-slate-100 transition hover:border-cyan/35 hover:bg-cyan/10 disabled:cursor-wait disabled:opacity-60"
+              aria-label="Previous track"
+              title="Previous track"
+              disabled={transportPending}
+              onClick={() => handleTransport('previous')}
+            >
+              <SkipBack size={17} />
+            </button>
+            <button
+              type="button"
+              className="grid h-10 w-10 place-items-center rounded-md bg-gold text-slate-950 transition hover:bg-[#ffe08a] disabled:cursor-wait disabled:opacity-60"
+              aria-label={transportLabel}
+              title={transportLabel}
+              disabled={transportPending}
+              onClick={() => handleTransport()}
+            >
+              <TransportIcon size={18} />
+            </button>
+            <button
+              type="button"
+              className="grid h-10 w-10 place-items-center rounded-md border border-white/10 bg-white/[0.055] text-slate-100 transition hover:border-cyan/35 hover:bg-cyan/10 disabled:cursor-wait disabled:opacity-60"
+              aria-label="Next track"
+              title="Next track"
+              disabled={transportPending}
+              onClick={() => handleTransport('next')}
+            >
+              <SkipForward size={17} />
+            </button>
+          </div>
         </div>
         <div className="h-2 overflow-hidden rounded-full bg-white/10">
           <motion.div className="h-full bg-gradient-to-r from-cyan to-gold" animate={{ width: `${progressWidth}%` }} />
@@ -1848,14 +1872,22 @@ function ExperienceMode({ open, onClose, frame, onTransport }) {
                       {experienceMusicStatus}
                     </span>
                   </div>
-                  <div className="grid gap-2 sm:grid-cols-3">
+                  <div className="grid gap-2 sm:grid-cols-5">
                     <button type="button" className="primary-button py-2" disabled={transportPending} onClick={startGuestSession}>
                       <Sparkles size={16} />
                       Start Guest
                     </button>
+                    <button type="button" className="secondary-button py-2" disabled={transportPending} onClick={() => handleTransport('previous')}>
+                      <SkipBack size={16} />
+                      Prev
+                    </button>
                     <button type="button" className="secondary-button py-2" disabled={transportPending} onClick={pauseGuestMusic}>
                       <Pause size={16} />
                       Pause
+                    </button>
+                    <button type="button" className="secondary-button py-2" disabled={transportPending} onClick={() => handleTransport('next')}>
+                      <SkipForward size={16} />
+                      Next
                     </button>
                     <button type="button" className="secondary-button py-2" disabled={transportPending} onClick={resetGuestSession}>
                       <RefreshCw size={16} />
@@ -2420,7 +2452,16 @@ function PresentationMode({ open, onClose, frame, onTransport }) {
                 {presentationMusicStatus}
               </span>
             </div>
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid gap-2 sm:grid-cols-4">
+              <button
+                type="button"
+                className="secondary-button py-1.5"
+                disabled={transportPending}
+                onClick={() => handlePresentationTransport('previous')}
+              >
+                <SkipBack size={16} />
+                Prev
+              </button>
               <button
                 type="button"
                 className="primary-button py-1.5"
@@ -2429,6 +2470,15 @@ function PresentationMode({ open, onClose, frame, onTransport }) {
               >
                 <PresentationTransportIcon size={16} />
                 {presentationTransportLabel}
+              </button>
+              <button
+                type="button"
+                className="secondary-button py-1.5"
+                disabled={transportPending}
+                onClick={() => handlePresentationTransport('next')}
+              >
+                <SkipForward size={16} />
+                Next
               </button>
               <button
                 type="button"

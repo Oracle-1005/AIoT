@@ -101,6 +101,7 @@ class SonicPiOscAdapter:
         osc_dispatcher = dispatcher.Dispatcher()
         osc_dispatcher.map("/music/beat", self._handle_beat)
         osc_dispatcher.map("/music/bar", self._handle_bar)
+        osc_dispatcher.map("/music/track", self._handle_track)
         osc_dispatcher.map("/music/state", self._handle_state)
         osc_dispatcher.map("/music/ack", self._handle_ack)
         osc_dispatcher.map("/music/error", self._handle_error)
@@ -374,6 +375,28 @@ class SonicPiOscAdapter:
         live_state.apply_sonic_pi_bar(
             bar=bar,
             section=section,
+            received_at=received_at,
+        )
+        self._record_feedback(received_at)
+
+    def _handle_track(
+        self,
+        _address: str,
+        piece_id: Any,
+        title: Any,
+        key: Any,
+        total_bars: Any,
+        beats_per_bar: Any,
+        default_bpm: Any,
+    ) -> None:
+        received_at = time.time()
+        live_state.apply_sonic_pi_track(
+            piece_id=piece_id,
+            title=title,
+            key=key,
+            total_bars=total_bars,
+            beats_per_bar=beats_per_bar,
+            default_bpm=default_bpm,
             received_at=received_at,
         )
         self._record_feedback(received_at)
