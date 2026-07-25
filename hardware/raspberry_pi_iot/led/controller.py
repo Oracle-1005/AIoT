@@ -26,8 +26,8 @@ map onto base patterns —
 - 停止/Stop        → red flash → exponential fade to black (one-shot)
 - 强拍/Downbeat    → white flash travelling top → bottom (0.8s cycle)
 - 弱拍/Upbeat      → soft gold ripple bottom → top (1.2s cycle)
-- 渐强/Crescendo   → blue→cyan→white, dim→bright (3s cycle)
-- 渐弱/Diminuendo  → white→cyan→blue, bright→dim (3s cycle)
+- 渐强/Crescendo   → 蓝紫色流星雨左下→右上，3s 渐亮
+- 渐弱/Diminuendo  → 金黄色流星雨左下→右上，3s 渐暗
 - 左手提示/Left     → left panel blue flash, right dim
 - 右手提示/Right    → right panel blue flash, left dim
 """
@@ -618,45 +618,74 @@ class LedController:
                 for col in range(self._cols):
                     self._set_xy(panel, row, col, self._color(255, 200, 50, factor))
 
-    def _render_crescendo(self, elapsed: float) -> None:
-        """渐强: blue→cyan→white, dim→bright, 3s cycle.
+    # 流星雨共享参数（crescendo/diminuendo 共用）：双板视为 8×64 画布，
+    # 轨迹从左下（panel0 row7 col0）飞向右上（panel1 row0 col31）。
+    _METEOR_SPAWN_S = 0.35    # 生成间隔（约 5 颗同屏）
+    _METEOR_TRAVEL_S = 1.4    # 单颗全程飞行时间
+    _METEOR_TAIL_S = 0.36     # 尾迹时长（12 个采样 × 30ms）
+    _METEOR_TAIL_STEP_S = 0.03
+    _METEOR_TAIL_SAMPLES = 12
 
-        Vertical intensity wave reinforces the swelling feel.
+    def _render_meteor_shower(self, elapsed: float, rgb: tuple, master: float) -> None:
+        """Meteor shower bottom-left → top-right across both panels.
+
+        Fully deterministic in `elapsed`: meteors are index-spawned with
+        per-index pseudo-variation (no RNG → no frame-to-frame flicker).
+        `master` (0-1) scales the whole shower (crescendo ramps up,
+        diminuendo ramps down).
         """
-        cycle = (elapsed % 3.0) / 3.0
-        hue = 240 - cycle * 60        # Blue → cyan
-        saturation = 1.0 - cycle * 0.7  # → near-white
-        value = 0.15 + cycle * 0.85   # Dim → bright
-        r, g, b = self._hsv_to_rgb(hue, saturation, value)
+        width = self._cols * self._panel_count
+        life = self._METEOR_TRAVEL_S + self._METEOR_TAIL_S
+        buf = [[0.0] * width for _ in range(self._rows)]
 
-        wave_phase = elapsed * 3.0
-        for panel in range(self._panel_count):
-            for row in range(self._rows):
-                row_phase = row / self._rows
-                wave = (math.sin(wave_phase + row_phase * 2 * math.pi) + 1) / 2
-                factor = 0.5 + 0.5 * wave
-                for col in range(self._cols):
-                    self._set_xy(panel, row, col, self._color(r, g, b, factor))
+        # 跳过早已消亡的流星（elapsed 无界增长时保持 O(同屏数量)）
+        i = max(0, int((elapsed - life) / self._METEOR_SPAWN_S))
+        while True:
+            age = elapsed - i * self._METEOR_SPAWN_S
+            if age < 0:
+                break
+            if age <= life:
+                # 索引哈希出确定性的速度/行偏移，形成"阵雨"而非单线
+                speed = 1.0 + 0.15 * (((i * 37) % 5) - 2) / 2.0   # 0.85–1.15
+                row_bias = (((i * 53) % 5) - 2) * 0.5             # -1.0–1.0
+                head = age / self._METEOR_TRAVEL_S * speed        # 进度 0→1+
+                for k in range(self._METEOR_TAIL_SAMPLES + 1):
+                    tk = head - k * (self._METEOR_TAIL_STEP_S / self._METEOR_TRAVEL_S) * speed
+                    if tk < 0:
+                        break
+                    if tk <= 1.0:
+                        fx = tk * (width - 1)
+                        fy = (self._rows - 1) * (1.0 - tk) + row_bias
+                        x, y = int(round(fx)), int(round(fy))
+                        if 0 <= x < width and 0 <= y < self._rows:
+                            b = (1.0 - k / self._METEOR_TAIL_SAMPLES) ** 2
+                            if b > buf[y][x]:
+                                buf[y][x] = b
+            i += 1
+
+        r, g, b = rgb
+        for row in range(self._rows):
+            for gx in range(width):
+                intensity = buf[row][gx]
+                if intensity <= 0:
+                    continue
+                # 亮核掺白，模拟流星头部的炽热感
+                hot = max(0.0, (intensity - 0.72) / 0.28) * 0.55
+                cr = r + (255 - r) * hot
+                cg = g + (255 - g) * hot
+                cb = b + (255 - b) * hot
+                panel, col = divmod(gx, self._cols)
+                self._set_xy(panel, row, col, self._color(cr, cg, cb, intensity * master))
+
+    def _render_crescendo(self, elapsed: float) -> None:
+        """渐强: 蓝紫色流星雨左下→右上，3s 内整体渐亮。"""
+        master = 0.30 + 0.70 * min(elapsed / 3.0, 1.0)
+        self._render_meteor_shower(elapsed, (110, 50, 255), master)
 
     def _render_diminuendo(self, elapsed: float) -> None:
-        """渐弱: white→cyan→blue, bright→dim, 3s cycle.
-
-        Mirror of crescendo — endpoints match for smooth transitions.
-        """
-        cycle = (elapsed % 3.0) / 3.0
-        hue = 180 + cycle * 60          # Cyan → blue
-        saturation = 0.3 + cycle * 0.7  # Near-white → saturated
-        value = 1.0 - cycle * 0.85      # Bright → dim
-        r, g, b = self._hsv_to_rgb(hue, saturation, value)
-
-        wave_phase = elapsed * 3.0
-        for panel in range(self._panel_count):
-            for row in range(self._rows):
-                row_phase = row / self._rows
-                wave = (math.sin(wave_phase + row_phase * 2 * math.pi) + 1) / 2
-                factor = 0.5 + 0.5 * wave
-                for col in range(self._cols):
-                    self._set_xy(panel, row, col, self._color(r, g, b, factor))
+        """渐弱: 金黄色流星雨左下→右上，3s 内整体渐暗。"""
+        master = 1.0 - 0.75 * min(elapsed / 3.0, 1.0)
+        self._render_meteor_shower(elapsed, (255, 190, 40), master)
 
     def _render_left(self, elapsed: float) -> None:
         """左手提示: left panel blue flash, right panel dim. 1s cycle."""
