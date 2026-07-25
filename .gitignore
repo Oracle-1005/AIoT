@@ -57,5 +57,5 @@ backend/*.log
 session-summary.md
 
 # local training artifacts (labels / model reports stay local)
-data/training_sessions*.jsonl
+data/training_sessions*
 model/models/*.report.json
