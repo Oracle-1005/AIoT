@@ -15,13 +15,17 @@ from sonic_pi import sonic_pi_adapter
 from state import live_state
 
 # ── 预测自动联动 LED（默认关；AIOT_LED_AUTO_* 环境变量控制）────────────────
-# 推理步长 3 帧 ≈ 每秒最多 ~10 次预测，必须冷却防灯板频闪；只有真正发出去
-# 才占用冷却（Pi 离线时 send 返回 False，下个预测周期自动重试）。
+# 推理步长 3 帧 ≈ 每秒最多 ~10 次预测。触发节流分两层：
+#   1) 同一手势重复触发：COOLDOWN_S 内抑制（防同一动作被连续预测刷屏）；
+#   2) 不同手势：PREEMPT_MIN_S 后即可立即打断前一个灯效（新动作优先，
+#      防频闪下限）。Pi 侧 led_consumer 收到新命令即抢占当前灯效。
+# 只有真正发出去才占用冷却（Pi 离线时 send 返回 False，下个预测周期自动重试）。
 LED_AUTO_ENABLED = os.getenv("AIOT_LED_AUTO_ENABLED", "0").lower() in {
     "1", "true", "yes", "on",
 }
 LED_AUTO_MIN_CONFIDENCE = float(os.getenv("AIOT_LED_AUTO_MIN_CONFIDENCE", "0.6"))
-LED_AUTO_COOLDOWN_S = float(os.getenv("AIOT_LED_AUTO_COOLDOWN_S", "2.0"))
+LED_AUTO_COOLDOWN_S = float(os.getenv("AIOT_LED_AUTO_COOLDOWN_S", "1.0"))
+LED_AUTO_PREEMPT_MIN_S = float(os.getenv("AIOT_LED_AUTO_PREEMPT_MIN_S", "0.5"))
 LED_AUTO_BRIGHTNESS = max(0.0, min(1.0, float(os.getenv("AIOT_LED_AUTO_BRIGHTNESS", "0.5"))))
 LED_AUTO_DURATION_MS = max(0, int(os.getenv("AIOT_LED_AUTO_DURATION_MS", "3000")))
 LED_AUTO_SKIP_GESTURES = frozenset(
@@ -61,8 +65,12 @@ def _maybe_send_led(result: dict[str, Any]) -> bool:
         return False
     now = time.time()
     with _led_auto_lock:
-        if now - _led_auto_last["at"] < LED_AUTO_COOLDOWN_S:
-            return False
+        dt = now - _led_auto_last["at"]
+        if gesture == _led_auto_last["gesture"]:
+            if dt < LED_AUTO_COOLDOWN_S:
+                return False  # 同一手势重复触发：冷却防刷屏
+        elif dt < LED_AUTO_PREEMPT_MIN_S:
+            return False  # 不同手势：允许打断，但守住防频闪下限
         sent = send_pi_command("led_command", {
             "effect": gesture,
             "brightness": LED_AUTO_BRIGHTNESS,

@@ -52,6 +52,7 @@ def main() -> None:
     original_enabled = integration.LED_AUTO_ENABLED
     original_min_conf = integration.LED_AUTO_MIN_CONFIDENCE
     original_cooldown = integration.LED_AUTO_COOLDOWN_S
+    original_preempt = integration.LED_AUTO_PREEMPT_MIN_S
     try:
         # 1. 默认关闭：任何预测都不发
         integration.LED_AUTO_ENABLED = False
@@ -64,7 +65,8 @@ def main() -> None:
 
         integration.LED_AUTO_ENABLED = True
         integration.LED_AUTO_MIN_CONFIDENCE = 0.6
-        integration.LED_AUTO_COOLDOWN_S = 2.0
+        integration.LED_AUTO_COOLDOWN_S = 1.0
+        integration.LED_AUTO_PREEMPT_MIN_S = 0.5
 
         # 2. 达标预测 → 发出契约格式 led_command
         calls, fake = _capture()
@@ -96,18 +98,17 @@ def main() -> None:
         assert calls == []
         print("PASS 4 低置信度跳过")
 
-        # 5. 冷却窗口内第二次被抑制；冷却过后放行
+        # 5. 同一手势：冷却窗口内重复被抑制；冷却过后放行
         calls, fake = _capture()
         integration.send_pi_command = fake
         _reset_auto()
         assert integration._maybe_send_led(_result("downbeat", 0.9)) is True
-        assert integration._maybe_send_led(_result("upbeat", 0.9)) is False
+        assert integration._maybe_send_led(_result("downbeat", 0.9)) is False
         assert len(calls) == 1
         integration._led_auto_last["at"] -= integration.LED_AUTO_COOLDOWN_S + 1
-        assert integration._maybe_send_led(_result("upbeat", 0.9)) is True
+        assert integration._maybe_send_led(_result("downbeat", 0.9)) is True
         assert len(calls) == 2
-        assert calls[1][1]["effect"] == "upbeat"
-        print("PASS 5 冷却抑制 + 冷却结束放行")
+        print("PASS 5 同手势冷却抑制 + 冷却结束放行")
 
         # 6. Pi 离线（send=False）不占用冷却，下个周期自动重试
         calls, fake = _capture_offline()
@@ -145,11 +146,45 @@ def main() -> None:
         assert integration._maybe_send_led(_result("downbeat", 0.9) | {"confidence": "bad"}) is False
         assert calls == []
         print("PASS 8 畸形输入静默跳过")
+
+        # 9. 不同手势：PREEMPT_MIN 后立即打断（不受同手势冷却约束）
+        calls, fake = _capture()
+        integration.send_pi_command = fake
+        _reset_auto()
+        assert integration._maybe_send_led(_result("downbeat", 0.9)) is True
+        # 0.6s 后（> PREEMPT_MIN 0.5，< COOLDOWN 1.0）换手势 → 立即抢占
+        integration._led_auto_last["at"] = time.time() - 0.6
+        assert integration._maybe_send_led(_result("upbeat", 0.9)) is True
+        assert len(calls) == 2
+        assert calls[1][1]["effect"] == "upbeat"
+        print("PASS 9 不同手势冷却期内立即打断")
+
+        # 10. 不同手势：PREEMPT_MIN 内仍被抑制（防频闪下限）
+        calls, fake = _capture()
+        integration.send_pi_command = fake
+        _reset_auto()
+        assert integration._maybe_send_led(_result("downbeat", 0.9)) is True
+        integration._led_auto_last["at"] = time.time() - 0.2  # < PREEMPT_MIN
+        assert integration._maybe_send_led(_result("upbeat", 0.9)) is False
+        assert len(calls) == 1
+        print("PASS 10 打断下限内换手势仍抑制")
+
+        # 11. 打断后新手势占用自己的冷却：立刻重复新手势被抑制
+        calls, fake = _capture()
+        integration.send_pi_command = fake
+        _reset_auto()
+        assert integration._maybe_send_led(_result("downbeat", 0.9)) is True
+        integration._led_auto_last["at"] = time.time() - 0.6
+        assert integration._maybe_send_led(_result("upbeat", 0.9)) is True
+        assert integration._maybe_send_led(_result("upbeat", 0.9)) is False  # 同手势冷却
+        assert len(calls) == 2
+        print("PASS 11 打断后同手势冷却独立生效")
     finally:
         integration.send_pi_command = original_send
         integration.LED_AUTO_ENABLED = original_enabled
         integration.LED_AUTO_MIN_CONFIDENCE = original_min_conf
         integration.LED_AUTO_COOLDOWN_S = original_cooldown
+        integration.LED_AUTO_PREEMPT_MIN_S = original_preempt
         _reset_auto()
 
     print("\nAll auto-LED tests passed.")
