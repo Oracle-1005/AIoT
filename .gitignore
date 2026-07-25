@@ -59,3 +59,6 @@ session-summary.md
 # local training artifacts (labels / model reports stay local)
 data/training_sessions*
 model/models/*.report.json
+
+# archived training artifacts (local only)
+data/archive/
