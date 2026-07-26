@@ -37,8 +37,15 @@ SONIC_PI_TRACKS = {
         "total_bars": 93,
         "beats_per_bar": 4,
     },
+    "world_is_mine": {
+        "title": "World is Mine (Hatsune Miku)",
+        "key": "Unknown",
+        "bpm": 132,
+        "total_bars": 140,
+        "beats_per_bar": 4,
+    },
 }
-SONIC_PI_TRACK_ORDER = ("shape_of_you",)
+SONIC_PI_TRACK_ORDER = ("shape_of_you", "world_is_mine")
 SONIC_PI_DEFAULT_TRACK_ID = SONIC_PI_TRACK_ORDER[0]
 SONIC_PI_TRACK_TITLE = SONIC_PI_TRACKS[SONIC_PI_DEFAULT_TRACK_ID]["title"]
 SONIC_PI_TRACK_KEY = SONIC_PI_TRACKS[SONIC_PI_DEFAULT_TRACK_ID]["key"]

@@ -265,8 +265,8 @@ def main() -> None:
     assert next_track.status_code == 200
     next_payload = next_track.get_json()
     assert next_payload["sonic_pi"]["last_sent_command"]["args"][1] == "next"
-    assert next_payload["music"]["title"] == "Shape of You (Ed Sheeran)"
-    assert next_payload["music"]["track_index"] == 0
+    assert next_payload["music"]["title"] == "World is Mine (Hatsune Miku)"
+    assert next_payload["music"]["track_index"] == 1
 
     previous_track = client.post(
         "/api/sonic-pi/transport",

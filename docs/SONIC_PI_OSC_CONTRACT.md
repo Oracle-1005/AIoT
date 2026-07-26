@@ -107,8 +107,9 @@ a muted layer stays muted across subsequent state sends.
 
 ### `/conductor/style`
 
-Style preset switch (Shape of You: `acoustic_pop` / `tropical_house` / `festival_edm`,
-applied per-note so the switch is audible immediately).
+Style preset switch (Shape of You: `acoustic_pop` / `tropical_house` / `festival_edm`;
+World is Mine: `piano_pop` / `vocaloid_electro` / `rock_band` — all applied
+per-note so the switch is audible immediately).
 
 ```text
 /conductor/style command_id style
@@ -129,7 +130,7 @@ The provided Sonic Pi script sends these feedback paths.
 | `/music/bar` | `bar, section` | Section and bar counter |
 | `/music/state` | `playing, bpm, section, energy` | Actual music execution state |
 | `/music/layers` | `melody, harmony, bass, drums` | Layer gate states (0/1 each), every 0.5 s and after each `/conductor/layer` — rb is authoritative |
-| `/music/style` | `track_id, style` | Current style preset (Shape of You), every 0.5 s and after each `/conductor/style` — rb is authoritative |
+| `/music/style` | `track_id, style` | Current style preset (both roadshow scripts), every 0.5 s and after each `/conductor/style` — rb is authoritative |
 | `/music/ack` | `command_id, result` | Command acknowledgement |
 
 The backend should use `/music/state` as the most reliable source for the final
@@ -184,17 +185,20 @@ Optional fields after the OSC adapter is added:
 
 ## Roadshow Script
 
-Primary script (2026-07-26: From the New World was dropped in favour of this):
+Primary scripts (2026-07-26: all tracks now get layer conducting + style
+switching; From the New World was dropped in favour of these):
 
 ```text
 music/sonic_pi/aiot_conductor_shape_of_you.rb
+music/sonic_pi/aiot_conductor_world_is_mine.rb
 ```
 
-A MIDI-transcribed Shape of You (96 BPM, 374-beat loop, ~187 KB) with the OSC
-contract built in: four layer-gated sections (`melody` = lead, `harmony` =
+Two MIDI transcriptions with the OSC contract built in. Shape of You: 96 BPM,
+374-beat loop, styles `acoustic_pop` / `tropical_house` / `festival_edm`.
+World is Mine: 132 BPM, 560-beat loop, styles `piano_pop` / `vocaloid_electro`
+/ `rock_band`. Both have four layer-gated sections (`melody` = lead, `harmony` =
 hook/chords, `bass`, `rhythm` = percussion — the backend's `drums` name maps to
-it) and three style presets (`acoustic_pop`, `tropical_house`, `festival_edm`)
-switched via `/conductor/style` with per-note effect.
+it, and both scripts parse the backend's float `0.0`/`1.0` enabled values).
 
 **Do NOT paste the set itself into a Sonic Pi buffer.** Sonic Pi's Run button
 ships the buffer to the engine as a single OSC packet, and the engine reads at
@@ -211,21 +215,10 @@ music/sonic_pi/aiot_loader.rb
 The loader is one `run_file` call that reads the set from disk — no size limit
 crosses the wire, and after editing the set you just press Run again (no
 re-paste). rb source files must stay **pure ASCII** (they are read from disk
-under the system encoding).
+under the system encoding). The loader currently points at the Shape of You
+set; edit its last line to run World is Mine instead (a dual-track conductor
+wrapper is planned).
 
-Legacy multi-piece set (Ode to Joy / Canon in D / From the New World):
-
-```text
-music/sonic_pi/aiot_conductor_roadshow_set.rb
-```
-
-Single-piece scripts:
-
-```text
-music/sonic_pi/aiot_conductor_ode_to_joy.rb
-music/sonic_pi/aiot_conductor_canon_in_d.rb
-```
-
-The single-piece scripts are small enough for direct paste; all scripts can
-play standalone before backend OSC integration is ready, and they keep the same
-OSC control paths.
+Legacy scripts (Ode to Joy / Canon in D / From the New World single-piece and
+roadshow sets) were retired from the working tree on 2026-07-26; they remain
+in git history (last present at commit `7488cb3`).

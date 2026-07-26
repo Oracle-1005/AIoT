@@ -100,13 +100,16 @@ def main() -> None:
     state.live_state.set_music_layer("bass", True)
     print("PASS 5 /api/music/layers 端点 200/400/503")
 
-    # 6. shape_of_you 是默认曲目且元数据与 rb 一致（374 拍循环 / 4 = 93.5 → 93 小节）
-    assert state.SONIC_PI_TRACK_ORDER == ("shape_of_you",)
+    # 6. 双曲目元数据：shape_of_you 默认 + world_is_mine（560 拍 / 4 = 140 小节）
+    assert state.SONIC_PI_TRACK_ORDER == ("shape_of_you", "world_is_mine")
     track = state.SONIC_PI_TRACKS["shape_of_you"]
     assert track["key"] == "C# Minor" and track["bpm"] == 96
     assert track["total_bars"] == 93 and track["beats_per_bar"] == 4
     assert state.SONIC_PI_DEFAULT_TRACK_ID == "shape_of_you"
-    print("PASS 6 shape_of_you 默认曲目元数据")
+    track2 = state.SONIC_PI_TRACKS["world_is_mine"]
+    assert track2["bpm"] == 132 and track2["total_bars"] == 140
+    assert track2["beats_per_bar"] == 4
+    print("PASS 6 双曲目元数据（shape_of_you 默认 + world_is_mine）")
 
     # 7. send_style OSC 报文 + _handle_style 风格反馈同步
     sent3: list[tuple] = []
