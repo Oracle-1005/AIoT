@@ -132,10 +132,11 @@ class LiveState:
         with self._lock:
             return copy.deepcopy(self.current_prediction)
 
-    def set_prediction(self, result: dict[str, Any]) -> None:
+    def set_prediction(self, result: dict[str, Any], apply_music: bool = True) -> None:
         with self._lock:
             self.current_prediction = copy.deepcopy(result)
-            self._apply_music_effect(str(result["gesture"]))
+            if apply_music:
+                self._apply_music_effect(str(result["gesture"]))
 
     def get_sensors(self) -> dict[str, Any]:
         with self._lock:

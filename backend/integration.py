@@ -36,6 +36,34 @@ LED_AUTO_SKIP_GESTURES = frozenset(
 _led_auto_lock = threading.Lock()
 _led_auto_last = {"at": 0.0, "gesture": None}
 
+# ── 预测自动联动音乐（OSC → Sonic Pi，默认开；AIOT_MUSIC_AUTO_* 环境变量）────
+# 与 LED 双层节流同构，解决"保持一个动作时音乐调整/accent 连发"的问题：
+#   事件类手势（start/stop/downbeat/upbeat/cue）：边缘语义——同手势
+#       EVENT_COOLDOWN_S 冷却、异手势 PREEMPT_MIN_S 后可抢占（同 LED）；
+#   连续类手势（渐强/渐弱，CONT_GESTURES）：斜坡语义——同手势每
+#       CONT_RATE_S 才应用一次 ±0.05（全量程约 5 s），异手势同受抢占下限。
+# 未通过节流的预测仍更新 current_prediction（Dashboard 可见），但不应用
+# 音乐副作用、不推 OSC。
+MUSIC_AUTO_ENABLED = os.getenv("AIOT_MUSIC_AUTO_ENABLED", "1").lower() in {
+    "1", "true", "yes", "on",
+}
+MUSIC_AUTO_MIN_CONFIDENCE = float(os.getenv("AIOT_MUSIC_AUTO_MIN_CONFIDENCE", "0.5"))
+MUSIC_AUTO_EVENT_COOLDOWN_S = float(os.getenv("AIOT_MUSIC_AUTO_EVENT_COOLDOWN_S", "1.0"))
+MUSIC_AUTO_PREEMPT_MIN_S = float(os.getenv("AIOT_MUSIC_AUTO_PREEMPT_MIN_S", "0.5"))
+MUSIC_AUTO_CONT_RATE_S = float(os.getenv("AIOT_MUSIC_AUTO_CONT_RATE_S", "0.5"))
+MUSIC_AUTO_CONT_GESTURES = frozenset(
+    g.strip()
+    for g in os.getenv("AIOT_MUSIC_AUTO_CONT_GESTURES", "crescendo,decrescendo").split(",")
+    if g.strip()
+)
+MUSIC_AUTO_SKIP_GESTURES = frozenset(
+    g.strip()
+    for g in os.getenv("AIOT_MUSIC_AUTO_SKIP_GESTURES", "idle").split(",")
+    if g.strip()
+)
+_music_auto_lock = threading.Lock()
+_music_auto_last = {"at": 0.0, "gesture": None}
+
 
 def run_prediction(window_data: Any) -> dict[str, Any]:
     result = normalize_prediction(model_service.predict(window_data))
@@ -45,9 +73,44 @@ def run_prediction(window_data: Any) -> dict[str, Any]:
 
 def accept_prediction(result: dict[str, Any]) -> None:
     insert_prediction(result, latency_ms=result.get("latency_ms"))
-    live_state.set_prediction(result)
-    sonic_pi_adapter.publish_prediction(result, live_state.get_music())
+    if not _maybe_publish_music(result):
+        # 未通过音乐节流：仍更新 Dashboard 预测，但不应用音乐副作用
+        live_state.set_prediction(result, apply_music=False)
     _maybe_send_led(result)
+
+
+def _maybe_publish_music(result: dict[str, Any]) -> bool:
+    """预测达标且通过节流时：应用音乐副作用并推 OSC；否则静默跳过。"""
+    if not MUSIC_AUTO_ENABLED:
+        return False
+    gesture = result.get("gesture")
+    if not gesture or gesture in MUSIC_AUTO_SKIP_GESTURES:
+        return False
+    try:
+        confidence = float(result.get("confidence") or 0.0)
+    except (TypeError, ValueError):
+        return False
+    if confidence < MUSIC_AUTO_MIN_CONFIDENCE:
+        return False
+    now = time.time()
+    with _music_auto_lock:
+        dt = now - _music_auto_last["at"]
+        if gesture == _music_auto_last["gesture"]:
+            # 同手势：事件类走冷却，连续类走限速斜坡
+            interval = (
+                MUSIC_AUTO_CONT_RATE_S
+                if gesture in MUSIC_AUTO_CONT_GESTURES
+                else MUSIC_AUTO_EVENT_COOLDOWN_S
+            )
+            if dt < interval:
+                return False
+        elif dt < MUSIC_AUTO_PREEMPT_MIN_S:
+            return False  # 不同手势：守住防频闪下限
+        live_state.set_prediction(result, apply_music=True)
+        sonic_pi_adapter.publish_prediction(result, live_state.get_music())
+        _music_auto_last["at"] = now
+        _music_auto_last["gesture"] = gesture
+    return True
 
 
 def _maybe_send_led(result: dict[str, Any]) -> bool:
