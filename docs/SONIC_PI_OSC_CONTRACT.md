@@ -49,7 +49,7 @@ Transport controls playback.
 Bulk state update for continuous parameters.
 
 ```text
-/conductor/state command_id bpm master_amp drum_amp drum_density bass_amp harmony_amp melody_amp energy reverb_mix cutoff
+/conductor/state command_id bpm master_amp drum_amp drum_density bass_amp harmony_amp melody_amp energy reverb_mix cutoff [style]
 ```
 
 | Field | Range | Notes |
@@ -64,6 +64,7 @@ Bulk state update for continuous parameters.
 | `energy` | `0.0..1.0` | Overall performance intensity |
 | `reverb_mix` | `0.0..0.9` | Reverb mix |
 | `cutoff` | `55..130` | Synth filter cutoff |
+| `style` | `piano/strings/brass` | **Optional 12th arg (appended, additive).** Melody timbre; cycled by the micro:bit right-A `style_switch` button. Old receivers ignoring extra args keep working (Ruby parallel assignment discards it). |
 
 ### `/conductor/bpm`
 

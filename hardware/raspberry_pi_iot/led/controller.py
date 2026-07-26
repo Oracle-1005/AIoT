@@ -342,6 +342,12 @@ class LedController:
             logger.info("LED pattern: %s → %s", self._current_pattern, pattern)
             self._current_pattern = pattern
             self._pattern_start = time.monotonic()
+            # 立即清掉手势区残影：灯带是持久帧缓冲，上一图案最后
+            # 一帧不会自动熄灭。只写缓冲不调 show()（show 可能从
+            # MQTT 回调线程与渲染循环竞争），下一帧 ≤20ms 内自然覆盖。
+            if self._connected and hasattr(self, "_strip"):
+                for i in range(self._gesture_span()):
+                    self._strip.setPixelColor(i, 0)
         return True
 
     def show_gesture(self, gesture: str, confidence: float = 1.0) -> bool:
@@ -755,17 +761,21 @@ class LedController:
             i += 1
 
         r, g, b = rgb
+        black = self._color(0, 0, 0)
         for row in range(self._rows):
             for gx in range(width):
                 intensity = buf[row][gx]
+                panel, col = divmod(gx, self._cols)
                 if intensity <= 0:
+                    # 必须每帧全画布覆写：灯带是持久帧缓冲，跳过的像素
+                    # 会永远残留（旧图案残影/流星尾巴拖住不消）
+                    self._set_xy(panel, row, col, black)
                     continue
                 # 亮核掺白，模拟流星头部的炽热感
                 hot = max(0.0, (intensity - 0.72) / 0.28) * 0.55
                 cr = r + (255 - r) * hot
                 cg = g + (255 - g) * hot
                 cb = b + (255 - b) * hot
-                panel, col = divmod(gx, self._cols)
                 self._set_xy(panel, row, col, self._color(cr, cg, cb, intensity * master))
 
     def _render_crescendo(self, elapsed: float) -> None:

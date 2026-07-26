@@ -260,6 +260,12 @@ class LiveState:
                     }:
                         self.music_state["playing"] = False
 
+                    elif gesture == "style_switch":
+                        # 右手 A 短按：复用预测路径的风格循环
+                        # （piano → strings → brass），下次 /conductor/state
+                        # 会把新 style 带给 Sonic Pi
+                        self._apply_music_effect(gesture)
+
             if isinstance(music_control, dict):
                 estimated_bpm = music_control.get("estimated_bpm")
                 if estimated_bpm is not None:

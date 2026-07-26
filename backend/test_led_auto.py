@@ -179,6 +179,21 @@ def main() -> None:
         assert integration._maybe_send_led(_result("upbeat", 0.9)) is False  # 同手势冷却
         assert len(calls) == 2
         print("PASS 11 打断后同手势冷却独立生效")
+
+        # 12. per-gesture 门槛：gesture_start 单独抬高，其他手势不受影响
+        original_map = integration.LED_AUTO_GESTURE_MIN
+        integration.LED_AUTO_GESTURE_MIN = {"gesture_start": 0.75}
+        try:
+            calls, fake = _capture()
+            integration.send_pi_command = fake
+            _reset_auto()
+            assert integration._maybe_send_led(_result("gesture_start", 0.7)) is False
+            assert integration._maybe_send_led(_result("gesture_start", 0.8)) is True
+            _reset_auto()
+            assert integration._maybe_send_led(_result("downbeat", 0.65)) is True
+        finally:
+            integration.LED_AUTO_GESTURE_MIN = original_map
+        print("PASS 12 gesture_start 单独置信度门槛")
     finally:
         integration.send_pi_command = original_send
         integration.LED_AUTO_ENABLED = original_enabled

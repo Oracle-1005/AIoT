@@ -211,11 +211,69 @@ def test_legacy_mode() -> None:
           status["music_panel_enabled"] is False and status["music"]["playing"] is True)
 
 
+# ── 4. Pattern switch clears leftover pixels (interrupt bug) ──────────────
+
+def test_pattern_switch_clears() -> None:
+    print("\n[4] Pattern switch clears stale pixels")
+    SENTINEL = 0x123456
+    ctl, strip = make_controller(music_panel=True)
+
+    # 4a. set_pattern immediately zeroes the gesture region (the previous
+    # pattern's last frame must not bleed into the new one), but leaves
+    # the music panel alone (the spectrum renderer owns it).
+    strip.buf = [SENTINEL] * 512
+    ctl.set_pattern("crescendo")
+    check("switch: gesture span zeroed at once",
+          all(v == 0 for v in strip.buf[:256]))
+    check("switch: music panel left to spectrum renderer",
+          all(v == SENTINEL for v in strip.buf[256:]))
+
+    # 4b. Switching INTO the meteor renderer must fully overwrite the
+    # gesture canvas on the first frame (this was the root cause: dark
+    # meteor pixels were skipped, freezing the old pattern).
+    strip.buf = [SENTINEL] * 512
+    ctl.set_pattern("crescendo")
+    ctl._pattern_start -= 0.7  # meteor 0 mid-flight
+    strip.buf = [SENTINEL] * 512  # re-dirty AFTER the set_pattern clear
+    ctl.update()
+    check("meteor: no stale pixels anywhere on gesture panel",
+          all(v != SENTINEL for v in strip.buf[:256]))
+    check("meteor: some pixels lit mid-flight",
+          panel_lit(strip.buf, 0) > 0)
+
+    # 4c. Meteor tails actually expire: with spawning suppressed, a dead
+    # meteor's trail must be written black (not left at tail brightness).
+    ctl2, strip2 = make_controller(music_panel=True)
+    original_spawn = ctl2._METEOR_SPAWN_S
+    try:
+        ctl2._METEOR_SPAWN_S = 1000.0  # only meteor 0 ever exists
+        ctl2.set_pattern("crescendo")
+        ctl2._pattern_start -= 0.7   # meteor 0 mid-flight
+        ctl2.update()
+        lit = {i for i, v in enumerate(strip2.buf[:256]) if v != 0}
+        check("meteor: trail lit while alive", len(lit) > 0, f"lit={len(lit)}")
+        ctl2._pattern_start -= 2.0   # meteor 0 now dead (age > travel+tail)
+        ctl2.update()
+        still_lit = [i for i in lit if strip2.buf[i] != 0]
+        check("meteor: dead trail written black", still_lit == [],
+              f"stuck at {still_lit[:8]}")
+    finally:
+        ctl2._METEOR_SPAWN_S = original_spawn
+
+    # 4d. Legacy mode: clear covers both panels
+    ctl3, strip3 = make_controller(music_panel=False)
+    strip3.buf = [SENTINEL] * 512
+    ctl3.set_pattern("downbeat")
+    check("legacy: whole strip zeroed on switch",
+          all(v == 0 for v in strip3.buf))
+
+
 def main() -> int:
     test_gesture_confinement()
     test_music_spectrum()
     test_kick_stacking()
     test_legacy_mode()
+    test_pattern_switch_clears()
 
     print(f"\n{'=' * 50}\n{_passed} passed, {_failed} failed")
     return 1 if _failed else 0

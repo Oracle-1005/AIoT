@@ -20,10 +20,29 @@ from state import live_state
 #   2) 不同手势：PREEMPT_MIN_S 后即可立即打断前一个灯效（新动作优先，
 #      防频闪下限）。Pi 侧 led_consumer 收到新命令即抢占当前灯效。
 # 只有真正发出去才占用冷却（Pi 离线时 send 返回 False，下个预测周期自动重试）。
+# GESTURE_MIN：按手势单独提高置信度门槛（"gesture:0.8,other:0.7"），
+# 右拳 gesture_start 易误触发，默认单独抬到 0.75。
+def _parse_gesture_min_map(raw: str) -> dict[str, float]:
+    """解析 "gesture:0.8,other:0.7" 为 {手势: 置信度门槛}（钳到 0..1）。"""
+    overrides: dict[str, float] = {}
+    for item in raw.split(","):
+        name, sep, value = item.partition(":")
+        if not sep or not name.strip():
+            continue
+        try:
+            overrides[name.strip()] = max(0.0, min(1.0, float(value)))
+        except ValueError:
+            continue
+    return overrides
+
+
 LED_AUTO_ENABLED = os.getenv("AIOT_LED_AUTO_ENABLED", "0").lower() in {
     "1", "true", "yes", "on",
 }
 LED_AUTO_MIN_CONFIDENCE = float(os.getenv("AIOT_LED_AUTO_MIN_CONFIDENCE", "0.6"))
+LED_AUTO_GESTURE_MIN = _parse_gesture_min_map(
+    os.getenv("AIOT_LED_AUTO_GESTURE_MIN", "gesture_start:0.75")
+)
 LED_AUTO_COOLDOWN_S = float(os.getenv("AIOT_LED_AUTO_COOLDOWN_S", "1.0"))
 LED_AUTO_PREEMPT_MIN_S = float(os.getenv("AIOT_LED_AUTO_PREEMPT_MIN_S", "0.5"))
 LED_AUTO_BRIGHTNESS = max(0.0, min(1.0, float(os.getenv("AIOT_LED_AUTO_BRIGHTNESS", "0.5"))))
@@ -48,6 +67,9 @@ MUSIC_AUTO_ENABLED = os.getenv("AIOT_MUSIC_AUTO_ENABLED", "1").lower() in {
     "1", "true", "yes", "on",
 }
 MUSIC_AUTO_MIN_CONFIDENCE = float(os.getenv("AIOT_MUSIC_AUTO_MIN_CONFIDENCE", "0.5"))
+MUSIC_AUTO_GESTURE_MIN = _parse_gesture_min_map(
+    os.getenv("AIOT_MUSIC_AUTO_GESTURE_MIN", "gesture_start:0.8")
+)
 MUSIC_AUTO_EVENT_COOLDOWN_S = float(os.getenv("AIOT_MUSIC_AUTO_EVENT_COOLDOWN_S", "1.0"))
 MUSIC_AUTO_PREEMPT_MIN_S = float(os.getenv("AIOT_MUSIC_AUTO_PREEMPT_MIN_S", "0.5"))
 MUSIC_AUTO_CONT_RATE_S = float(os.getenv("AIOT_MUSIC_AUTO_CONT_RATE_S", "0.5"))
@@ -90,7 +112,7 @@ def _maybe_publish_music(result: dict[str, Any]) -> bool:
         confidence = float(result.get("confidence") or 0.0)
     except (TypeError, ValueError):
         return False
-    if confidence < MUSIC_AUTO_MIN_CONFIDENCE:
+    if confidence < MUSIC_AUTO_GESTURE_MIN.get(gesture, MUSIC_AUTO_MIN_CONFIDENCE):
         return False
     now = time.time()
     with _music_auto_lock:
@@ -124,7 +146,7 @@ def _maybe_send_led(result: dict[str, Any]) -> bool:
         confidence = float(result.get("confidence") or 0.0)
     except (TypeError, ValueError):
         return False
-    if confidence < LED_AUTO_MIN_CONFIDENCE:
+    if confidence < LED_AUTO_GESTURE_MIN.get(gesture, LED_AUTO_MIN_CONFIDENCE):
         return False
     now = time.time()
     with _led_auto_lock:

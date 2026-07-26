@@ -13,13 +13,18 @@ continue to evolve.
 
 from __future__ import annotations
 
+import logging
+import os
 import time
 from typing import Any
 
 from database import insert_pi_message
 from inference_pipeline import inference_pipeline
+from integration import send_pi_command
 from sonic_pi import sonic_pi_adapter
 from state import live_state
+
+logger = logging.getLogger(__name__)
 
 UPLINK_MESSAGE_TYPES = frozenset({
     "fused_frame",
@@ -27,6 +32,27 @@ UPLINK_MESSAGE_TYPES = frozenset({
     "control_event",
     "status",
 })
+
+# ── micro:bit 按键 → LED 即时视觉反馈 ────────────────────────────────────
+# 设计（GESTURE_CONDUCTOR_DESIGN）：cutoff=instant_black、急停=emergency_red、
+# style_switch=palette_sweep——映射到现有灯效实现。按键是刻意操作，
+# 不走 AIOT_LED_AUTO 开关/节流；本开关独立，默认开。
+CONTROL_EVENT_LED_ENABLED = os.getenv("AIOT_BUTTON_LED_ENABLED", "1").lower() in {
+    "1", "true", "yes", "on",
+}
+CONTROL_EVENT_LED_BRIGHTNESS = max(
+    0.0, min(1.0, float(os.getenv("AIOT_BUTTON_LED_BRIGHTNESS", "0.5")))
+)
+CONTROL_EVENT_LED_DURATION_MS = max(
+    0, int(os.getenv("AIOT_BUTTON_LED_DURATION_MS", "3000"))
+)
+CONTROL_EVENT_LED_EFFECTS = {
+    "resume": "gesture_start",        # 左A短按 继续 → 绿色 wipe
+    "cutoff": "off",                  # 左B短按 暂停 → 立即熄灭（instant_black）
+    "stop": "stop",                   # 右B长按 急停 → 全红闪（emergency_red）
+    "style_switch": "wave",           # 右A短按 风格切换 → 波动扫过（palette_sweep）
+    "gesture_start": "gesture_start",  # A+B长按 开始 → 绿色 wipe
+}
 
 COMMON_FIELDS = {
     "schema_version",
@@ -133,3 +159,26 @@ def route_uplink_message(
             payload,
             live_state.get_music(),
         )
+        _maybe_send_control_event_led(payload)
+
+
+def _maybe_send_control_event_led(payload: dict[str, Any]) -> None:
+    """micro:bit 按键的 LED 即时反馈（best-effort，失败不影响路由）。"""
+    if not CONTROL_EVENT_LED_ENABLED:
+        return
+    event = payload.get("event", {})
+    if not isinstance(event, dict):
+        return
+    gesture = str(event.get("type", "")).strip()
+    effect = CONTROL_EVENT_LED_EFFECTS.get(gesture)
+    if effect is None:
+        return
+    try:
+        send_pi_command("led_command", {
+            "effect": effect,
+            "brightness": CONTROL_EVENT_LED_BRIGHTNESS,
+            "duration_ms": CONTROL_EVENT_LED_DURATION_MS,
+            "source": "button",
+        })
+    except Exception:
+        logger.exception("control_event LED feedback failed for %r", gesture)

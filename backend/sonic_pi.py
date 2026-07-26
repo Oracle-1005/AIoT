@@ -310,6 +310,8 @@ class SonicPiOscAdapter:
             1.0,
         )
 
+        style = str(overrides.get("style", music_state.get("style", "piano")))
+
         return self._send(
             "/conductor/state",
             command_id or _command_id(),
@@ -323,6 +325,8 @@ class SonicPiOscAdapter:
             energy,
             _clamp(0.15 + energy * 0.35, 0.0, 0.9),
             _clamp(75.0 + energy * 45.0, 55.0, 130.0),
+            # 第 12 个参数（追加，向后兼容：旧版 rb 并行赋值会丢弃多余实参）
+            style,
         )
 
     def _send(self, path: str, *args: Any) -> bool:

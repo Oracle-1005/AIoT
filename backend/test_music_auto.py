@@ -161,6 +161,27 @@ def main() -> None:
         assert all(c[1] is False for c in set_calls[1:]), f"later calls: {set_calls}"
         assert len(calls) == 1
         print("PASS 10 accept_prediction 仅过节流时应用音乐副作用")
+
+        # 11. per-gesture 门槛：gesture_start 单独抬高（防右拳误触发），其他手势不受影响
+        original_map = integration.MUSIC_AUTO_GESTURE_MIN
+        integration.MUSIC_AUTO_GESTURE_MIN = {"gesture_start": 0.8}
+        try:
+            calls, fake = _capture()
+            integration.sonic_pi_adapter.publish_prediction = fake
+            _reset_auto()
+            assert integration._maybe_publish_music(_result("gesture_start", 0.7)) is False
+            assert integration._maybe_publish_music(_result("gesture_start", 0.85)) is True
+            _reset_auto()
+            assert integration._maybe_publish_music(_result("downbeat", 0.65)) is True
+        finally:
+            integration.MUSIC_AUTO_GESTURE_MIN = original_map
+        print("PASS 11 gesture_start 单独置信度门槛")
+
+        # 12. 门槛映射解析器：畸形项静默丢弃、数值钳到 0..1
+        parsed = integration._parse_gesture_min_map("gesture_start:0.8, bad, x:abc, up:1.5, low:-0.2")
+        assert parsed == {"gesture_start": 0.8, "up": 1.0, "low": 0.0}, parsed
+        assert integration._parse_gesture_min_map("") == {}
+        print("PASS 12 门槛映射解析器健壮性")
     finally:
         integration.sonic_pi_adapter.publish_prediction = original_publish
         integration.MUSIC_AUTO_ENABLED = original_enabled

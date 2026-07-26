@@ -11,7 +11,8 @@
 # OSC control from the PC backend:
 # /conductor/transport command_id action
 #   action: start, resume, play, pause, stop, cutoff, reset, next, previous
-# /conductor/state command_id bpm master_amp drum_amp drum_density bass_amp harmony_amp melody_amp energy reverb_mix cutoff
+# /conductor/state command_id bpm master_amp drum_amp drum_density bass_amp harmony_amp melody_amp energy reverb_mix cutoff [style]
+#   style（第 12 参，可选）: piano / strings / brass —— 右手 A 短按 style_switch 循环切换旋律音色
 # /conductor/bpm command_id bpm
 # /conductor/accent command_id strength type
 #
@@ -30,6 +31,7 @@ set :piece_order, [:ode_to_joy, :canon_in_d]
 set :piece_index, 0
 set :piece_id, :ode_to_joy
 set :playing, true
+set :style, "piano"  # style_switch 循环: piano → strings → brass
 set :beats_per_bar, 4
 
 set :ode_to_joy_title, "Ode to Joy Conductor Mix"
@@ -106,6 +108,18 @@ end
 
 define :approach do |current, target, amount|
   current + ((target - current) * amount)
+end
+
+# 风格 → 旋律音色（style_switch 按键循环）
+define :style_melody_synth do |style|
+  case style.to_s
+  when "strings"
+    :prophet
+  when "brass"
+    :zawa
+  else
+    :pretty_bell
+  end
 end
 
 define :piece_value do |name|
@@ -287,7 +301,7 @@ live_loop :osc_state_receiver do
   use_real_time
   command_id, bpm, master_amp, drum_amp, drum_density,
     bass_amp, harmony_amp, melody_amp, energy,
-    reverb_mix, cutoff = sync "/osc*/conductor/state"
+    reverb_mix, cutoff, style = sync "/osc*/conductor/state"
 
   set :target_bpm, clamp(bpm, 72, 148)
   set :target_master_amp, clamp(master_amp, 0.0, 1.3)
@@ -299,6 +313,7 @@ live_loop :osc_state_receiver do
   set :target_energy, clamp(energy, 0.0, 1.0)
   set :target_reverb_mix, clamp(reverb_mix, 0.0, 0.9)
   set :target_cutoff, clamp(cutoff, 55, 130)
+  set :style, style.to_s unless style.nil?  # 旧后端不发第 12 参则保持现状
   osc "/music/ack", command_id, "state"
 end
 
@@ -445,7 +460,7 @@ live_loop :melody do
       note_to_play = section == :finale ? note(note_value) + 12 : note_value
 
       if get(:piece_id) == :canon_in_d
-        melody_synth = section == :finale ? :blade : :pretty_bell
+        melody_synth = section == :finale ? :blade : style_melody_synth(get(:style))
         use_synth melody_synth
         echo_phase = 0.5
         echo_decay = 1.6
@@ -454,7 +469,7 @@ live_loop :melody do
         room_size = 0.82
         release_time = 0.46
       else
-        use_synth :blade
+        use_synth style_melody_synth(get(:style))
         echo_phase = 0.375
         echo_decay = 1.2
         intro_mix = 0.12

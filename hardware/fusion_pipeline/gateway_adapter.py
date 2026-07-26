@@ -402,8 +402,14 @@ class GatewayAdapter:
         gateway_metadata: dict | None = None,
     ) -> None:
         """Process a control_event packet — dedup and fast-path emit."""
-        # Deduplicate
-        duplicate = self._event_deduplicator.is_duplicate(packet)
+        # Deduplicate. 内容不一致的重复副本会让 is_duplicate 抛 ProtocolError；
+        # 必须就地拦住——否则异常穿透 _read_loop，串口读取任务静默死亡，
+        # 双手全部输入（含传感数据）停止直到重启服务。
+        try:
+            duplicate = self._event_deduplicator.is_duplicate(packet)
+        except ProtocolError as exc:
+            logger.warning("control event dedup rejected %s: %s", packet, exc)
+            return
         if duplicate:
             logger.debug(
                 "Ignore duplicate control event %s/%d",
