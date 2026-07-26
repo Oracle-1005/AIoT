@@ -44,7 +44,10 @@ set :layer_bass_on, true
 set :layer_drums_on, true
 
 # -- From the New World: Dvorak Symphony No.9, IV. Allegro con fuoco (conductor arrangement) --
-# Melody: one eighth note per beat, 32 notes = 8-bar theme; one chord every 2 beats, 16 chords fill the 8-bar loop
+# Melody = the REAL opening motto (horns/trumpets, bars 10-17 of the movement), note-verified
+# against the Simrock 1894 first edition: E F# G | F# E E | E D B D | E | E F# G | F# E E |
+# E (G-E-G triplet) B B(low) | E -- with true rhythm (half/dotted/eighth notes + one triplet).
+# Chords: one slot every 2 beats = 16 slots per 8-bar loop (Em Am Em-G/B Em | Em Am G-B7/F# Em).
 # loop_total_bars=8 -> current_section is always :finale, keeping the whole piece at high energy
 set :new_world_title, "From the New World (Dvorak 9, IV. Allegro con fuoco)"
 set :new_world_key, "E Minor"
@@ -60,22 +63,42 @@ set :new_world_energy, 0.78
 set :new_world_reverb_mix, 0.3
 set :new_world_cutoff, 110.0
 set :new_world_melody_notes, [
-  # Theme A (bars 1-4): opening tutti hit + stepwise motif + dominant preparation
-  :e4, :e4, :e3, :e3,  :e4, :d4, :c4, :b3,
-  :a3, :b3, :c4, :d4,  :b3, :b3, :b3, :b3,
-  # Theme B (bars 5-8): leaping fanfare + dominant half cadence (loop back into theme A)
-  :e4, :g4, :e4, :b3,  :a3, :b3, :a3, :g3,
-  :e4, :g4, :b4, :e5,  :b4, :b4, :b4, :b4
+  # Bar 1: E(half) F#(q) G(q)
+  :e4, :fs4, :g4,
+  # Bar 2: F#(dotted q) E(8th) E(half)
+  :fs4, :e4, :e4,
+  # Bar 3: E(half) D(q) B(8th) D(8th)
+  :e4, :d4, :b3, :d4,
+  # Bar 4: E(dotted half) E(q)
+  :e4, :e4,
+  # Bar 5: same as bar 1
+  :e4, :fs4, :g4,
+  # Bar 6: same as bar 2
+  :fs4, :e4, :e4,
+  # Bar 7: E(q), G-E-G(eighth-note triplet, 1 beat), B(q), low B(q)
+  :e4, :g4, :e4, :g4, :b4, :b3,
+  # Bar 8: E(2.5 beats), rest(0.5), rest(1)
+  :e4, nil, nil
+]
+set :new_world_melody_durs, [
+  2, 1, 1,
+  1.5, 0.5, 2,
+  2, 1, 0.5, 0.5,
+  3, 1,
+  2, 1, 1,
+  1.5, 0.5, 2,
+  1, 1.0/3, 1.0/3, 1.0/3, 1, 1,
+  2.5, 0.5, 1
 ]
 set :new_world_chords, [
-  chord(:e2, :minor), chord(:e2, :minor),   # bar 1
-  chord(:e2, :minor), chord(:e2, :minor),   # bar 2
-  chord(:a2, :minor), chord(:c3, :major),   # bar 3
-  chord(:b2, :major), chord(:b2, :major),   # bar 4
-  chord(:c3, :major), chord(:g2, :major),   # bar 5
-  chord(:a2, :minor), chord(:e2, :minor),   # bar 6
-  chord(:c3, :major), chord(:a2, :minor),   # bar 7
-  chord(:b2, :major), chord(:b2, :major)    # bar 8
+  chord(:e2, :minor), chord(:e2, :minor),   # bar 1: Em
+  chord(:a2, :minor), chord(:a2, :minor),   # bar 2: Am
+  chord(:e2, :minor), chord_invert(chord(:g2, :major), 1),   # bar 3: Em -> G/B
+  chord(:e2, :minor), chord(:e2, :minor),   # bar 4: Em
+  chord(:e2, :minor), chord(:e2, :minor),   # bar 5: Em
+  chord(:a2, :minor), chord(:a2, :minor),   # bar 6: Am
+  chord(:g2, :major), chord_invert(chord(:b2, :dom7), 2),    # bar 7: G -> B7/F#
+  chord(:e2, :minor), chord(:e2, :minor)    # bar 8: Em
 ]
 
 set :ode_to_joy_title, "Ode to Joy Conductor Mix"
@@ -477,8 +500,14 @@ end
 live_loop :bass do
   use_bpm get(:current_bpm)
 
-  if playable? && get(:layer_bass_on)
-    next_chord = piece_value(:chords).tick(:bass_chords)
+  unless playable?
+    sleep 0.1
+    next
+  end
+
+  # Tick advances even when muted (sleep keeps the slot), so re-entry stays in phase.
+  next_chord = piece_value(:chords).tick(:bass_chords)
+  if get(:layer_bass_on)
     root_note = next_chord[0]
     use_synth :fm
     with_fx :lpf, cutoff: get(:cutoff) do
@@ -510,15 +539,21 @@ live_loop :bass do
       end
     end
   else
-    sleep 0.1
+    sleep 2
   end
 end
 
 live_loop :harmony do
   use_bpm get(:current_bpm)
 
-  if playable? && get(:layer_harmony_on)
-    current_chord = piece_value(:chords).tick(:harmony_chords)
+  unless playable?
+    sleep 0.1
+    next
+  end
+
+  # Tick advances even when muted (sleep keeps the slot), so re-entry stays in phase.
+  current_chord = piece_value(:chords).tick(:harmony_chords)
+  if get(:layer_harmony_on)
     is_canon = get(:piece_id) == :canon_in_d
     harmony_synth = is_canon ? :hollow : :prophet
     harmony_room = is_canon ? 0.85 : 0.75
@@ -545,31 +580,44 @@ live_loop :harmony do
       end
     end
   else
-    sleep 0.1
+    sleep 2
   end
 end
 
 live_loop :melody do
   use_bpm get(:current_bpm)
 
-  if playable? && get(:layer_melody_on)
+  unless playable?
+    sleep 0.1
+    next
+  end
+
+  if get(:piece_id) == :new_world
+    # Motto with true rhythm: one tick index reads note + duration from parallel rings.
+    # Tick advances even when muted, so re-entry stays phrase-aligned with the chords.
+    mi = tick(:melody)
+    note_value = piece_value(:melody_notes)[mi]
+    dur_value = piece_value(:melody_durs)[mi]
+    if note_value && get(:layer_melody_on)
+      # Brass unison: saw octave double (new_world is always :finale, so no extra octave shift here)
+      use_synth :saw
+      with_fx :reverb, mix: get(:reverb_mix), room: 0.6 do
+        play note_value, sustain: dur_value * 0.65, release: dur_value * 0.3,
+             amp: get(:melody_amp).to_f * main_amp * 1.05,
+             cutoff: get(:cutoff)
+        play note(note_value) - 12, sustain: dur_value * 0.65, release: dur_value * 0.3,
+             amp: get(:melody_amp).to_f * main_amp * 0.55,
+             cutoff: get(:cutoff)
+      end
+    end
+    sleep dur_value
+  else
     note_value = piece_value(:melody_notes).tick(:melody)
-    if note_value
+    if note_value && get(:layer_melody_on)
       section = current_section
       note_to_play = section == :finale ? note(note_value) + 12 : note_value
 
-      if get(:piece_id) == :new_world
-        # Brass unison: saw octave double (new_world is always :finale, so no extra octave shift here)
-        use_synth :saw
-        with_fx :reverb, mix: get(:reverb_mix), room: 0.6 do
-          play note_value, release: 0.42, sustain: 0.05,
-               amp: get(:melody_amp).to_f * main_amp * 1.05,
-               cutoff: get(:cutoff)
-          play note(note_value) - 12, release: 0.42, sustain: 0.05,
-               amp: get(:melody_amp).to_f * main_amp * 0.55,
-               cutoff: get(:cutoff)
-        end
-      elsif get(:piece_id) == :canon_in_d
+      if get(:piece_id) == :canon_in_d
         melody_synth = section == :finale ? :blade : style_melody_synth(get(:style))
         use_synth melody_synth
         echo_phase = 0.5
@@ -588,21 +636,16 @@ live_loop :melody do
         release_time = 0.35
       end
 
-      # new_world already played inside its own fx branch; other pieces share this echo/reverb tail
-      if get(:piece_id) != :new_world
-        echo_mix = section == :intro ? intro_mix : main_mix
-        with_fx :echo, phase: echo_phase, decay: echo_decay, mix: echo_mix do
-          with_fx :reverb, mix: get(:reverb_mix), room: room_size do
-            play note_to_play, release: release_time,
-                 amp: get(:melody_amp).to_f * main_amp * section_gain(0.72, 0.94, 1.08, 1.18),
-                 cutoff: get(:cutoff)
-          end
+      echo_mix = section == :intro ? intro_mix : main_mix
+      with_fx :echo, phase: echo_phase, decay: echo_decay, mix: echo_mix do
+        with_fx :reverb, mix: get(:reverb_mix), room: room_size do
+          play note_to_play, release: release_time,
+               amp: get(:melody_amp).to_f * main_amp * section_gain(0.72, 0.94, 1.08, 1.18),
+               cutoff: get(:cutoff)
         end
       end
     end
     sleep 0.5
-  else
-    sleep 0.1
   end
 end
 
