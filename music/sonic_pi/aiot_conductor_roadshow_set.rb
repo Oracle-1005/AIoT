@@ -50,6 +50,9 @@ set :layer_drums_on, true
 # Chords: one slot every 2 beats = 16 slots per 8-bar loop (Em Am Em-G/B Em | Em Am G-B7/F# Em).
 # new_world uses FLAT dynamics in the drums/bass branches (no section_gain), so the motto
 # stays at constant forte across all 8 bars of every loop pass.
+# Layer timbres (zone-conducting: each zone gates one clearly audible section):
+#   melody  = brass (:zawa octave unison)      harmony = tonewheel organ (:organ_tonewheel)
+#   bass    = pizzicato low strings (:pluck)   drums   = timpani/concert toms (samples)
 set :new_world_title, "From the New World (Dvorak 9, IV. Allegro con fuoco)"
 set :new_world_key, "E Minor"
 set :new_world_bpm, 138.0
@@ -511,18 +514,18 @@ live_loop :bass do
   next_chord = piece_value(:chords).tick(:bass_chords)
   if get(:layer_bass_on)
     root_note = next_chord[0]
-    use_synth :fm
+    use_synth (get(:piece_id) == :new_world ? :pluck : :fm)
     with_fx :lpf, cutoff: get(:cutoff) do
       bass_level = get(:bass_amp).to_f * main_amp * (get(:piece_id) == :new_world ? 1.0 : section_gain(0.5, 0.82, 1.05, 1.16))
       if get(:piece_id) == :new_world
-        # Bass strings staccato: root x3 + upper octave (2 beats)
-        play root_note, release: 0.28, amp: bass_level, depth: 1.4
+        # Pizzicato low strings: root x3 + upper octave (2 beats)
+        play root_note, release: 0.28, amp: bass_level
         sleep 0.5
-        play root_note, release: 0.28, amp: bass_level * 0.8, depth: 1.4
+        play root_note, release: 0.28, amp: bass_level * 0.8
         sleep 0.5
-        play root_note, release: 0.28, amp: bass_level * 0.8, depth: 1.4
+        play root_note, release: 0.28, amp: bass_level * 0.8
         sleep 0.5
-        play root_note + 12, release: 0.3, amp: bass_level * 0.6, depth: 1.0
+        play root_note + 12, release: 0.3, amp: bass_level * 0.6
         sleep 0.5
       elsif get(:piece_id) == :canon_in_d
         play root_note, release: 0.55, amp: bass_level, depth: 1.2
@@ -557,21 +560,19 @@ live_loop :harmony do
   current_chord = piece_value(:chords).tick(:harmony_chords)
   if get(:layer_harmony_on)
     is_canon = get(:piece_id) == :canon_in_d
-    harmony_synth = is_canon ? :hollow : :prophet
+    harmony_synth = get(:piece_id) == :new_world ? :organ_tonewheel : (is_canon ? :hollow : :prophet)
     harmony_room = is_canon ? 0.85 : 0.75
     harmony_sustain = is_canon ? 1.6 : 1.5
     harmony_release = is_canon ? 0.75 : 0.5
     use_synth harmony_synth
     with_fx :reverb, mix: get(:reverb_mix), room: harmony_room do
       if get(:piece_id) == :new_world
-        # Orchestral hits: full chord on beat 1, off-beat stab on beat 2 (2-beat cycle)
+        # Organ stabs (stands in for the orchestral chord hits): beat 1 + off-beat (2-beat cycle)
         play current_chord, sustain: 0.22, release: 0.3,
-             amp: get(:harmony_amp).to_f * main_amp * 1.1,
-             cutoff: get(:cutoff)
+             amp: get(:harmony_amp).to_f * main_amp * 1.1
         sleep 1.5
         play current_chord, sustain: 0.18, release: 0.24,
-             amp: get(:harmony_amp).to_f * main_amp * 0.7,
-             cutoff: get(:cutoff)
+             amp: get(:harmony_amp).to_f * main_amp * 0.7
         sleep 0.5
       else
         play current_chord, sustain: harmony_sustain,
@@ -604,8 +605,8 @@ live_loop :melody do
     note_value = notes_list[mi % notes_list.length]
     dur_value = durs_list[mi % durs_list.length]
     if note_value && get(:layer_melody_on)
-      # Brass unison: saw octave double (new_world is always :finale, so no extra octave shift here)
-      use_synth :saw
+      # Brass section: zawa octave unison (new_world uses flat dynamics, no octave shift here)
+      use_synth :zawa
       with_fx :reverb, mix: get(:reverb_mix), room: 0.6 do
         play note_value, sustain: dur_value * 0.65, release: dur_value * 0.3,
              amp: get(:melody_amp).to_f * main_amp * 1.05,
