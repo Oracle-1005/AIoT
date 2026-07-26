@@ -102,8 +102,21 @@ a muted layer stays muted across subsequent state sends.
 
 | Field | Type | Example |
 |---|---|---|
-| `layer` | string | `melody` — one of `melody`, `harmony`, `bass`, `drums` |
+| `layer` | string | `melody` — one of `melody`, `harmony`, `bass`, `drums` (the Shape of You script maps `drums` to its rhythm layer) |
 | `enabled` | float | `1.0` = on, `0.0` = off |
+
+### `/conductor/style`
+
+Style preset switch (Shape of You: `acoustic_pop` / `tropical_house` / `festival_edm`,
+applied per-note so the switch is audible immediately).
+
+```text
+/conductor/style command_id style
+```
+
+| Field | Type | Example |
+|---|---|---|
+| `style` | string | `next` — or `previous`, or a preset name |
 
 ## Sonic Pi To Backend
 
@@ -116,6 +129,7 @@ The provided Sonic Pi script sends these feedback paths.
 | `/music/bar` | `bar, section` | Section and bar counter |
 | `/music/state` | `playing, bpm, section, energy` | Actual music execution state |
 | `/music/layers` | `melody, harmony, bass, drums` | Layer gate states (0/1 each), every 0.5 s and after each `/conductor/layer` — rb is authoritative |
+| `/music/style` | `track_id, style` | Current style preset (Shape of You), every 0.5 s and after each `/conductor/style` — rb is authoritative |
 | `/music/ack` | `command_id, result` | Command acknowledgement |
 
 The backend should use `/music/state` as the most reliable source for the final
@@ -170,18 +184,23 @@ Optional fields after the OSC adapter is added:
 
 ## Roadshow Script
 
-Primary script:
+Primary script (2026-07-26: From the New World was dropped in favour of this):
 
 ```text
-music/sonic_pi/aiot_conductor_roadshow_set.rb
+music/sonic_pi/aiot_conductor_shape_of_you.rb
 ```
 
-**Do NOT paste the roadshow set directly into a Sonic Pi buffer.** Sonic Pi's Run
-button ships the buffer to the engine as a single OSC packet, and the engine reads
-at most **16384 bytes per packet** (`udp_server.rb` `recvfrom(16384)`). The roadshow
-set is ~20 KB, so the packet is silently truncated and the run never starts
-(`spider.log` shows `undefined method '%' for nil` from `oscdecode.rb`). The script
-itself is also required to be **pure ASCII** (it is read from disk by the engine).
+A MIDI-transcribed Shape of You (96 BPM, 374-beat loop, ~187 KB) with the OSC
+contract built in: four layer-gated sections (`melody` = lead, `harmony` =
+hook/chords, `bass`, `rhythm` = percussion — the backend's `drums` name maps to
+it) and three style presets (`acoustic_pop`, `tropical_house`, `festival_edm`)
+switched via `/conductor/style` with per-note effect.
+
+**Do NOT paste the set itself into a Sonic Pi buffer.** Sonic Pi's Run button
+ships the buffer to the engine as a single OSC packet, and the engine reads at
+most **16384 bytes per packet** (`udp_server.rb` `recvfrom(16384)`) — anything
+larger is silently truncated and never runs (`spider.log` shows
+`undefined method '%' for nil` from `oscdecode.rb`).
 
 Instead paste the tiny loader once:
 
@@ -189,15 +208,15 @@ Instead paste the tiny loader once:
 music/sonic_pi/aiot_loader.rb
 ```
 
-The loader is one `run_file` call that reads the roadshow set from disk — no size
-limit crosses the wire, and after editing the set you just press Run again (no
-re-paste).
+The loader is one `run_file` call that reads the set from disk — no size limit
+crosses the wire, and after editing the set you just press Run again (no
+re-paste). rb source files must stay **pure ASCII** (they are read from disk
+under the system encoding).
 
-It starts with From the New World (hard layer gates for the zone-conducting demo)
-and lets the frontend switch tracks in a loop:
+Legacy multi-piece set (Ode to Joy / Canon in D / From the New World):
 
 ```text
-From the New World -> Ode to Joy -> Canon in D -> From the New World -> ...
+music/sonic_pi/aiot_conductor_roadshow_set.rb
 ```
 
 Single-piece scripts:
@@ -207,7 +226,6 @@ music/sonic_pi/aiot_conductor_ode_to_joy.rb
 music/sonic_pi/aiot_conductor_canon_in_d.rb
 ```
 
-Paste one full Ruby script into Sonic Pi and press `Run`. The single-piece scripts
-are small enough for direct paste; the roadshow loader and both single-piece
-scripts can play standalone before backend OSC integration is ready, and they keep
-the same OSC control paths.
+The single-piece scripts are small enough for direct paste; all scripts can
+play standalone before backend OSC integration is ready, and they keep the same
+OSC control paths.

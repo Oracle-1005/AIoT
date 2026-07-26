@@ -179,8 +179,8 @@ def main() -> None:
     music = live_state.get_music()
     assert music["sonic_pi_connected"] is True
     assert music["bpm"] == 122
-    assert music["title"] == "From the New World (Dvorak 9, IV. Allegro con fuoco)"
-    assert music["key"] == "E Minor"
+    assert music["title"] == "Shape of You (Ed Sheeran)"
+    assert music["key"] == "C# Minor"
     assert music["section"] == "main"
     assert music["last_bar"] == 4
     assert music["last_beat"] == 2
@@ -265,8 +265,8 @@ def main() -> None:
     assert next_track.status_code == 200
     next_payload = next_track.get_json()
     assert next_payload["sonic_pi"]["last_sent_command"]["args"][1] == "next"
-    assert next_payload["music"]["title"] == "Ode to Joy Conductor Mix"
-    assert next_payload["music"]["track_index"] == 1
+    assert next_payload["music"]["title"] == "Shape of You (Ed Sheeran)"
+    assert next_payload["music"]["track_index"] == 0
 
     previous_track = client.post(
         "/api/sonic-pi/transport",
@@ -277,10 +277,7 @@ def main() -> None:
     assert previous_track.status_code == 200
     previous_payload = previous_track.get_json()
     assert previous_payload["sonic_pi"]["last_sent_command"]["args"][1] == "previous"
-    assert (
-        previous_payload["music"]["title"]
-        == "From the New World (Dvorak 9, IV. Allegro con fuoco)"
-    )
+    assert previous_payload["music"]["title"] == "Shape of You (Ed Sheeran)"
     assert previous_payload["music"]["track_index"] == 0
 
     recorded_types = {

@@ -30,29 +30,15 @@ GESTURES = (
 )
 
 SONIC_PI_TRACKS = {
-    "new_world": {
-        "title": "From the New World (Dvorak 9, IV. Allegro con fuoco)",
-        "key": "E Minor",
-        "bpm": 138,
-        "total_bars": 8,
-        "beats_per_bar": 4,
-    },
-    "ode_to_joy": {
-        "title": "Ode to Joy Conductor Mix",
-        "key": "C Major",
-        "bpm": 108,
-        "total_bars": 24,
-        "beats_per_bar": 4,
-    },
-    "canon_in_d": {
-        "title": "Canon in D Conductor Mix",
-        "key": "D Major",
+    "shape_of_you": {
+        "title": "Shape of You (Ed Sheeran)",
+        "key": "C# Minor",
         "bpm": 96,
-        "total_bars": 32,
+        "total_bars": 93,
         "beats_per_bar": 4,
     },
 }
-SONIC_PI_TRACK_ORDER = ("new_world", "ode_to_joy", "canon_in_d")
+SONIC_PI_TRACK_ORDER = ("shape_of_you",)
 SONIC_PI_DEFAULT_TRACK_ID = SONIC_PI_TRACK_ORDER[0]
 SONIC_PI_TRACK_TITLE = SONIC_PI_TRACKS[SONIC_PI_DEFAULT_TRACK_ID]["title"]
 SONIC_PI_TRACK_KEY = SONIC_PI_TRACKS[SONIC_PI_DEFAULT_TRACK_ID]["key"]
@@ -340,6 +326,16 @@ class LiveState:
                 "bass": _online(bass),
                 "drums": _online(drums),
             }
+            self.music_state["last_sonic_pi_feedback_at"] = received_at
+
+    def apply_sonic_pi_style(self, style: Any, received_at: float) -> None:
+        """rb 侧 /music/style 反馈（Shape of You 三风格预设）—— 以 rb 为准。"""
+        style_text = str(style).strip()
+        if not style_text:
+            return
+        with self._lock:
+            self.music_state["style"] = style_text
+            self.music_state["sonic_pi_connected"] = True
             self.music_state["last_sonic_pi_feedback_at"] = received_at
 
     def update_sensors(

@@ -100,13 +100,33 @@ def main() -> None:
     state.live_state.set_music_layer("bass", True)
     print("PASS 5 /api/music/layers 端点 200/400/503")
 
-    # 6. new_world 是默认曲目且元数据与 rb 一致
-    assert state.SONIC_PI_TRACK_ORDER[0] == "new_world"
-    track = state.SONIC_PI_TRACKS["new_world"]
-    assert track["key"] == "E Minor" and track["bpm"] == 138
-    assert track["total_bars"] == 8 and track["beats_per_bar"] == 4
-    assert state.SONIC_PI_DEFAULT_TRACK_ID == "new_world"
-    print("PASS 6 new_world 默认曲目元数据")
+    # 6. shape_of_you 是默认曲目且元数据与 rb 一致（374 拍循环 / 4 = 93.5 → 93 小节）
+    assert state.SONIC_PI_TRACK_ORDER == ("shape_of_you",)
+    track = state.SONIC_PI_TRACKS["shape_of_you"]
+    assert track["key"] == "C# Minor" and track["bpm"] == 96
+    assert track["total_bars"] == 93 and track["beats_per_bar"] == 4
+    assert state.SONIC_PI_DEFAULT_TRACK_ID == "shape_of_you"
+    print("PASS 6 shape_of_you 默认曲目元数据")
+
+    # 7. send_style OSC 报文 + _handle_style 风格反馈同步
+    sent3: list[tuple] = []
+    original_send3 = sonic_pi.sonic_pi_adapter._send
+    sonic_pi.sonic_pi_adapter._send = lambda path, *args: sent3.append((path, args)) or True
+    try:
+        sonic_pi.sonic_pi_adapter.send_style("next")
+        assert sent3[-1][0] == "/conductor/style", sent3[-1]
+        assert sent3[-1][1][1] == "next", sent3[-1][1]
+    finally:
+        sonic_pi.sonic_pi_adapter._send = original_send3
+    ls3 = state.LiveState()
+    original_live_state2 = sonic_pi.live_state
+    sonic_pi.live_state = ls3
+    try:
+        sonic_pi.sonic_pi_adapter._handle_style("/music/style", "shape_of_you", "festival_edm")
+    finally:
+        sonic_pi.live_state = original_live_state2
+    assert ls3.get_music()["style"] == "festival_edm", ls3.get_music()["style"]
+    print("PASS 7 send_style 报文 + _handle_style 同步")
 
     print("\nAll music-layer tests passed.")
 

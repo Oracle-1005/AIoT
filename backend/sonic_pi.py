@@ -114,6 +114,7 @@ class SonicPiOscAdapter:
         osc_dispatcher.map("/music/track", self._handle_track)
         osc_dispatcher.map("/music/state", self._handle_state)
         osc_dispatcher.map("/music/layers", self._handle_layers)
+        osc_dispatcher.map("/music/style", self._handle_style)
         osc_dispatcher.map("/music/ack", self._handle_ack)
         osc_dispatcher.map("/music/error", self._handle_error)
         osc_dispatcher.map("/music/pong", self._handle_pong)
@@ -276,6 +277,19 @@ class SonicPiOscAdapter:
             command_id or _command_id(),
             str(layer),
             1.0 if enabled else 0.0,
+        )
+
+    def send_style(
+        self,
+        style: str,
+        *,
+        command_id: str | None = None,
+    ) -> bool:
+        """风格切换：/conductor/style（Shape of You 支持 next/previous 及三种预设名）。"""
+        return self._send(
+            "/conductor/style",
+            command_id or _command_id(),
+            str(style),
         )
 
     def send_accent(
@@ -494,6 +508,12 @@ class SonicPiOscAdapter:
             drums=drums,
             received_at=received_at,
         )
+        self._record_feedback(received_at)
+
+    def _handle_style(self, _address: str, _track: Any, style: Any) -> None:
+        """rb 风格反馈：/music/style track_id style（Shape of You 三预设）。"""
+        received_at = time.time()
+        live_state.apply_sonic_pi_style(style, received_at)
         self._record_feedback(received_at)
 
     def _handle_ack(self, _address: str, command_id: Any, result: Any) -> None:

@@ -191,6 +191,21 @@ def create_app() -> Flask:
             "layers": live_state.get_music()["layers"],
         }), 200 if sent else 503
 
+    @app.post("/api/music/style")
+    def music_style():
+        """风格切换：{"style": "next"/"previous"} 或预设名（acoustic_pop/tropical_house/festival_edm）。"""
+        body = request.get_json(silent=True) or {}
+        if not isinstance(body, dict):
+            return jsonify({"error": "request body must be a JSON object"}), 400
+        style = str(body.get("style", "")).strip()
+        if not style:
+            return jsonify({"error": "style is required"}), 400
+        sent = sonic_pi_adapter.send_style(style)
+        return jsonify({
+            "sent": sent,
+            "style": live_state.get_music()["style"],
+        }), 200 if sent else 503
+
     @app.errorhandler(404)
     def not_found(_error): return jsonify({"error": "Endpoint not found"}), 404
 
