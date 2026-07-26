@@ -2,7 +2,10 @@
 # Sonic Pi roadshow set: From the New World (layer-conducting demo) + Ode to Joy + Canon in D
 #
 # Recommended for the roadshow:
-# - Press Run once in Sonic Pi.
+# - Paste aiot_loader.rb (NOT this file) into Sonic Pi and press Run; this file is
+#   then read from disk via run_file. (Sonic Pi's Run path truncates any buffer
+#   whose OSC packet exceeds 16384 bytes -- this file is ~20 KB and would never start.)
+# - After editing this file, just press Run again; no re-paste needed.
 # - The set starts with From the New World and keeps looping.
 # - Frontend Previous / Next buttons switch tracks in a loop.
 #
@@ -10,18 +13,18 @@
 # /conductor/transport command_id action
 #   action: start, resume, play, pause, stop, cutoff, reset, next, previous
 # /conductor/state command_id bpm master_amp drum_amp drum_density bass_amp harmony_amp melody_amp energy reverb_mix cutoff [style]
-#   style（第 12 参，可选）: piano / strings / brass —— 右手 A 短按 style_switch 循环切换旋律音色
+#   style (optional 12th arg): piano / strings / brass -- cycled by the micro:bit right-A style_switch button
 # /conductor/bpm command_id bpm
 # /conductor/accent command_id strength type
 # /conductor/layer command_id layer enabled
-#   layer: melody / harmony / bass / drums；enabled: 0/1 —— 声部硬切（立即启停，不走平滑器）
+#   layer: melody / harmony / bass / drums; enabled: 0/1 -- hard layer gate (instant on/off, bypasses the smoother)
 #
 # OSC feedback to the PC backend:
 # /music/track piece_id title key total_bars beats_per_bar default_bpm
 # /music/beat bar beat bpm beat_strength
 # /music/bar bar section
 # /music/state playing bpm section energy
-# /music/layers melody harmony bass drums   (0/1 per layer, 每 0.5s)
+# /music/layers melody harmony bass drums   (0/1 per layer, every 0.5s)
 # /music/ack command_id result
 
 use_debug false
@@ -32,17 +35,17 @@ set :piece_order, [:new_world, :ode_to_joy, :canon_in_d]
 set :piece_index, 0
 set :piece_id, :new_world
 set :playing, true
-set :style, "piano"  # style_switch 循环: piano → strings → brass
+set :style, "piano"  # style_switch cycle: piano -> strings -> brass
 set :beats_per_bar, 4
-# 声部硬切门（/conductor/layer 控制，1=开 0=关；独立于 *_amp，不会被 state 消息冲掉）
+# Hard layer gates (via /conductor/layer, 1=on 0=off; independent of *_amp, state messages cannot override them)
 set :layer_melody_on, true
 set :layer_harmony_on, true
 set :layer_bass_on, true
 set :layer_drums_on, true
 
-# ── 《自新大陆》德沃夏克第九交响曲第四乐章 Allegro con fuoco（指挥改编版）──
-# 旋律：每拍 1 个八分音符，32 个 = 8 小节主题；和弦每 2 拍 1 个，16 个撑 8 小节循环
-# loop_total_bars=8 → 段落恒为 finale（current_section 计算），全曲高位能量
+# -- From the New World: Dvorak Symphony No.9, IV. Allegro con fuoco (conductor arrangement) --
+# Melody: one eighth note per beat, 32 notes = 8-bar theme; one chord every 2 beats, 16 chords fill the 8-bar loop
+# loop_total_bars=8 -> current_section is always :finale, keeping the whole piece at high energy
 set :new_world_title, "From the New World (Dvorak 9, IV. Allegro con fuoco)"
 set :new_world_key, "E Minor"
 set :new_world_bpm, 138.0
@@ -57,22 +60,22 @@ set :new_world_energy, 0.78
 set :new_world_reverb_mix, 0.3
 set :new_world_cutoff, 110.0
 set :new_world_melody_notes, [
-  # 主题 A（第 1-4 小节）：开场齐奏 hit + 级进动机 + 属音准备
+  # Theme A (bars 1-4): opening tutti hit + stepwise motif + dominant preparation
   :e4, :e4, :e3, :e3,  :e4, :d4, :c4, :b3,
   :a3, :b3, :c4, :d4,  :b3, :b3, :b3, :b3,
-  # 主题 B（第 5-8 小节）：上跳呐喊 + 属音半终止（回 loop 进入主题 A）
+  # Theme B (bars 5-8): leaping fanfare + dominant half cadence (loop back into theme A)
   :e4, :g4, :e4, :b3,  :a3, :b3, :a3, :g3,
   :e4, :g4, :b4, :e5,  :b4, :b4, :b4, :b4
 ]
 set :new_world_chords, [
-  chord(:e2, :minor), chord(:e2, :minor),   # 小节 1
-  chord(:e2, :minor), chord(:e2, :minor),   # 小节 2
-  chord(:a2, :minor), chord(:c3, :major),   # 小节 3
-  chord(:b2, :major), chord(:b2, :major),   # 小节 4
-  chord(:c3, :major), chord(:g2, :major),   # 小节 5
-  chord(:a2, :minor), chord(:e2, :minor),   # 小节 6
-  chord(:c3, :major), chord(:a2, :minor),   # 小节 7
-  chord(:b2, :major), chord(:b2, :major)    # 小节 8
+  chord(:e2, :minor), chord(:e2, :minor),   # bar 1
+  chord(:e2, :minor), chord(:e2, :minor),   # bar 2
+  chord(:a2, :minor), chord(:c3, :major),   # bar 3
+  chord(:b2, :major), chord(:b2, :major),   # bar 4
+  chord(:c3, :major), chord(:g2, :major),   # bar 5
+  chord(:a2, :minor), chord(:e2, :minor),   # bar 6
+  chord(:c3, :major), chord(:a2, :minor),   # bar 7
+  chord(:b2, :major), chord(:b2, :major)    # bar 8
 ]
 
 set :ode_to_joy_title, "Ode to Joy Conductor Mix"
@@ -151,7 +154,7 @@ define :approach do |current, target, amount|
   current + ((target - current) * amount)
 end
 
-# 风格 → 旋律音色（style_switch 按键循环）
+# style -> melody synth (style_switch button cycle)
 define :style_melody_synth do |style|
   case style.to_s
   when "strings"
@@ -369,7 +372,7 @@ live_loop :osc_state_receiver do
   set :target_energy, clamp(energy, 0.0, 1.0)
   set :target_reverb_mix, clamp(reverb_mix, 0.0, 0.9)
   set :target_cutoff, clamp(cutoff, 55, 130)
-  set :style, style.to_s unless style.nil?  # 旧后端不发第 12 参则保持现状
+  set :style, style.to_s unless style.nil?  # old backends without the 12th arg keep current style
   osc "/music/ack", command_id, "state"
 end
 
@@ -390,7 +393,7 @@ end
 live_loop :osc_layer_receiver do
   use_real_time
   command_id, layer, enabled = sync "/osc*/conductor/layer"
-  # 声部硬切：立即翻转对应门的布尔值，下个音符/采样即生效（不经平滑器）
+  # Hard layer cut: flip the gate boolean immediately; next note/sample obeys (no smoother involved)
   layer_key = "layer_#{layer.to_s}_on".to_sym
   if [:layer_melody_on, :layer_harmony_on, :layer_bass_on, :layer_drums_on].include?(layer_key)
     set layer_key, (enabled.to_f > 0.5)
@@ -452,7 +455,7 @@ live_loop :drums do
     section = current_section
 
     if get(:piece_id) == :new_world
-      # 定音鼓/大军鼓式驱动：1、3 拍重击 + 末拍双连鼓花
+      # Timpani / concert-bass-drum drive: heavy hits on beats 1+3, double tom flourish on beat 4
       sample :drum_tom_lo_hard, amp: amp * (beat == 1 ? 1.15 : 0.5), rate: 0.85 if beat == 1 || beat == 3
       sample :drum_tom_mid_hard, amp: amp * 0.5, rate: 0.9 if beat == 4
       sample :drum_tom_mid_hard, amp: amp * 0.62, rate: 0.72 if beat == 4
@@ -481,7 +484,7 @@ live_loop :bass do
     with_fx :lpf, cutoff: get(:cutoff) do
       bass_level = get(:bass_amp).to_f * main_amp * section_gain(0.5, 0.82, 1.05, 1.16)
       if get(:piece_id) == :new_world
-        # 低音弦乐断奏：根音 ×3 + 高八度（2 拍）
+        # Bass strings staccato: root x3 + upper octave (2 beats)
         play root_note, release: 0.28, amp: bass_level, depth: 1.4
         sleep 0.5
         play root_note, release: 0.28, amp: bass_level * 0.8, depth: 1.4
@@ -524,7 +527,7 @@ live_loop :harmony do
     use_synth harmony_synth
     with_fx :reverb, mix: get(:reverb_mix), room: harmony_room do
       if get(:piece_id) == :new_world
-        # 交响 hits：拍 1 全和弦、拍 2 后半拍补一击（2 拍循环）
+        # Orchestral hits: full chord on beat 1, off-beat stab on beat 2 (2-beat cycle)
         play current_chord, sustain: 0.22, release: 0.3,
              amp: get(:harmony_amp).to_f * main_amp * 1.1,
              cutoff: get(:cutoff)
@@ -556,7 +559,7 @@ live_loop :melody do
       note_to_play = section == :finale ? note(note_value) + 12 : note_value
 
       if get(:piece_id) == :new_world
-        # 铜管齐奏：锯齿双声部八度（自新大陆恒 finale 段落，此处不再移调）
+        # Brass unison: saw octave double (new_world is always :finale, so no extra octave shift here)
         use_synth :saw
         with_fx :reverb, mix: get(:reverb_mix), room: 0.6 do
           play note_value, release: 0.42, sustain: 0.05,
@@ -585,7 +588,7 @@ live_loop :melody do
         release_time = 0.35
       end
 
-      # new_world 已在分支内自含 fx 播放；其余曲目走共享 echo/reverb 尾块
+      # new_world already played inside its own fx branch; other pieces share this echo/reverb tail
       if get(:piece_id) != :new_world
         echo_mix = section == :intro ? intro_mix : main_mix
         with_fx :echo, phase: echo_phase, decay: echo_decay, mix: echo_mix do

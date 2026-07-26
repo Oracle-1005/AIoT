@@ -176,11 +176,28 @@ Primary script:
 music/sonic_pi/aiot_conductor_roadshow_set.rb
 ```
 
-This is the recommended roadshow script. It starts with Ode to Joy and lets the
-frontend switch tracks in a loop:
+**Do NOT paste the roadshow set directly into a Sonic Pi buffer.** Sonic Pi's Run
+button ships the buffer to the engine as a single OSC packet, and the engine reads
+at most **16384 bytes per packet** (`udp_server.rb` `recvfrom(16384)`). The roadshow
+set is ~20 KB, so the packet is silently truncated and the run never starts
+(`spider.log` shows `undefined method '%' for nil` from `oscdecode.rb`). The script
+itself is also required to be **pure ASCII** (it is read from disk by the engine).
+
+Instead paste the tiny loader once:
 
 ```text
-Ode to Joy -> Canon in D -> Ode to Joy -> ...
+music/sonic_pi/aiot_loader.rb
+```
+
+The loader is one `run_file` call that reads the roadshow set from disk — no size
+limit crosses the wire, and after editing the set you just press Run again (no
+re-paste).
+
+It starts with From the New World (hard layer gates for the zone-conducting demo)
+and lets the frontend switch tracks in a loop:
+
+```text
+From the New World -> Ode to Joy -> Canon in D -> From the New World -> ...
 ```
 
 Single-piece scripts:
@@ -190,6 +207,7 @@ music/sonic_pi/aiot_conductor_ode_to_joy.rb
 music/sonic_pi/aiot_conductor_canon_in_d.rb
 ```
 
-Paste one full Ruby script into Sonic Pi and press `Run`. The roadshow set and
-both single-piece scripts can play standalone before backend OSC integration is
-ready, and they keep the same OSC control paths.
+Paste one full Ruby script into Sonic Pi and press `Run`. The single-piece scripts
+are small enough for direct paste; the roadshow loader and both single-piece
+scripts can play standalone before backend OSC integration is ready, and they keep
+the same OSC control paths.
