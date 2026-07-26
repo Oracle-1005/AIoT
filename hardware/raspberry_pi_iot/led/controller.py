@@ -12,8 +12,12 @@ LED control is entirely local — no serial protocol or network dependency.
 Panel layout:
 - Panel 0 (LEDs 0-255): left hand
 - Panel 1 (LEDs 256-511): right hand
-- Each panel is an 8(row) x 32(col) matrix wired serpentine (zigzag):
-  row 0 runs left→right, row 1 right→left, and so on.
+- Each panel is an 8(row) x 32(col) matrix, physically 32 columns
+  (left→right) x 8 rows (top→bottom). Wiring is COLUMN-major
+  serpentine: each physical column is 8 consecutive LEDs; even columns
+  run top→bottom, odd columns bottom→top. (Verified on hardware
+  2026-07-26 with a raw-index block sweep — the earlier row-major
+  assumption was wrong and scrambled all 2D effects.)
 
 Base patterns (set_pattern): breathing / wave / idle — continuous,
 parameterised by set_state(). A beat pulse (show_beat) temporarily
@@ -140,6 +144,10 @@ class LedController:
         rows: Matrix rows per panel (default 8). rows*cols must equal
             led_per_panel for the 2D gesture animations to map correctly.
         cols: Matrix columns per panel (default 32).
+        music_panel_enabled: Split mode — gesture patterns render only on
+            panel 0 while the last panel runs the music spectrum
+            visualiser (driven by set_music_state/music_kick). Default
+            False keeps the legacy mirrored behaviour.
     """
 
     LED_FREQ_HZ = 800000
@@ -154,6 +162,7 @@ class LedController:
         brightness_limit: float = 0.25,
         rows: int = 8,
         cols: int = 32,
+        music_panel_enabled: bool = False,
     ):
         self._gpio = gpio
         self._panel_count = panel_count
@@ -182,6 +191,19 @@ class LedController:
         self._error = None
         self._backend = "none"
         self._consecutive_errors = 0
+
+        # Split mode: gesture patterns are confined to panel 0 and the last
+        # panel runs the music spectrum visualiser.
+        self._music_panel_enabled = bool(music_panel_enabled)
+        self._music = {"playing": False, "bpm": 0.0, "energy": 0.0, "section": ""}
+        self._kick_at = 0.0
+        self._kick_strength = 0.0
+        self._kick_is_downbeat = False
+        # Spectrum column state (float heights in rows) persists across
+        # frames for attack/decay motion; everything else is stateless.
+        self._spec_heights = [0.0] * cols
+        self._spec_last_t: float | None = None
+        self._music_energy_smooth = 0.0
 
         try:
             if os.path.exists(_LEDS0_PATH):
@@ -267,6 +289,45 @@ class LedController:
             self._left_weight = max(0.0, min(1.0, left_weight))
         if right_weight is not None:
             self._right_weight = max(0.0, min(1.0, right_weight))
+
+    def set_music_state(
+        self,
+        playing: bool | None = None,
+        bpm: float | None = None,
+        energy: float | None = None,
+        section: str | None = None,
+    ) -> None:
+        """Update the music visualiser state (last panel, split mode only).
+
+        Args:
+            playing: Music is playing; False ramps the spectrum to black.
+            bpm: Current tempo (informational; reserved for future styles).
+            energy: Music energy [0, 1] — drives column height and hue.
+            section: Piece section label (informational).
+        """
+        if playing is not None:
+            self._music["playing"] = bool(playing)
+        if bpm is not None:
+            self._music["bpm"] = max(0.0, float(bpm))
+        if energy is not None:
+            self._music["energy"] = max(0.0, min(1.0, float(energy)))
+        if section is not None:
+            self._music["section"] = str(section)
+
+    def music_kick(self, strength: float = 1.0, bpm: float | None = None) -> None:
+        """Beat kick for the music visualiser — boosts spectrum columns.
+
+        Stacks with the decaying remnant of the previous kick by max().
+        strength >= 0.9 marks a downbeat (bottom-row white flash).
+        """
+        strength = max(0.0, min(1.0, float(strength)))
+        now = time.monotonic()
+        remnant = self._kick_strength * math.exp(-(now - self._kick_at) * self._SPEC_KICK_DECAY)
+        self._kick_strength = max(strength, remnant)
+        self._kick_at = now
+        self._kick_is_downbeat = strength >= 0.9
+        if bpm is not None:
+            self._music["bpm"] = max(0.0, float(bpm))
 
     def set_pattern(self, pattern: str) -> bool:
         """Switch the base animation pattern.
@@ -354,20 +415,37 @@ class LedController:
             "brightness_limit": self._brightness_limit,
             "actual_brightness": round(self._brightness, 3),
             "current_pattern": self._current_pattern,
+            "music_panel_enabled": self._music_panel_enabled,
+            "music": dict(self._music),
             "fps": 50,
             "error": self._error,
         }
 
     # ---- Internal: 2D matrix helpers ----
 
+    def _gesture_panels(self) -> list[int]:
+        """Panels available to gesture patterns.
+
+        Split mode reserves the last panel for the music visualiser.
+        """
+        if self._music_panel_enabled and self._panel_count > 1:
+            return list(range(self._panel_count - 1))
+        return list(range(self._panel_count))
+
+    def _gesture_span(self) -> int:
+        """Number of strip LEDs covered by gesture panels."""
+        return len(self._gesture_panels()) * self._led_per_panel
+
     def _pixel_index(self, panel: int, row: int, col: int) -> int:
         """Map (panel, row, col) to strip index with serpentine correction.
 
-        Odd rows are wired right→left, so their column order is reversed.
+        Hardware is column-major serpentine: each physical column is 8
+        consecutive LEDs, even columns run top→bottom, odd columns
+        bottom→top. row 0 = top, col 0 = left.
         """
-        if row % 2 == 1:
-            col = (self._cols - 1) - col
-        return panel * self._led_per_panel + row * self._cols + col
+        if col % 2 == 1:
+            row = (self._rows - 1) - row
+        return panel * self._led_per_panel + col * self._rows + row
 
     def _set_xy(self, panel: int, row: int, col: int, color) -> None:
         """Set one matrix pixel; out-of-range coordinates are ignored."""
@@ -397,6 +475,12 @@ class LedController:
         if hasattr(self, '_Color'):
             return self._Color(ri, gi, bi)
         return (ri << 16) | (gi << 8) | bi
+
+    @staticmethod
+    def _hash01(x: float) -> float:
+        """Deterministic pseudo-random in [0, 1) — stateless, no RNG."""
+        v = math.sin(x) * 43758.5453
+        return v - math.floor(v)
 
     @staticmethod
     def _hsv_to_rgb(h: float, s: float, v: float) -> tuple:
@@ -457,6 +541,11 @@ class LedController:
             else:
                 self._render_idle()
 
+        # Split mode: the reserved panel is fully rewritten every frame by
+        # the music visualiser, so gesture renderers can never leak into it.
+        if self._music_panel_enabled and self._panel_count > 1:
+            self._render_music_spectrum(now)
+
         self._strip.show()
 
     def _render_beat_pulse(self, elapsed_ms: float) -> None:
@@ -509,8 +598,8 @@ class LedController:
 
         color = self._Color(r, g, b) if hasattr(self, '_Color') else (r << 16) | (g << 8) | b
 
-        # Light both panels with weight-based asymmetry
-        for i in range(self._total_leds):
+        # Light gesture panels with weight-based asymmetry
+        for i in range(self._gesture_span()):
             panel = i // self._led_per_panel
             weight = self._left_weight if panel == 0 else self._right_weight
             panel_brightness = int(brightness * weight * 255)
@@ -526,16 +615,17 @@ class LedController:
             self._strip.setPixelColor(i, c)
 
     def _render_wave(self, now: float) -> None:
-        """Render a wave animation sweeping across both panels."""
+        """Render a wave animation sweeping across the gesture panels."""
+        span = self._gesture_span()
         # Wave speed proportional to BPM
-        speed = self._bpm / 60.0 * self._total_leds / 4  # LEDs per second
-        offset = int((now * speed) % self._total_leds)
+        speed = self._bpm / 60.0 * span / 4  # LEDs per second
+        offset = int((now * speed) % span)
 
-        for i in range(self._total_leds):
+        for i in range(span):
             # Distance from wave front
-            dist = (i - offset) % self._total_leds
+            dist = (i - offset) % span
             # Gaussian falloff
-            sigma = self._total_leds / 8
+            sigma = span / 8
             brightness = math.exp(-(dist**2) / (2 * sigma**2))
             brightness *= self._intensity * self._brightness_limit
 
@@ -562,7 +652,7 @@ class LedController:
         center = self._cols // 2
         spread = progress * center
 
-        for panel in range(self._panel_count):
+        for panel in self._gesture_panels():
             for row in range(self._rows):
                 for col in range(self._cols):
                     dist = abs(col - center)
@@ -595,7 +685,7 @@ class LedController:
         flash_row = cycle * self._rows
         envelope = 1.0 - abs(0.5 - cycle) * 2  # Triangle: 0→1→0
 
-        for panel in range(self._panel_count):
+        for panel in self._gesture_panels():
             for row in range(self._rows):
                 row_factor = max(0.0, 1.0 - abs(row - flash_row) * 0.4) * envelope
                 for col in range(self._cols):
@@ -611,15 +701,16 @@ class LedController:
         ripple_width = 3.0
         fade = math.sin(cycle * math.pi)  # Fade in-out over the cycle
 
-        for panel in range(self._panel_count):
+        for panel in self._gesture_panels():
             for row in range(self._rows):
                 dist = abs(row - ripple_center)
                 factor = max(0.0, 1.0 - dist / ripple_width) * 0.5 * fade
                 for col in range(self._cols):
                     self._set_xy(panel, row, col, self._color(255, 200, 50, factor))
 
-    # 流星雨共享参数（crescendo/diminuendo 共用）：双板视为 8×64 画布，
-    # 轨迹从左下（panel0 row7 col0）飞向右上（panel1 row0 col31）。
+    # 流星雨共享参数（crescendo/diminuendo 共用）：手势板视为 8×(32×板数)
+    # 画布，轨迹从左下（panel0 row7 col0）飞向右上（末板 row0 col31）。
+    # split 模式下画布收缩为单板 8×32。
     _METEOR_SPAWN_S = 0.35    # 生成间隔（约 5 颗同屏）
     _METEOR_TRAVEL_S = 1.4    # 单颗全程飞行时间
     _METEOR_TAIL_S = 0.36     # 尾迹时长（12 个采样 × 30ms）
@@ -634,7 +725,7 @@ class LedController:
         `master` (0-1) scales the whole shower (crescendo ramps up,
         diminuendo ramps down).
         """
-        width = self._cols * self._panel_count
+        width = self._cols * len(self._gesture_panels())
         life = self._METEOR_TRAVEL_S + self._METEOR_TAIL_S
         buf = [[0.0] * width for _ in range(self._rows)]
 
@@ -688,13 +779,91 @@ class LedController:
         self._render_meteor_shower(elapsed, (255, 190, 40), master)
 
     def _render_left(self, elapsed: float) -> None:
-        """左手提示: left panel blue flash, right panel dim. 1s cycle."""
+        """左手提示: left panel blue flash, right panel dim. 1s cycle.
+
+        Split mode: the gesture panel flashes blue; the music panel is
+        left to the visualiser.
+        """
         pulse = (math.sin(elapsed * 2 * math.pi) + 1) / 2
         self._fill_panel(0, self._color(0, 0, 255, 0.3 + 0.7 * pulse))
-        self._fill_panel(1, self._color(0, 0, 255, 0.08))
+        if not self._music_panel_enabled:
+            self._fill_panel(1, self._color(0, 0, 255, 0.08))
 
     def _render_right(self, elapsed: float) -> None:
-        """右手提示: right panel pink flash, left panel dim. 1s cycle."""
+        """右手提示: right panel pink flash, left panel dim. 1s cycle.
+
+        Split mode: the gesture panel flashes pink; the music panel is
+        left to the visualiser.
+        """
         pulse = (math.sin(elapsed * 2 * math.pi) + 1) / 2
-        self._fill_panel(0, self._color(255, 64, 160, 0.08))
-        self._fill_panel(1, self._color(255, 64, 160, 0.3 + 0.7 * pulse))
+        if self._music_panel_enabled:
+            self._fill_panel(0, self._color(255, 64, 160, 0.3 + 0.7 * pulse))
+        else:
+            self._fill_panel(0, self._color(255, 64, 160, 0.08))
+            self._fill_panel(1, self._color(255, 64, 160, 0.3 + 0.7 * pulse))
+
+    # 频谱柱参数（音乐律动，split 模式的保留面板）
+    _SPEC_FALL_ROWS_S = 6.0   # 柱高重力回落速度（行/秒）
+    _SPEC_KICK_DECAY = 4.0    # kick 包络指数衰减率
+
+    def _render_music_spectrum(self, now: float) -> None:
+        """Music-reactive spectrum bars on the reserved panel (split mode).
+
+        Column heights = slow pseudo-random base (deterministic, no RNG →
+        no flicker) scaled by energy, plus a per-beat kick envelope.
+        Instant attack, gravity fall, lighter peak dot trailing each
+        column. Hue follows energy (blue → orange). All black when not
+        playing. Writes every pixel of the reserved panel every frame.
+        """
+        if self._spec_last_t is None:
+            dt = 0.0
+        else:
+            dt = min(0.1, max(0.0, now - self._spec_last_t))
+        self._spec_last_t = now
+
+        playing = self._music["playing"]
+        energy = self._music["energy"] if playing else 0.0
+        # Smooth the ~2 Hz energy updates so columns don't step visibly.
+        self._music_energy_smooth += (energy - self._music_energy_smooth) * min(1.0, dt * 8.0)
+        e = self._music_energy_smooth
+
+        kick = self._kick_strength * math.exp(-(now - self._kick_at) * self._SPEC_KICK_DECAY)
+        hue = 200.0 - 180.0 * e  # 200° blue (calm) → 20° orange/red (hot)
+        rows, cols = self._rows, self._cols
+        panel = self._panel_count - 1
+
+        for c in range(cols):
+            # 静态列权重 + 各列独立摆动（无空间相位耦合 → 柱子原地弹跳，
+            # 无左右漂移感）；kick 近似整板同步上跳，强调"从下往上"。
+            w = 0.55 + 0.45 * self._hash01(c * 12.9898)
+            wob = 1.0 + 0.18 * math.sin(
+                now * (1.0 + 1.7 * self._hash01(c * 7.233))
+                + self._hash01(c * 3.7) * 2 * math.pi
+            )
+            target = rows * ((0.15 + 0.85 * e) * w * wob
+                             + 0.45 * kick * (0.7 + 0.3 * self._hash01(c * 5.31)))
+            target = min(float(rows), max(0.0, target))
+            if not playing:
+                target = 0.0
+
+            h = self._spec_heights[c]
+            if target > h:
+                h = target  # instant attack
+            else:
+                h = max(target, h - self._SPEC_FALL_ROWS_S * dt)
+            self._spec_heights[c] = h
+
+            r_col, g_col, b_col = self._hsv_to_rgb(hue, 0.85, 1.0)
+            for r in range(rows):
+                from_bottom = rows - 1 - r
+                if from_bottom < h:
+                    # Brighter toward the column tip
+                    scale = max(0.45, 1.0 - 0.12 * (h - 1 - from_bottom))
+                    self._set_xy(panel, r, c, self._color(r_col, g_col, b_col, scale))
+                else:
+                    self._set_xy(panel, r, c, self._color(0, 0, 0))
+
+        # Downbeat: bottom-row white flash riding on the kick envelope.
+        if playing and self._kick_is_downbeat and kick > 0.35:
+            for c in range(cols):
+                self._set_xy(panel, rows - 1, c, self._color(255, 255, 255, min(1.0, kick)))

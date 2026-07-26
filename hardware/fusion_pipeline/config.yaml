@@ -94,4 +94,5 @@ led:
   default_pattern: "idle"      # 静息全黑（"breathing" = 蓝色慢呼吸）
   brightness_limit: 0.25   # safety cap — keep <= 0.25 for first light
   refresh_hz: 50
+  music_panel: true    # 分区模式：板0=手势效果，末板=音乐律动（music_beat/music_state 驱动）
 

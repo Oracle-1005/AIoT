@@ -59,6 +59,8 @@ class FakeController:
         self._connected = connected
         self.patterns: list[str] = []
         self.states: list[dict] = []
+        self.kicks: list[dict] = []
+        self.music_states: list[dict] = []
         self.updates = 0
         self.cleared = 0
 
@@ -68,6 +70,12 @@ class FakeController:
 
     def set_state(self, **kwargs) -> None:
         self.states.append(kwargs)
+
+    def music_kick(self, strength: float = 1.0, bpm=None) -> None:
+        self.kicks.append({"strength": strength, "bpm": bpm})
+
+    def set_music_state(self, **kwargs) -> None:
+        self.music_states.append(kwargs)
 
     def update(self) -> None:
         self.updates += 1
@@ -270,6 +278,78 @@ def test_controller_midrun_failure_degrade() -> None:
     check("no more error counting once disconnected", ctl._consecutive_errors == 250)
 
 
+# ── 4c. Music visualiser messages ─────────────────────────────────────────
+
+def test_music_messages() -> None:
+    print("\n[4c] music_beat / music_state routing")
+    fake = FakeController()
+    consumer = LedConsumer(enabled=True, controller=fake)
+
+    consumer.handle_message({"message_type": "music_beat",
+                             "payload": {"bar": 3, "beat": 1, "bpm": 108.0,
+                                         "beat_strength": 1.0}})
+    check("music_beat → kick", fake.kicks == [{"strength": 1.0, "bpm": 108.0}],
+          repr(fake.kicks))
+
+    consumer.handle_message({"message_type": "music_state",
+                             "payload": {"playing": True, "bpm": 108.0,
+                                         "section": "A", "energy": 0.7}})
+    check("music_state → set_music_state",
+          fake.music_states == [{"playing": True, "bpm": 108.0,
+                                 "energy": 0.7, "section": "A"}],
+          repr(fake.music_states))
+
+    # playing flag coercion (OSC may deliver strings/numbers)
+    for raw, expected in [("false", False), ("true", True), (0, False), (1, True)]:
+        fake.music_states.clear()
+        consumer.handle_message({"message_type": "music_state",
+                                 "payload": {"playing": raw, "energy": 0.5}})
+        check(f"playing coercion {raw!r} → {expected}",
+              fake.music_states[0]["playing"] is expected,
+              repr(fake.music_states))
+
+    # Defaults: missing beat_strength → 1.0; missing energy → 0.0
+    fake.kicks.clear()
+    consumer.handle_message({"message_type": "music_beat", "payload": {}})
+    check("music_beat default strength", fake.kicks == [{"strength": 1.0, "bpm": None}],
+          repr(fake.kicks))
+    fake.music_states.clear()
+    consumer.handle_message({"message_type": "music_state", "payload": {}})
+    check("music_state defaults",
+          fake.music_states == [{"playing": False, "bpm": None,
+                                 "energy": 0.0, "section": None}],
+          repr(fake.music_states))
+
+    check("music messages counted", consumer.music_messages_applied == 8,
+          f"applied={consumer.music_messages_applied}")
+    check("music rejections zero so far", consumer.music_messages_rejected == 0)
+
+    # Bad payloads are rejected, never reach the controller
+    before_kicks = len(fake.kicks)
+    before_states = len(fake.music_states)
+    for bad in [None, "junk", {"beat_strength": "boom"}]:
+        consumer.handle_message({"message_type": "music_beat", "payload": bad})
+    for bad in [None, 42, {"energy": "loud"}]:
+        consumer.handle_message({"message_type": "music_state", "payload": bad})
+    check("bad music payloads rejected",
+          consumer.music_messages_rejected == 6,
+          f"rejected={consumer.music_messages_rejected}")
+    check("bad payloads never reach controller",
+          len(fake.kicks) == before_kicks and len(fake.music_states) == before_states)
+
+    # Offline: hardware not ready → dropped, not applied
+    offline = LedConsumer(enabled=True, controller=FakeController(connected=False))
+    offline.handle_message({"message_type": "music_beat", "payload": {"beat_strength": 1.0}})
+    offline.handle_message({"message_type": "music_state", "payload": {"playing": True, "energy": 0.5}})
+    check("music messages dropped offline",
+          offline.commands_dropped_offline == 2 and offline.music_messages_applied == 0)
+
+    # Status exposes the counters
+    status = consumer.get_status()
+    check("status has music counters",
+          status["music_messages_applied"] == 8 and status["music_messages_rejected"] == 6)
+
+
 # ── 5. TCP downlink end-to-end ────────────────────────────────────────────
 
 async def _wait_for(cond, timeout: float, what: str) -> bool:
@@ -364,6 +444,7 @@ def main() -> int:
     test_timed_revert()
     test_offline_degrade()
     test_controller_midrun_failure_degrade()
+    test_music_messages()
     asyncio.run(test_tcp_downlink_e2e())
 
     print(f"\n{'=' * 50}\n{_passed} passed, {_failed} failed")

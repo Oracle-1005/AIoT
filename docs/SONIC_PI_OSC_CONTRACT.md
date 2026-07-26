@@ -104,6 +104,11 @@ The backend should use `/music/state` as the most reliable source for the final
 displayed BPM after Sonic Pi is connected. Before Sonic Pi is connected, the
 frontend may keep using the backend-estimated value.
 
+> **LED music panel (2026-07-26)**: the backend also forwards `/music/beat` and
+> `/music/state` to the Pi LED chain as `music_beat`/`music_state` downlink
+> messages (INTERFACE_CONTRACT §8.4) driving the music-reactive spectrum panel.
+> No Sonic Pi script change is required.
+
 ## Gesture Mapping Recommendation
 
 | Gesture or event | Backend action |

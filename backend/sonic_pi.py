@@ -8,6 +8,7 @@ import time
 import uuid
 from typing import Any
 
+from pi_gateway import pi_gateway
 from state import live_state
 
 try:
@@ -28,6 +29,15 @@ SONIC_PI_SEND_HOST = os.getenv("AIOT_SONIC_PI_SEND_HOST", "127.0.0.1")
 SONIC_PI_SEND_PORT = int(os.getenv("AIOT_SONIC_PI_SEND_PORT", "4560"))
 SONIC_PI_LISTEN_HOST = os.getenv("AIOT_SONIC_PI_LISTEN_HOST", "127.0.0.1")
 SONIC_PI_LISTEN_PORT = int(os.getenv("AIOT_SONIC_PI_LISTEN_PORT", "4561"))
+
+# Forward Sonic Pi beat/state feedback to the Pi LED chain (music-reactive
+# panel). pi_gateway.send returns False when the Pi is offline — harmless.
+MUSIC_LED_ENABLED = os.getenv("AIOT_MUSIC_LED_ENABLED", "1").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 
 ACCENT_GESTURES = {
@@ -369,6 +379,12 @@ class SonicPiOscAdapter:
             received_at=received_at,
         )
         self._record_feedback(received_at)
+        self._forward_music_led("music_beat", {
+            "bar": _as_float(bar),
+            "beat": _as_float(beat),
+            "bpm": _as_float(bpm),
+            "beat_strength": _as_float(beat_strength, 1.0),
+        })
 
     def _handle_bar(self, _address: str, bar: Any, section: Any) -> None:
         received_at = time.time()
@@ -418,6 +434,29 @@ class SonicPiOscAdapter:
             received_at=received_at,
         )
         self._record_feedback(received_at)
+        self._forward_music_led("music_state", {
+            "playing": _truthy(playing),
+            "bpm": _as_float(bpm),
+            "section": str(section),
+            "energy": _as_float(energy),
+        })
+
+    def _forward_music_led(self, message_type: str, payload: dict[str, Any]) -> None:
+        """Forward one music feedback message to the Pi LED chain.
+
+        Best-effort: a disconnected Pi (send → False) is silent; unexpected
+        errors are logged at most once a minute so a ~4 msg/s stream can
+        never flood the log.
+        """
+        if not MUSIC_LED_ENABLED:
+            return
+        try:
+            pi_gateway.send({"message_type": message_type, "payload": payload})
+        except Exception as exc:  # pragma: no cover - defensive
+            now = time.time()
+            if now - getattr(self, "_music_led_error_at", 0.0) > 60.0:
+                self._music_led_error_at = now
+                self._set_error(f"music LED forward failed: {exc}")
 
     def _handle_ack(self, _address: str, command_id: Any, result: Any) -> None:
         received_at = time.time()
@@ -458,6 +497,17 @@ def _as_float(value: Any, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _truthy(value: Any) -> bool:
+    """Mirror of state._truthy for the LED-forward playing flag."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.lower() in {"1", "true", "yes", "on", "playing", "play"}
+    return bool(value)
 
 
 def _clamp(value: float, low: float, high: float) -> float:

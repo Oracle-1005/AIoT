@@ -68,6 +68,13 @@ EFFECT_TO_PATTERN = {
 _UNHANDLED_TYPES = {"led_state", "led_config", "system_command", "time_sync"}
 
 
+def _as_bool(value) -> bool:
+    """Coerce playing flags that may arrive as bool/int/str."""
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on", "playing"}
+    return bool(value)
+
+
 class LedConsumer:
     """Consumes led_command downlink messages and drives a LedController.
 
@@ -77,6 +84,8 @@ class LedConsumer:
         default_pattern: Pattern to revert to after a timed command, and the
             pattern used at startup (must be in PATTERNS).
         brightness_limit: Passed through to LedController (safety cap 0-1).
+        music_panel: Split mode — gestures on panel 0, music visualiser on
+            the last panel (passed through to LedController).
         controller: Pre-built controller for tests; bypasses auto-construction.
         clock: Monotonic clock, injectable for tests.
     """
@@ -87,12 +96,14 @@ class LedConsumer:
         enabled: bool = True,
         default_pattern: str = "breathing",
         brightness_limit: float = 0.25,
+        music_panel: bool = False,
         controller=None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._default_pattern = (
             default_pattern if default_pattern in PATTERNS else "breathing"
         )
+        self._music_panel = bool(music_panel)
         self._clock = clock
         self._revert_at: float | None = None
 
@@ -100,6 +111,8 @@ class LedConsumer:
         self.commands_applied = 0
         self.commands_rejected = 0
         self.commands_dropped_offline = 0
+        self.music_messages_applied = 0
+        self.music_messages_rejected = 0
 
         self._controller = controller
         if not enabled:
@@ -113,7 +126,10 @@ class LedConsumer:
                 )
                 return
             try:
-                self._controller = LedController(brightness_limit=brightness_limit)
+                self._controller = LedController(
+                    brightness_limit=brightness_limit,
+                    music_panel_enabled=self._music_panel,
+                )
             except Exception:
                 logger.exception("LED consumer: LedController init failed — commands will be dropped.")
                 self._controller = None
@@ -140,6 +156,10 @@ class LedConsumer:
         msg_type = message.get("message_type")
         if msg_type == "led_command":
             self.apply_command(message.get("payload"))
+        elif msg_type == "music_beat":
+            self.apply_music_beat(message.get("payload"))
+        elif msg_type == "music_state":
+            self.apply_music_state(message.get("payload"))
         elif msg_type in _UNHANDLED_TYPES:
             logger.debug("Downlink %r ignored (not implemented).", msg_type)
         else:
@@ -194,6 +214,61 @@ class LedConsumer:
             effect, pattern, brightness, duration_ms,
         )
 
+    # ── Music visualiser messages (~4 msg/s — logged at debug) ────────
+
+    def apply_music_beat(self, payload) -> None:
+        """Validate and apply one music_beat payload (spectrum kick)."""
+        if not isinstance(payload, dict):
+            self._reject_music("music_beat payload is not an object: %r", payload)
+            return
+        try:
+            strength = float(payload.get("beat_strength", 1.0))
+        except (TypeError, ValueError):
+            self._reject_music("music_beat bad beat_strength: %r", payload)
+            return
+        bpm = payload.get("bpm")
+        try:
+            bpm = float(bpm) if bpm is not None else None
+        except (TypeError, ValueError):
+            bpm = None
+
+        if not self._hardware_ready():
+            self.commands_dropped_offline += 1
+            return
+        self._controller.music_kick(strength, bpm=bpm)
+        self.music_messages_applied += 1
+        logger.debug("music_beat applied: strength=%.2f bpm=%s", strength, bpm)
+
+    def apply_music_state(self, payload) -> None:
+        """Validate and apply one music_state payload (playing/bpm/energy)."""
+        if not isinstance(payload, dict):
+            self._reject_music("music_state payload is not an object: %r", payload)
+            return
+        try:
+            energy = float(payload.get("energy", 0.0))
+        except (TypeError, ValueError):
+            self._reject_music("music_state bad energy: %r", payload)
+            return
+        playing = _as_bool(payload.get("playing", False))
+        bpm = payload.get("bpm")
+        try:
+            bpm = float(bpm) if bpm is not None else None
+        except (TypeError, ValueError):
+            bpm = None
+        section = payload.get("section")
+
+        if not self._hardware_ready():
+            self.commands_dropped_offline += 1
+            return
+        self._controller.set_music_state(
+            playing=playing, bpm=bpm, energy=energy, section=section,
+        )
+        self.music_messages_applied += 1
+        logger.debug(
+            "music_state applied: playing=%s bpm=%s energy=%.2f section=%r",
+            playing, bpm, energy, section,
+        )
+
     # ── Periodic update (called from the fusion main loop) ────────────
 
     def update(self) -> None:
@@ -221,9 +296,12 @@ class LedConsumer:
         status = {
             "controller_present": self._controller is not None,
             "default_pattern": self._default_pattern,
+            "music_panel": self._music_panel,
             "commands_applied": self.commands_applied,
             "commands_rejected": self.commands_rejected,
             "commands_dropped_offline": self.commands_dropped_offline,
+            "music_messages_applied": self.music_messages_applied,
+            "music_messages_rejected": self.music_messages_rejected,
         }
         if self._controller is not None:
             status["controller"] = self._controller.get_status()
@@ -253,6 +331,10 @@ class LedConsumer:
     def _reject(self, fmt: str, *args) -> None:
         self.commands_rejected += 1
         logger.warning("led_command rejected: " + fmt, *args)
+
+    def _reject_music(self, fmt: str, *args) -> None:
+        self.music_messages_rejected += 1
+        logger.warning("music message rejected: " + fmt, *args)
 
     def _hardware_ready(self) -> bool:
         """Controller exists AND has a live LED backend (e.g. /dev/leds0).

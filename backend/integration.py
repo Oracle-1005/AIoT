@@ -85,7 +85,8 @@ def _maybe_send_led(result: dict[str, Any]) -> bool:
 
 def send_pi_command(message_type: str, payload: dict[str, Any], **metadata: Any) -> bool:
     """Send a downlink command over the existing Pi TCP connection."""
-    allowed = {"led_command", "led_state", "led_config", "system_command", "time_sync"}
+    allowed = {"led_command", "led_state", "led_config", "system_command", "time_sync",
+               "music_beat", "music_state"}
     if message_type not in allowed:
         raise ValueError(f"message_type must be one of {sorted(allowed)}")
     message = {"message_type": message_type, "payload": payload, **metadata}

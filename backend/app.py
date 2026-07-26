@@ -25,7 +25,8 @@ from pi_gateway import PI_GATEWAY_ENABLED, PI_GATEWAY_HOST, PI_GATEWAY_PORT, pi_
 from sonic_pi import sonic_pi_adapter
 from state import live_state
 
-DOWNLINK_MESSAGE_TYPES = frozenset({"led_command", "led_state", "led_config", "system_command", "time_sync"})
+DOWNLINK_MESSAGE_TYPES = frozenset({"led_command", "led_state", "led_config", "system_command", "time_sync",
+                                    "music_beat", "music_state"})
 
 
 def create_app() -> Flask:

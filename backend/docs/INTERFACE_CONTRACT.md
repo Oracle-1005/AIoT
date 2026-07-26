@@ -577,6 +577,33 @@ Primary path: `fused_frame` → per-hand `sample_sequence` deduplication → sli
 window → model prediction → label mapping → database/live state/Sonic Pi. Direct
 `window_features` uplink is also registered as a compatibility path.
 
+### 8.4 `music_beat` / `music_state` downlink (additive, 2026-07-26)
+
+Music-reactive LED panel feed. The backend forwards Sonic Pi OSC feedback
+(`/music/beat`, `/music/state`, see `docs/SONIC_PI_OSC_CONTRACT.md`) to the Pi
+over the downlink. Additive only — the frozen `led_command` schema is unchanged.
+Sending is best-effort: these messages are dropped silently when the Pi is
+offline, and no acknowledgment is expected.
+
+```json
+{"message_type": "music_beat",
+ "payload": {"bar": 3.0, "beat": 1.0, "bpm": 108.0, "beat_strength": 1.0}}
+
+{"message_type": "music_state",
+ "payload": {"playing": true, "bpm": 108.0, "section": "A", "energy": 0.7}}
+```
+
+- `music_beat`: one per beat (~2 Hz at performance tempos). `beat_strength`
+  in `[0,1]`; `1.0` marks the downbeat. Drives the spectrum "kick".
+- `music_state`: one per ~0.5 s. `playing` (bool), `energy` in `[0,1]`,
+  `section` (string), `bpm` (number). Drives spectrum amplitude/hue;
+  `playing=false` ramps the panel to black.
+- Pi consumer: `led_consumer.apply_music_beat/apply_music_state`; malformed
+  payloads are rejected and counted, never crash the pipeline.
+- Backend toggle: `AIOT_MUSIC_LED_ENABLED` (default `1`). Pi toggle:
+  `led.music_panel` in `config.yaml` (split mode: gestures on panel 0,
+  music visualiser on the last panel).
+
 ## Backend fused-frame model input (2026-07-24 revision)
 
 The backend calls `GestureClassifier.predict(window_data)` using a raw-window
