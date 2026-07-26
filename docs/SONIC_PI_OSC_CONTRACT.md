@@ -89,6 +89,22 @@ Triggers a one-shot accent, usually from a downbeat or wrist strike.
 | `strength` | float | `0.9` |
 | `type` | string | `right_wrist_strike` |
 
+### `/conductor/layer`
+
+Hard layer gate (2026-07-26, for the New World zone-conducting demo). Flips
+the named layer's play gate **immediately** — bypasses the parameter
+smoother, unlike amp fades. Independent of `/conductor/state` layer amps:
+a muted layer stays muted across subsequent state sends.
+
+```text
+/conductor/layer command_id layer enabled
+```
+
+| Field | Type | Example |
+|---|---|---|
+| `layer` | string | `melody` — one of `melody`, `harmony`, `bass`, `drums` |
+| `enabled` | float | `1.0` = on, `0.0` = off |
+
 ## Sonic Pi To Backend
 
 The provided Sonic Pi script sends these feedback paths.
@@ -99,6 +115,7 @@ The provided Sonic Pi script sends these feedback paths.
 | `/music/beat` | `bar, beat, bpm, beat_strength` | Beat-accurate feedback for frontend/LED display |
 | `/music/bar` | `bar, section` | Section and bar counter |
 | `/music/state` | `playing, bpm, section, energy` | Actual music execution state |
+| `/music/layers` | `melody, harmony, bass, drums` | Layer gate states (0/1 each), every 0.5 s and after each `/conductor/layer` — rb is authoritative |
 | `/music/ack` | `command_id, result` | Command acknowledgement |
 
 The backend should use `/music/state` as the most reliable source for the final

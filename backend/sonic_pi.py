@@ -113,6 +113,7 @@ class SonicPiOscAdapter:
         osc_dispatcher.map("/music/bar", self._handle_bar)
         osc_dispatcher.map("/music/track", self._handle_track)
         osc_dispatcher.map("/music/state", self._handle_state)
+        osc_dispatcher.map("/music/layers", self._handle_layers)
         osc_dispatcher.map("/music/ack", self._handle_ack)
         osc_dispatcher.map("/music/error", self._handle_error)
         osc_dispatcher.map("/music/pong", self._handle_pong)
@@ -260,6 +261,21 @@ class SonicPiOscAdapter:
             "/conductor/bpm",
             command_id or _command_id(),
             _clamp(_as_float(bpm, 108.0), 72.0, 148.0),
+        )
+
+    def send_layer(
+        self,
+        layer: str,
+        enabled: bool,
+        *,
+        command_id: str | None = None,
+    ) -> bool:
+        """声部硬切：rb 侧立即翻转播放门（melody/harmony/bass/drums）。"""
+        return self._send(
+            "/conductor/layer",
+            command_id or _command_id(),
+            str(layer),
+            1.0 if enabled else 0.0,
         )
 
     def send_accent(
@@ -461,6 +477,24 @@ class SonicPiOscAdapter:
             if now - getattr(self, "_music_led_error_at", 0.0) > 60.0:
                 self._music_led_error_at = now
                 self._set_error(f"music LED forward failed: {exc}")
+
+    def _handle_layers(
+        self,
+        _address: str,
+        melody: Any,
+        harmony: Any,
+        bass: Any,
+        drums: Any,
+    ) -> None:
+        received_at = time.time()
+        live_state.apply_sonic_pi_layers(
+            melody=melody,
+            harmony=harmony,
+            bass=bass,
+            drums=drums,
+            received_at=received_at,
+        )
+        self._record_feedback(received_at)
 
     def _handle_ack(self, _address: str, command_id: Any, result: Any) -> None:
         received_at = time.time()

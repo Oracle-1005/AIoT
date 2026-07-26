@@ -30,6 +30,13 @@ GESTURES = (
 )
 
 SONIC_PI_TRACKS = {
+    "new_world": {
+        "title": "From the New World (Dvorak 9, IV. Allegro con fuoco)",
+        "key": "E Minor",
+        "bpm": 138,
+        "total_bars": 8,
+        "beats_per_bar": 4,
+    },
     "ode_to_joy": {
         "title": "Ode to Joy Conductor Mix",
         "key": "C Major",
@@ -45,12 +52,15 @@ SONIC_PI_TRACKS = {
         "beats_per_bar": 4,
     },
 }
-SONIC_PI_TRACK_ORDER = ("ode_to_joy", "canon_in_d")
+SONIC_PI_TRACK_ORDER = ("new_world", "ode_to_joy", "canon_in_d")
 SONIC_PI_DEFAULT_TRACK_ID = SONIC_PI_TRACK_ORDER[0]
 SONIC_PI_TRACK_TITLE = SONIC_PI_TRACKS[SONIC_PI_DEFAULT_TRACK_ID]["title"]
 SONIC_PI_TRACK_KEY = SONIC_PI_TRACKS[SONIC_PI_DEFAULT_TRACK_ID]["key"]
 SONIC_PI_TRACK_TOTAL_BARS = SONIC_PI_TRACKS[SONIC_PI_DEFAULT_TRACK_ID]["total_bars"]
 SONIC_PI_BEATS_PER_BAR = SONIC_PI_TRACKS[SONIC_PI_DEFAULT_TRACK_ID]["beats_per_bar"]
+
+# 可硬切的四个声部（区域手势自上而下：melody → harmony → bass → drums）
+MUSIC_LAYERS = ("melody", "harmony", "bass", "drums")
 
 
 class LiveState:
@@ -104,6 +114,9 @@ class LiveState:
             "performance_elapsed_seconds": 0.0,
             "progress": 0,
             "current_gesture": "idle",
+            # 声部硬切门：后端持有意图，rb 侧 /conductor/layer 翻转播放门；
+            # 与 *_amp 推导独立，不会被 /conductor/state 冲掉
+            "layers": {name: True for name in MUSIC_LAYERS},
             "sonic_pi_connected": False,
             "last_beat": None,
             "last_bar": None,
@@ -300,6 +313,34 @@ class LiveState:
                 style = music_control.get("style")
                 if style:
                     self.music_state["style"] = str(style)
+
+    def set_music_layer(self, layer: str, enabled: bool) -> bool:
+        """硬切一个声部（melody/harmony/bass/drums）。未知声部返回 False。"""
+        name = str(layer).strip()
+        if name not in MUSIC_LAYERS:
+            return False
+        with self._lock:
+            self.music_state["layers"][name] = bool(enabled)
+        return True
+
+    def apply_sonic_pi_layers(
+        self,
+        *,
+        melody: Any,
+        harmony: Any,
+        bass: Any,
+        drums: Any,
+        received_at: float,
+    ) -> None:
+        """rb 侧 /music/layers 周期反馈 —— 以 rb 门状态为准同步。"""
+        with self._lock:
+            self.music_state["layers"] = {
+                "melody": _online(melody),
+                "harmony": _online(harmony),
+                "bass": _online(bass),
+                "drums": _online(drums),
+            }
+            self.music_state["last_sonic_pi_feedback_at"] = received_at
 
     def update_sensors(
         self,

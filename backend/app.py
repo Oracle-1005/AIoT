@@ -23,7 +23,7 @@ from inference_pipeline import inference_pipeline
 from model_service import model_service
 from pi_gateway import PI_GATEWAY_ENABLED, PI_GATEWAY_HOST, PI_GATEWAY_PORT, pi_gateway
 from sonic_pi import sonic_pi_adapter
-from state import live_state
+from state import MUSIC_LAYERS, live_state
 
 DOWNLINK_MESSAGE_TYPES = frozenset({"led_command", "led_state", "led_config", "system_command", "time_sync",
                                     "music_beat", "music_state"})
@@ -172,6 +172,24 @@ def create_app() -> Flask:
             body,
         )
         return jsonify({"sent": sent, "sonic_pi": sonic_pi_adapter.status()}), 200 if sent else 503
+
+    @app.post("/api/music/layers")
+    def music_layers():
+        """声部硬切：{"layer": "drums", "enabled": false} → rb 播放门立即翻转。"""
+        body = request.get_json(silent=True) or {}
+        if not isinstance(body, dict):
+            return jsonify({"error": "request body must be a JSON object"}), 400
+        layer = str(body.get("layer", "")).strip()
+        enabled = bool(body.get("enabled"))
+        if not live_state.set_music_layer(layer, enabled):
+            return jsonify({
+                "error": f"layer must be one of {list(MUSIC_LAYERS)}",
+            }), 400
+        sent = sonic_pi_adapter.send_layer(layer, enabled)
+        return jsonify({
+            "sent": sent,
+            "layers": live_state.get_music()["layers"],
+        }), 200 if sent else 503
 
     @app.errorhandler(404)
     def not_found(_error): return jsonify({"error": "Endpoint not found"}), 404
