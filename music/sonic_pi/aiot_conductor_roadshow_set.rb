@@ -48,7 +48,8 @@ set :layer_drums_on, true
 # against the Simrock 1894 first edition: E F# G | F# E E | E D B D | E | E F# G | F# E E |
 # E (G-E-G triplet) B B(low) | E -- with true rhythm (half/dotted/eighth notes + one triplet).
 # Chords: one slot every 2 beats = 16 slots per 8-bar loop (Em Am Em-G/B Em | Em Am G-B7/F# Em).
-# loop_total_bars=8 -> current_section is always :finale, keeping the whole piece at high energy
+# new_world uses FLAT dynamics in the drums/bass branches (no section_gain), so the motto
+# stays at constant forte across all 8 bars of every loop pass.
 set :new_world_title, "From the New World (Dvorak 9, IV. Allegro con fuoco)"
 set :new_world_key, "E Minor"
 set :new_world_bpm, 138.0
@@ -471,7 +472,8 @@ live_loop :drums do
   use_bpm get(:current_bpm)
 
   if playable? && get(:layer_drums_on)
-    amp = get(:drum_amp).to_f * main_amp * section_gain(0.3, 0.72, 1.0, 1.16)
+    # new_world keeps flat forte dynamics (no section_gain swell at bar 5); other pieces keep section gains
+    amp = get(:drum_amp).to_f * main_amp * (get(:piece_id) == :new_world ? 1.0 : section_gain(0.3, 0.72, 1.0, 1.16))
     energy = get(:energy).to_f
     density = get(:drum_density).to_f
     beat = data[:beat]
@@ -511,7 +513,7 @@ live_loop :bass do
     root_note = next_chord[0]
     use_synth :fm
     with_fx :lpf, cutoff: get(:cutoff) do
-      bass_level = get(:bass_amp).to_f * main_amp * section_gain(0.5, 0.82, 1.05, 1.16)
+      bass_level = get(:bass_amp).to_f * main_amp * (get(:piece_id) == :new_world ? 1.0 : section_gain(0.5, 0.82, 1.05, 1.16))
       if get(:piece_id) == :new_world
         # Bass strings staccato: root x3 + upper octave (2 beats)
         play root_note, release: 0.28, amp: bass_level, depth: 1.4
@@ -593,11 +595,14 @@ live_loop :melody do
   end
 
   if get(:piece_id) == :new_world
-    # Motto with true rhythm: one tick index reads note + duration from parallel rings.
-    # Tick advances even when muted, so re-entry stays phrase-aligned with the chords.
+    # Motto with true rhythm: one tick index reads note + duration from parallel lists.
+    # Explicit modulo wrap (no reliance on Sonic Pi ring semantics); tick keeps
+    # advancing even when muted, so re-entry stays phrase-aligned with the chords.
     mi = tick(:melody)
-    note_value = piece_value(:melody_notes)[mi]
-    dur_value = piece_value(:melody_durs)[mi]
+    notes_list = piece_value(:melody_notes)
+    durs_list = piece_value(:melody_durs)
+    note_value = notes_list[mi % notes_list.length]
+    dur_value = durs_list[mi % durs_list.length]
     if note_value && get(:layer_melody_on)
       # Brass unison: saw octave double (new_world is always :finale, so no extra octave shift here)
       use_synth :saw
