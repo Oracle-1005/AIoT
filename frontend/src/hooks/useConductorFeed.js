@@ -172,6 +172,20 @@ function readCameraMedia(camera = {}, sensors = {}) {
   return { streamUrl, frameUrl }
 }
 
+// The Pi fusion pipeline serves an in-process MJPEG preview
+// (hardware/fusion_pipeline/preview_server.py, config preview.port 8790)
+// whenever pi-fusion runs, independently of the TCP downlink. Deriving the
+// URL from the connected gateway client address keeps the Pi's hotspot IP
+// out of the frontend; the backend-provided fields / VITE_CAMERA_STREAM_URL
+// remain the fallback for the disconnected case (see readCameraMedia).
+const PI_PREVIEW_PORT = 8790
+
+function derivePiPreviewUrl(gateway = {}) {
+  const raw = gateway.client_address
+  const host = Array.isArray(raw) ? raw[0] : String(raw || '').split(':')[0]
+  return host ? `http://${host}:${PI_PREVIEW_PORT}/stream` : ''
+}
+
 function vectorMagnitude(values) {
   if (!Array.isArray(values)) return 0
   return Math.sqrt(
@@ -388,6 +402,7 @@ function normalizeRestFrame({ status = {}, prediction = {}, sensors = {}, music 
   const volume = toPercent(Number(music.volume), base.music.volume)
   const handCount = Number(sensors.hand_count || 0)
   const gateway = piStatus.gateway || status.pi_gateway || {}
+  const piPreviewUrl = derivePiPreviewUrl(gateway)
   const sonicPi = status.sonic_pi || {}
   const sonicPiConnected = typeof sonicPi.connected === 'boolean'
     ? sonicPi.connected
@@ -455,9 +470,9 @@ function normalizeRestFrame({ status = {}, prediction = {}, sensors = {}, music 
       height: Number(rawCamera.height || base.camera.height || 480),
       fps: Number(rawCamera.fps || base.connection.fps),
       hands: cameraHands,
-      streamUrl: cameraMedia.streamUrl,
+      streamUrl: piPreviewUrl || cameraMedia.streamUrl,
       frameUrl: cameraMedia.frameUrl,
-      hasLiveVideo: Boolean(cameraMedia.streamUrl || cameraMedia.frameUrl),
+      hasLiveVideo: Boolean(piPreviewUrl || cameraMedia.streamUrl || cameraMedia.frameUrl),
       hasLiveLandmarks: cameraHands.some((hand) => hand.landmarks.length > 0),
       raw: rawCamera,
     },

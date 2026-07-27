@@ -527,6 +527,12 @@ function ConductorSignalScene({ frame, compact = false, heightClass = '' }) {
     [frame.camera?.hands],
   )
   const hasLiveLandmarks = liveHands.length > 0
+  const lastSceneAction = frame.coordinate?.lastActions?.length
+    ? frame.coordinate.lastActions[frame.coordinate.lastActions.length - 1]
+    : null
+  const sceneIntention = lastSceneAction && (Date.now() / 1000 - Number(lastSceneAction.at || 0)) < 12
+    ? describeCoordinateAction(lastSceneAction.name)[0]
+    : null
   const waveBars = useMemo(
     () =>
       Array.from({ length: compact ? 34 : 52 }, (_, index) => ({
@@ -687,11 +693,13 @@ function ConductorSignalScene({ frame, compact = false, heightClass = '' }) {
           </>
         )}
       </svg>
-      {!mediaSource && !compact ? (
+      {!mediaSource && !hasLiveLandmarks && !compact ? (
         <div className="absolute left-1/2 top-1/2 w-[min(480px,calc(100%-48px))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-dashed border-cyan/30 bg-black/35 p-4 text-center backdrop-blur">
           <p className="text-sm font-semibold text-white">Raspberry Pi Camera Preview</p>
           <p className="mt-2 text-xs font-semibold uppercase text-cyan">Live hand tracking area</p>
-          <p className="mt-2 text-xs leading-5 text-slate-300">硬件接入后这里显示树莓派摄像头实时画面，不调用电脑本地摄像头；手部关键点和运动轨迹会叠加在画面上。</p>
+          <p className="mt-2 text-xs leading-5 text-slate-300">{frame.connection.piGatewayConnected
+            ? '链路已连接：把双手放进树莓派摄像头画面，关键点、骨架和运动轨迹会实时叠加在这里。'
+            : '等待树莓派链路接入：这里显示 Pi 摄像头实时画面（MJPEG，不调用电脑本地摄像头），手部关键点和运动轨迹会叠加在画面上。'}</p>
         </div>
       ) : null}
       <div className="absolute inset-x-6 bottom-5 flex h-20 items-end justify-center gap-1.5">
@@ -721,7 +729,7 @@ function ConductorSignalScene({ frame, compact = false, heightClass = '' }) {
       </div>
       <div className="absolute bottom-5 right-5 rounded-md border border-white/10 bg-black/35 px-3 py-2 text-right backdrop-blur">
         <p className="text-xs text-slate-400">Current Intention</p>
-        <p className="font-display text-xl font-semibold text-white">{frame.prediction.label}</p>
+        <p className="font-display text-xl font-semibold text-white">{sceneIntention || frame.prediction.label}</p>
       </div>
     </div>
   )
@@ -1742,6 +1750,25 @@ function AboutProject() {
   )
 }
 
+// Maps a coordinate-recognizer action name (from /api/coordinate/state
+// last_actions) to a visitor-friendly [label, music effect] pair.
+function describeCoordinateAction(name = '') {
+  const key = String(name).toLowerCase()
+  const table = {
+    start: ['Right Fist', 'Music starts'],
+    stop: ['Left Fist', 'Music stops'],
+    vol_up: ['Left Palm Up', 'Volume up'],
+    vol_down: ['Right Palm Down', 'Volume down'],
+    bpm_up: ['Left Fist Up', 'BPM up'],
+    bpm_down: ['Right Fist Down', 'BPM down'],
+  }
+  if (table[key]) return table[key]
+  if (key.startsWith('zone_on')) return ['Palms In Zone', 'Layer switched ON']
+  if (key.startsWith('zone_off')) return ['Fists In Zone', 'Layer switched OFF']
+  if (key.startsWith('style')) return ['Both Fists Tilt', 'Style changes']
+  return [key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()), 'Music control']
+}
+
 function ExperienceMode({ open, onClose, frame, onTransport }) {
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [transportPending, setTransportPending] = useState(false)
@@ -1755,17 +1782,17 @@ function ExperienceMode({ open, onClose, frame, onTransport }) {
     frame.connection.piGatewayConnected,
   )
   const displayBpm = Math.max(72, Math.min(148, Number(frame.music.bpm || 108) + scenario.bpmOffset))
-  const displayPlaying = liveInputReady ? frame.music.playing : guestPlaybackActive && scenario.gesture !== 'cutoff'
+  const displayPlaying = liveInputReady ? frame.music.playing : guestPlaybackActive && scenario.gesture !== 'stop'
   const fallbackFrame = {
     ...frame,
     prediction: {
       ...frame.prediction,
       gesture: scenario.gesture,
       label: scenario.label.toUpperCase(),
-      confidence: scenario.gesture === 'cutoff' ? 91 : 94,
+      confidence: 94,
       response: scenario.effect,
       top3: [
-        { label: scenario.label, value: scenario.gesture === 'cutoff' ? 91 : 94 },
+        { label: scenario.label, value: 93 },
         { label: 'Idle', value: 4 },
         { label: 'Tempo Hold', value: 2 },
       ],
@@ -1775,94 +1802,126 @@ function ExperienceMode({ open, onClose, frame, onTransport }) {
       bpm: displayBpm,
       volume: scenario.volume,
       energy: scenario.energy,
-      density: scenario.gesture === 'tempo_up' ? 72 : scenario.gesture === 'crescendo' ? 68 : scenario.gesture === 'cutoff' ? 22 : 52,
+      density: scenario.gesture === 'bpm_up' ? 72 : scenario.gesture === 'vol_up' ? 68 : scenario.gesture === 'stop' ? 22 : 52,
       playing: displayPlaying,
-      beatStrength: scenario.gesture === 'downbeat' ? 100 : frame.music.beatStrength,
+      beatStrength: scenario.gesture === 'start' ? 100 : frame.music.beatStrength,
     },
   }
   const displayFrame = liveInputReady ? frame : fallbackFrame
+  const lastCoordinateAction = frame.coordinate?.lastActions?.length
+    ? frame.coordinate.lastActions[frame.coordinate.lastActions.length - 1]
+    : null
+  const coordinateAction = lastCoordinateAction && (Date.now() / 1000 - Number(lastCoordinateAction.at || 0)) < 12
+    ? describeCoordinateAction(lastCoordinateAction.name)
+    : null
   const sonicPiDisplay = getSonicPiDisplayState(frame.music)
   const experienceMusicStatus = frame.music.sonicPiConnected
     ? displayFrame.music.playing ? 'Playing' : 'Paused'
     : sonicPiDisplay.label
   const activeExperience = liveInputReady
     ? {
-        label: frame.prediction.label,
-        subtitle: 'Real camera + Micro:bit input',
-        effect: frame.prediction.response,
+        label: coordinateAction ? coordinateAction[0].toUpperCase() : frame.prediction.label,
+        subtitle: coordinateAction ? 'Coordinate recognizer · live rule-based input' : 'Real camera + Micro:bit input',
+        effect: coordinateAction ? coordinateAction[1] : frame.prediction.response,
         color: '#38bdf8',
       }
     : scenario
-  const fallbackLedAction = scenario.gesture === 'cutoff'
-    ? 'Red cutoff flash'
-    : scenario.gesture === 'crescendo'
-      ? 'Energy wave'
-      : scenario.gesture === 'tempo_up'
+  const fallbackLedAction = scenario.gesture === 'stop'
+    ? 'Red stop flash'
+    : scenario.gesture === 'vol_up'
+      ? 'Volume wave up'
+      : scenario.gesture === 'bpm_up'
         ? 'Tempo meter sweep'
-        : 'Beat flash'
+        : 'Start flash'
   const liveLedBrightness = Number(displayFrame.actuation?.led?.brightness || 0)
   const liveLedBrightnessPct = liveLedBrightness <= 1 ? Math.round(liveLedBrightness * 100) : Math.round(liveLedBrightness)
   const liveLed = displayFrame.actuation?.led?.pattern
     ? `${displayFrame.actuation.led.pattern} · ${liveLedBrightnessPct}%`
     : 'LED Ready'
   const experienceLedAction = liveInputReady ? liveLed.replace(/\s.\s(?=\d+%$)/, ' ') : fallbackLedAction
-  const experienceActionChain = [
-    ['Detected Gesture', displayFrame.prediction.label],
-    ['AI Confidence', `${displayFrame.prediction.confidence}%`],
-    ['Music Action', liveInputReady ? displayFrame.prediction.response : scenario.effect],
-    ['LED Action', experienceLedAction],
-    ['Database', displayFrame.actuation?.databaseSaved || frame.connection.backend === 'REST Online' ? 'Saved' : 'Ready'],
-  ]
+  const databaseCell = displayFrame.actuation?.databaseSaved || frame.connection.backend === 'REST Online' ? 'Saved' : 'Ready'
+  const experienceActionChain = liveInputReady && coordinateAction
+    ? [
+        ['Detected Action', coordinateAction[0]],
+        ['Recognizer', `Rules ${frame.coordinate?.fps || 0} fps`],
+        ['Music Action', coordinateAction[1]],
+        ['LED Action', experienceLedAction],
+        ['Database', databaseCell],
+      ]
+    : [
+        ['Detected Gesture', displayFrame.prediction.label],
+        ['AI Confidence', `${displayFrame.prediction.confidence}%`],
+        ['Music Action', liveInputReady ? displayFrame.prediction.response : scenario.effect],
+        ['LED Action', experienceLedAction],
+        ['Database', databaseCell],
+      ]
   const guestStatus = countdown > 0 ? `Starting in ${countdown}` : sessionActive ? 'Guest Session Live' : 'Ready for Guest'
+  const trackStyleLists = {
+    shape_of_you: ['acoustic_pop', 'tropical_house', 'festival_edm'],
+    world_is_mine: ['piano_pop', 'vocaloid_electro', 'rock_band'],
+  }
+  const styleList = trackStyleLists[displayFrame.music.trackId] || trackStyleLists.shape_of_you
+  const styleKey = String(displayFrame.music.style || '').toLowerCase().replace(/[\s-]+/g, '_')
+  const styleIndex = Math.max(0, styleList.indexOf(styleKey))
+  const layersOn = Object.values(displayFrame.music.layers || {}).filter(Boolean).length
+  const handsPresent = [displayFrame.coordinate?.hands?.left?.present, displayFrame.coordinate?.hands?.right?.present]
+  const handsCount = handsPresent.filter(Boolean).length
+  const handsValue = handsCount === 2 ? 'L + R' : handsCount === 1 ? (handsPresent[0] ? 'Left' : 'Right') : 'None'
   const musicParameterVisuals = [
     {
       label: 'BPM',
       value: displayFrame.music.bpm,
-      source: 'Faster right-hand beats raise tempo',
-      bar: Math.min(100, Math.max(0, ((Number(displayFrame.music.bpm) - 72) / 76) * 100)),
+      source: 'Left fist up = BPM + · right fist down = BPM −',
+      bar: Math.min(100, Math.max(0, ((Number(displayFrame.music.bpm) - 60) / 120) * 100)),
       color: 'from-cyan to-gold',
     },
     {
       label: 'Volume',
       value: `${displayFrame.music.volume}%`,
-      source: 'Lift the left hand to make it louder',
+      source: 'Left palm up = louder · right palm down = quieter',
       bar: displayFrame.music.volume,
       color: 'from-gold to-amber-300',
     },
     {
-      label: 'Energy',
-      value: `${displayFrame.music.energy}%`,
-      source: 'Bigger motion increases intensity',
-      bar: displayFrame.music.energy,
+      label: 'Style',
+      value: displayFrame.music.style,
+      source: 'Both fists: left high = previous · right high = next',
+      bar: ((styleIndex + 1) / styleList.length) * 100,
       color: 'from-mint to-cyan',
     },
     {
-      label: 'Density',
-      value: `${displayFrame.music.density}%`,
-      source: 'Continuous movement thickens texture',
-      bar: displayFrame.music.density,
+      label: 'Layers',
+      value: `${layersOn}/4 on`,
+      source: 'Two palms in a zone = layer on · two fists = layer off',
+      bar: (layersOn / 4) * 100,
       color: 'from-violet-400 to-cyan',
     },
     {
       label: 'Beat Power',
       value: `${displayFrame.music.beatStrength}%`,
-      source: 'Sharp wrist strike triggers accent',
+      source: 'Live beat feedback from Sonic Pi',
       bar: displayFrame.music.beatStrength,
       color: 'from-coral to-gold',
     },
     {
-      label: 'Confidence',
-      value: `${displayFrame.prediction.confidence}%`,
-      source: 'AI confidence for current gesture',
-      bar: displayFrame.prediction.confidence,
+      label: 'Hands',
+      value: handsValue,
+      source: 'Put both hands inside the Pi camera view',
+      bar: (handsCount / 2) * 100,
       color: 'from-cyan to-mint',
     },
   ]
   const gestureGuide = [
-    ['Raise left hand', 'Increase Volume / Energy'],
-    ['Right wrist strike', 'Trigger Beat / Accent'],
-    ['Move faster', 'Increase BPM / Density'],
-    ['Cutoff gesture', 'Pause Music + Save Action'],
+    ['Right fist', 'Start the music'],
+    ['Left fist', 'Stop the music'],
+    ['Left palm push up', 'Volume up'],
+    ['Right palm push down', 'Volume down'],
+    ['Left fist push up', 'BPM up'],
+    ['Right fist push down', 'BPM down'],
+    ['Both fists · left high', 'Previous style'],
+    ['Both fists · right high', 'Next style'],
+    ['Two palms in a zone', 'Layer ON · zones top to bottom: melody, harmony, bass, drums'],
+    ['Two fists in a zone', 'Layer OFF · same zones'],
   ]
 
   useEffect(() => {
@@ -2003,7 +2062,7 @@ function ExperienceMode({ open, onClose, frame, onTransport }) {
                       <div key={gesture} className="rounded-md border border-white/10 bg-white/[0.045] p-2">
                         <div className="mb-2 flex items-center justify-between gap-2">
                           <p className="text-sm font-semibold text-white">{gesture}</p>
-                          <span className="font-mono text-[11px] text-gold">0{index + 1}</span>
+                          <span className="font-mono text-[11px] text-gold">{String(index + 1).padStart(2, '0')}</span>
                         </div>
                         <p className="text-xs leading-5 text-slate-300">{result}</p>
                       </div>
