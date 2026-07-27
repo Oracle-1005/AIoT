@@ -279,6 +279,19 @@ class SonicPiOscAdapter:
             1.0 if enabled else 0.0,
         )
 
+    def send_volume(
+        self,
+        volume: float,
+        *,
+        command_id: str | None = None,
+    ) -> bool:
+        """主音量直控：/conductor/volume（rb 有独立 receiver，不走 state 重算）。"""
+        return self._send(
+            "/conductor/volume",
+            command_id or _command_id(),
+            _clamp(_as_float(volume, 0.8), 0.0, 1.0),
+        )
+
     def send_style(
         self,
         style: str,

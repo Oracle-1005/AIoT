@@ -1,0 +1,219 @@
+"""Tests for the rule-based coordinate gesture recognizer.
+
+Covers (design: session-summary 8.0-8.3):
+  1. hand classification: fist/palm via openness EMA + finger_states vote
+  2. right fist held -> start, once per appearance (re-arm on release)
+  3. left fist held -> stop; left fist push-up -> bpm_up instead of stop
+  4. right fist push-down -> bpm_down (repeat while held)
+  5. single palm pushes -> volume up/down
+  6. two palms in same band -> zone_on (layer enable), dead-zone re-arm
+  7. two fists in same band -> zone_off; height separation -> style prev/next
+  8. style gesture suppresses zone_off (no double action)
+  9. swap_hands mirrors left/right
+ 10. brief detection gaps do not reset sustain counters
+ 11. disabled recognizer is inert
+
+Script-style (same convention as test_music_layers.py): run directly.
+"""
+
+from __future__ import annotations
+
+import coordinate_recognizer as cr
+
+DT = 1.0 / 16.0   # 实测帧率 ~16Hz
+
+
+def make_frame(hands: list[dict]) -> dict:
+    return {"camera": {"hands": hands}}
+
+
+def hand(
+    side: str,
+    *,
+    openness: float,
+    y: float = 0.5,
+    vy: float = 0.0,
+    extended: int | None = None,
+) -> dict:
+    if extended is None:
+        extended = 0 if openness < 0.4 else 5
+    return {
+        "hand_id": side,
+        "handedness": side,
+        "features": {
+            "openness": openness,
+            "finger_states": [1] * extended + [0] * (5 - extended),
+            "wrist_position": [0.5, y, 0.0],
+            "wrist_velocity": [0.0, vy, 0.0],
+        },
+    }
+
+
+def fist(side: str, y: float = 0.5, vy: float = 0.0) -> dict:
+    return hand(side, openness=0.1, y=y, vy=vy)
+
+
+def palm(side: str, y: float = 0.5, vy: float = 0.0) -> dict:
+    return hand(side, openness=0.9, y=y, vy=vy)
+
+
+class Rig:
+    """识别器 + 动作收集 + 假时钟。"""
+
+    def __init__(self, **kwargs) -> None:
+        self.events: list[tuple[str, dict]] = []
+        self.rec = cr.CoordinateRecognizer(
+            action_sink=lambda name, detail: self.events.append((name, detail)),
+            **kwargs,
+        )
+        self.t = 1000.0
+
+    def feed(self, frames: list[dict], count: int = 1) -> None:
+        for _ in range(count):
+            self.t += DT
+            self.rec.process_frame(make_frame(frames), self.t)
+
+    def names(self) -> list[str]:
+        return [name for name, _ in self.events]
+
+
+def main() -> None:
+    # 1. 手型分类：拳/掌 + 迟滞
+    rig = Rig()
+    rig.feed([fist("left")], 3)
+    left = rig.rec._hands["left"]
+    assert left.label == "fist", left.label
+    rig.feed([palm("left")], 3)
+    assert left.label == "palm", left.label
+    # 中间值（证据不足）保持上次手型
+    rig.feed([hand("left", openness=0.48, extended=2)], 3)
+    assert left.label == "palm", left.label
+    print("PASS 1 手型分类（拳/掌/迟滞）")
+
+    # 2. 右拳静置 -> start，每拳一次，松开后重新武装
+    rig = Rig()
+    rig.feed([fist("right")], cr.HOLD_FRAMES_TRANSPORT - 1)
+    assert rig.events == [], rig.events
+    rig.feed([fist("right")], 1)
+    assert rig.names() == ["start"], rig.events
+    rig.feed([fist("right")], cr.HOLD_FRAMES_TRANSPORT + 5)
+    assert rig.names() == ["start"], rig.events   # 不重复
+    rig.feed([], cr.REARM_FRAMES + 2)             # 手离开 -> re-arm
+    rig.feed([fist("right")], cr.HOLD_FRAMES_TRANSPORT)
+    assert rig.names() == ["start", "start"], rig.events
+    print("PASS 2 右拳=start（边沿一次 + re-arm）")
+
+    # 3. 左拳静置 -> stop；左拳上推 -> bpm_up 且 stop 不触发
+    rig = Rig()
+    rig.feed([fist("left")], cr.HOLD_FRAMES_TRANSPORT)
+    assert rig.names() == ["stop"], rig.events
+    rig2 = Rig()
+    rig2.feed([fist("left")], 3)                  # 先静置 3 帧
+    rig2.feed([fist("left", vy=-0.8)], cr.HOLD_FRAMES_PUSH + 3)  # EMA 收敛 ~2 帧
+    assert "bpm_up" in rig2.names(), rig2.events
+    assert "stop" not in rig2.names(), rig2.events
+    print("PASS 3 左拳=stop / 左拳上推=BPM+（互斥正确）")
+
+    # 4. 右拳下推 -> bpm_down 持续重复
+    rig = Rig()
+    rig.feed([fist("right", vy=0.8)], cr.HOLD_FRAMES_PUSH + 3)
+    assert rig.names() == ["bpm_down"], rig.events
+    # 继续按住：不到重复间隔不再发，超过 0.45s 后再发
+    rig.feed([fist("right", vy=0.8)], 3)          # ~0.19s
+    assert rig.names() == ["bpm_down"], rig.events
+    rig.feed([fist("right", vy=0.8)], 6)          # 累计 ~0.56s
+    assert rig.names().count("bpm_down") == 2, rig.events
+    assert "start" not in rig.names(), rig.events
+    print("PASS 4 右拳下推=BPM-（按住重复）")
+
+    # 5. 单掌推音量：左掌上推 vol_up / 右掌下推 vol_down；静置不发
+    rig = Rig()
+    rig.feed([palm("left", vy=-0.8)], cr.HOLD_FRAMES_PUSH + 3)
+    assert rig.names() == ["vol_up"], rig.events
+    rig.feed([palm("left", vy=0.0)], cr.HOLD_FRAMES_PUSH + 3)
+    assert rig.names() == ["vol_up"], rig.events   # 静置不重复
+    rig2 = Rig()
+    rig2.feed([palm("right", vy=0.8)], cr.HOLD_FRAMES_PUSH + 3)
+    assert rig2.names() == ["vol_down"], rig2.events
+    print("PASS 5 单掌推=音量±（静置不误触）")
+
+    # 6. 双手掌同带 -> 开声部；死区重新武装
+    rig = Rig()
+    rig.feed([palm("left", y=0.10), palm("right", y=0.12)],
+             cr.HOLD_FRAMES_ZONE - 1)
+    assert rig.events == [], rig.events
+    rig.feed([palm("left", y=0.10), palm("right", y=0.12)], 1)
+    assert rig.events == [("zone_on", {"layer": "melody", "enabled": True})], \
+        rig.events
+    rig.feed([palm("left", y=0.10), palm("right", y=0.12)],
+             cr.HOLD_FRAMES_ZONE + 3)
+    assert len(rig.events) == 1, rig.events        # 同带不重复
+    rig.feed([palm("left", y=0.25), palm("right", y=0.25)], 4)   # 死区 re-arm（EMA 收敛）
+    rig.feed([palm("left", y=0.60), palm("right", y=0.62)],
+             cr.HOLD_FRAMES_ZONE + 4)              # 换带 + EMA 收敛
+    assert rig.events[-1] == ("zone_on", {"layer": "bass", "enabled": True}), \
+        rig.events
+    print("PASS 6 双手掌同带=开声部（Z1=melody Z3=bass，死区 re-arm）")
+
+    # 7. 双手拳同带 -> 关声部；异带且高度差小 -> 无动作
+    rig = Rig()
+    rig.feed([fist("left", y=0.82), fist("right", y=0.85)],
+             cr.HOLD_FRAMES_ZONE)
+    assert rig.events == [("zone_off", {"layer": "drums", "enabled": False})], \
+        rig.events
+    rig2 = Rig()
+    rig2.feed([fist("left", y=0.10), fist("right", y=0.35)],
+             cr.HOLD_FRAMES_ZONE + 3)   # 异带但高度差 0.25 >= 风格阈值 -> 风格
+    assert ("zone_off", {"layer": "melody", "enabled": False}) not in rig2.events
+    print("PASS 7 双手拳同带=关声部（Z4=drums）")
+
+    # 8. 双手拳高度差 -> 风格：左高=previous 右高=next；不误触区域关
+    rig = Rig()
+    rig.feed([fist("left", y=0.15), fist("right", y=0.55)],
+             cr.HOLD_FRAMES_STYLE - 1)
+    assert rig.events == [], rig.events
+    rig.feed([fist("left", y=0.15), fist("right", y=0.55)], 1)
+    assert rig.events == [("style", {"direction": "previous"})], rig.events
+    rig.feed([fist("left", y=0.15), fist("right", y=0.55)],
+             cr.HOLD_FRAMES_STYLE + 3)
+    assert len(rig.events) == 1, rig.events        # 保持不重复
+    rig.feed([fist("left", y=0.45), fist("right", y=0.50)], 10)  # 差<重置 -> re-arm + 过冷却
+    rig.feed([fist("left", y=0.60), fist("right", y=0.20)],
+             cr.HOLD_FRAMES_STYLE + 2)
+    assert ("style", {"direction": "next"}) in rig.events, rig.events
+    print("PASS 8 双手拳高度差=风格上下（左高 previous / 右高 next）")
+
+    # 9. swap_hands：物理左拳 -> 逻辑右手 -> start（而非 stop）
+    rig = Rig(swap_hands=True)
+    rig.feed([fist("left")], cr.HOLD_FRAMES_TRANSPORT)
+    assert rig.names() == ["start"], rig.events
+    print("PASS 9 handedness swap 开关")
+
+    # 10. 短暂缺帧（<0.30s）计数保持不重置
+    rig = Rig()
+    rig.feed([fist("right")], cr.HOLD_FRAMES_TRANSPORT - 2)
+    rig.feed([], 2)                                # ~0.125s 缺帧 < 0.30s
+    rig.feed([fist("right")], 2)
+    assert rig.names() == ["start"], rig.events
+    print("PASS 10 检测缺帧容缺")
+
+    # 11. 关闭状态不动作
+    rig = Rig(enabled=False)
+    rig.feed([fist("right")], cr.HOLD_FRAMES_TRANSPORT + 5)
+    assert rig.events == [], rig.events
+    print("PASS 11 enabled=False 惰性")
+
+    # 12. 区域带边界：死区内任何高度都不触发
+    rig = Rig()
+    rig.feed([palm("left", y=0.25), palm("right", y=0.25)],
+             cr.HOLD_FRAMES_ZONE + 3)
+    rig.feed([palm("left", y=0.50), palm("right", y=0.50)],
+             cr.HOLD_FRAMES_ZONE + 3)
+    assert rig.events == [], rig.events
+    print("PASS 12 死区（带间/边界）不触发")
+
+    print("\nAll coordinate_recognizer tests passed.")
+
+
+if __name__ == "__main__":
+    main()

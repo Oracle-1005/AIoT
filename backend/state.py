@@ -131,6 +131,16 @@ class LiveState:
             "last_control_event": None,
         }
 
+        # 坐标手势识别器状态（前端手势可视化数据源；识别器每帧发布）
+        self.coordinate_state: dict[str, Any] = {
+            "enabled": False,
+            "hands": {},
+            "zones": {},
+            "progress": {},
+            "last_actions": [],
+            "updated_at": None,
+        }
+
     def uptime_seconds(self) -> int:
         return max(0, int(time.time() - self.started_at))
 
@@ -315,6 +325,33 @@ class LiveState:
         with self._lock:
             self.music_state["layers"][name] = bool(enabled)
         return True
+
+    def set_music_bpm(self, bpm: Any) -> None:
+        """坐标手势 BPM± 的意图侧即时更新（rb 反馈随后收敛为准）。"""
+        try:
+            value = float(bpm)
+        except (TypeError, ValueError):
+            return
+        with self._lock:
+            self.music_state["bpm"] = min(220, max(40, int(round(value))))
+
+    def set_music_volume(self, volume: Any) -> None:
+        """坐标手势音量± 的意图侧即时更新。"""
+        try:
+            value = round(float(volume), 2)
+        except (TypeError, ValueError):
+            return
+        with self._lock:
+            self.music_state["volume"] = min(1.0, max(0.0, value))
+
+    def apply_coordinate_status(self, status: dict[str, Any]) -> None:
+        """坐标识别器逐帧状态（手型/位置/触发进度/最近动作）。"""
+        with self._lock:
+            self.coordinate_state = copy.deepcopy(status)
+
+    def get_coordinate(self) -> dict[str, Any]:
+        with self._lock:
+            return copy.deepcopy(self.coordinate_state)
 
     def apply_sonic_pi_layers(
         self,

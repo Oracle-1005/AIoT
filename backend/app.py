@@ -127,6 +127,11 @@ def create_app() -> Flask:
     @app.get("/api/music/state")
     def music_state(): return jsonify(live_state.get_music())
 
+    @app.get("/api/coordinate/state")
+    def coordinate_state():
+        """坐标手势识别器逐帧状态（前端手势可视化：手型/高度/触发进度/动作）。"""
+        return jsonify(live_state.get_coordinate())
+
     @app.get("/api/sonic-pi/status")
     def sonic_pi_status(): return jsonify(sonic_pi_adapter.status())
 

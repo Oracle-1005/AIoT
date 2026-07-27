@@ -18,6 +18,7 @@ import os
 import time
 from typing import Any
 
+from coordinate_recognizer import coordinate_recognizer
 from database import insert_pi_message
 from inference_pipeline import inference_pipeline
 from integration import send_pi_command
@@ -146,6 +147,8 @@ def route_uplink_message(
             received_at,
         )
         inference_pipeline.process_fused_frame(payload, received_at)
+        # 坐标手势识别器（规则化，替代旧 ML 手势的音乐控制）
+        coordinate_recognizer.process_frame(payload, received_at)
 
     elif message_type == "window_features":
         inference_pipeline.process_window_features(payload)
