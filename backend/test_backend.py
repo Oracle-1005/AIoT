@@ -1,4 +1,4 @@
-﻿"""Backend acceptance tests for the current Pi -> PC message schema."""
+"""Backend acceptance tests for the current Pi -> PC message schema."""
 
 from __future__ import annotations
 
@@ -198,6 +198,7 @@ def main() -> None:
 
     endpoints = (
         "/api/status",
+        "/api/live/frame",
         "/api/pi/status",
         "/api/pi/messages?limit=10",
         "/api/gesture/current",
@@ -282,7 +283,7 @@ def main() -> None:
 
     recorded_types = {
         record["message_type"]
-        for record in get_pi_message_history(limit=10)
+        for record in get_pi_message_history(limit=500)
     }
 
     assert recorded_types.issuperset(

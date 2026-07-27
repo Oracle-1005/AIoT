@@ -75,6 +75,47 @@ STOP_GESTURES = {
     "stop",
 }
 
+GESTURE_BPM_STEP = float(os.getenv("AIOT_GESTURE_BPM_STEP", "4"))
+GESTURE_VOLUME_STEP = float(os.getenv("AIOT_GESTURE_VOLUME_STEP", "0.06"))
+
+MUSIC_COMMAND_ALIASES = {
+    "play": "start",
+    "start": "start",
+    "resume": "start",
+    "gesture_start": "start",
+    "downbeat": "start",
+    "upbeat": "start",
+    "left_cue": "start",
+    "right_cue": "start",
+    "left_wrist_strike": "start",
+    "right_wrist_strike": "start",
+    "bilateral_strike": "start",
+    "pause": "stop",
+    "stop": "stop",
+    "cutoff": "stop",
+    "gesture_end": "stop",
+    "bpm_up": "bpm_up",
+    "tempo_up": "bpm_up",
+    "speed_up": "bpm_up",
+    "bpm_down": "bpm_down",
+    "tempo_down": "bpm_down",
+    "speed_down": "bpm_down",
+    "vol_up": "vol_up",
+    "volume_up": "vol_up",
+    "crescendo": "vol_up",
+    "vol_down": "vol_down",
+    "volume_down": "vol_down",
+    "decrescendo": "vol_down",
+    "style": "style",
+    "style_switch": "style",
+    "style_next": "style",
+    "style_prev": "style",
+    "style_previous": "style",
+    "zone_on": "zone_on",
+    "layer_on": "zone_on",
+    "zone_off": "zone_off",
+    "layer_off": "zone_off",
+}
 
 class SonicPiOscAdapter:
     """Optional Sonic Pi OSC sender/listener.
@@ -199,6 +240,17 @@ class SonicPiOscAdapter:
         self._thread = None
         self._retry_thread = None
 
+    def _command_channel_ready_locked(self, now: float | None = None) -> bool:
+        current = time.time() if now is None else float(now)
+        window = max(5.0, SONIC_PI_PING_INTERVAL * 2.5)
+        return (
+            (self._last_pong_at is not None and current - self._last_pong_at <= window)
+            or (self._last_ack_at is not None and current - self._last_ack_at <= window)
+        )
+
+    def command_channel_ready(self) -> bool:
+        with self._lock:
+            return self._command_channel_ready_locked(time.time())
     def status(self) -> dict[str, Any]:
         with self._lock:
             now = time.time()
@@ -206,10 +258,7 @@ class SonicPiOscAdapter:
                 self._last_feedback_at is not None
                 and now - self._last_feedback_at <= 5
             )
-            command_channel_ready = (
-                self._last_pong_at is not None
-                and now - self._last_pong_at <= max(5.0, SONIC_PI_PING_INTERVAL * 2.5)
-            )
+            command_channel_ready = self._command_channel_ready_locked(now)
             return {
                 "enabled": self.enabled,
                 "available": self.available,
@@ -290,16 +339,30 @@ class SonicPiOscAdapter:
             1.2,
         )
 
-        if gesture in START_GESTURES:
-            self.send_transport("start")
-        elif gesture in STOP_GESTURES:
-            self.send_transport("cutoff")
+        command_detail = dict(event)
+        command_detail.update(music_control)
+        state_already_applied = bool(music_control) or gesture in {
+            "gesture_start",
+            "resume",
+            "stop",
+            "cutoff",
+            "gesture_end",
+            "style_switch",
+        } | ACCENT_GESTURES
+        command_sent = self.send_gesture_command(
+            gesture,
+            command_detail,
+            music_state=music_state,
+            update_live_state=not state_already_applied,
+        )
 
         state_sent = False
-        if music_control or gesture in {"crescendo", "decrescendo", "style_switch"}:
+        if music_control and gesture in ACCENT_GESTURES:
+            state_sent = self.send_state_from_music(music_state, music_control)
+        elif not command_sent and (music_control or gesture in {"crescendo", "decrescendo"}):
             state_sent = self.send_state_from_music(music_state, music_control)
 
-        if gesture in {"tempo_up", "tempo_down"} and not state_sent:
+        if gesture in {"tempo_up", "tempo_down"} and not command_sent and not state_sent:
             self.send_bpm(_as_float(music_state.get("bpm"), 108.0))
 
         if gesture in ACCENT_GESTURES:
@@ -314,19 +377,110 @@ class SonicPiOscAdapter:
         if not gesture:
             return
 
-        payload = {
-            "event": {
-                "type": gesture,
-                "confidence": prediction.get("confidence", 0.8),
-                "strength": prediction.get("confidence", 0.8),
-            },
-            "music_control": {
-                "estimated_bpm": music_state.get("bpm"),
-                "volume": music_state.get("volume"),
-                "intensity": music_state.get("energy", 0.62),
-            },
+        detail = {
+            "confidence": prediction.get("confidence", 0.8),
+            "strength": prediction.get("confidence", 0.8),
         }
-        self.publish_control_event(payload, music_state)
+        self.send_gesture_command(
+            gesture,
+            detail,
+            music_state=music_state,
+            update_live_state=True,
+        )
+        if gesture in ACCENT_GESTURES:
+            self.send_accent(_as_float(detail.get("strength"), 0.8), gesture)
+
+    def send_gesture_command(
+        self,
+        name: str,
+        detail: dict[str, Any] | None = None,
+        *,
+        music_state: dict[str, Any] | None = None,
+        update_live_state: bool = True,
+    ) -> bool:
+        """Map a recognized gesture/action name to one concrete Sonic Pi command."""
+        detail = detail if isinstance(detail, dict) else {}
+        command = _canonical_music_command(name)
+        if not command:
+            return False
+
+        state = music_state if isinstance(music_state, dict) else live_state.get_music()
+        now = time.time()
+        state_updates_enabled = bool(update_live_state and self.command_channel_ready())
+        if update_live_state and not state_updates_enabled:
+            self._set_error(
+                "Sonic Pi command channel is not ready; enable incoming OSC and rerun the current loader"
+            )
+        gesture_name = str(name).strip() or command
+
+        if command == "start":
+            sent = self.send_transport("start")
+            if sent and state_updates_enabled:
+                live_state.apply_sonic_pi_transport_intent("start", now)
+                live_state.set_music_current_gesture(gesture_name)
+            return sent
+
+        if command == "stop":
+            sent = self.send_transport("stop")
+            if sent and state_updates_enabled:
+                live_state.apply_sonic_pi_transport_intent("stop", now)
+                live_state.set_music_current_gesture(gesture_name)
+            return sent
+
+        if command in {"bpm_up", "bpm_down"}:
+            direction = 1.0 if command == "bpm_up" else -1.0
+            base_bpm = _as_float(detail.get("bpm"), _as_float(state.get("bpm"), 96.0))
+            target = _clamp(
+                base_bpm + (GESTURE_BPM_STEP * direction if update_live_state else 0.0),
+                72.0,
+                148.0,
+            )
+            sent = self.send_bpm(target)
+            if sent and state_updates_enabled:
+                live_state.set_music_bpm(target)
+                live_state.set_music_current_gesture(gesture_name)
+            return sent
+
+        if command in {"vol_up", "vol_down"}:
+            direction = 1.0 if command == "vol_up" else -1.0
+            base_volume = _as_float(detail.get("volume"), _as_float(state.get("volume"), 0.8))
+            target = _clamp(
+                base_volume + (GESTURE_VOLUME_STEP * direction if update_live_state else 0.0),
+                0.0,
+                1.0,
+            )
+            sent = self.send_volume(target)
+            if sent and state_updates_enabled:
+                live_state.set_music_volume(target)
+                live_state.set_music_current_gesture(gesture_name)
+            return sent
+
+        if command == "style":
+            direction = str(
+                detail.get(
+                    "direction",
+                    "previous" if str(name).strip().lower() in {"style_prev", "style_previous"} else "next",
+                )
+            )
+            sent = self.send_style(direction)
+            if sent and state_updates_enabled:
+                live_state.apply_music_style_intent(direction, gesture=gesture_name)
+            return sent
+
+        if command in {"zone_on", "zone_off"}:
+            layer = str(detail.get("layer", "")).strip()
+            enabled = command == "zone_on"
+            if "enabled" in detail:
+                enabled = bool(detail.get("enabled"))
+            if not layer:
+                return False
+            sent = self.send_layer(layer, enabled)
+            if sent and state_updates_enabled:
+                live_state.set_music_layer(layer, enabled)
+                live_state.set_music_current_gesture(gesture_name)
+            return sent
+
+        return False
 
     def send_transport(
         self,
@@ -672,6 +826,11 @@ class SonicPiOscAdapter:
             max(0.0, finished_at - float(command["sent_at"])) * 1000.0,
             1,
         )
+        if status == "timed_out":
+            self._last_error = (
+                f"Sonic Pi command timed out on {command['path']}; "
+                "enable incoming OSC in Sonic Pi and run the current loader"
+            )
         self._command_outcomes[str(command["command_id"])] = outcome
         while len(self._command_outcomes) > 128:
             self._command_outcomes.pop(next(iter(self._command_outcomes)))
@@ -846,6 +1005,12 @@ class SonicPiOscAdapter:
         with self._lock:
             self._last_error = message
 
+
+def _canonical_music_command(name: Any) -> str | None:
+    text = str(name).strip().lower()
+    if not text:
+        return None
+    return MUSIC_COMMAND_ALIASES.get(text)
 
 def _as_float(value: Any, default: float = 0.0) -> float:
     try:

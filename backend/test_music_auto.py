@@ -157,7 +157,7 @@ def main() -> None:
         finally:
             integration.insert_prediction = original_insert
             integration.live_state.set_prediction = original_set
-        assert set_calls[0][1] is True, f"first call apply_music: {set_calls}"
+        assert set_calls[0][1] is False, f"first call apply_music: {set_calls}"
         assert all(c[1] is False for c in set_calls[1:]), f"later calls: {set_calls}"
         assert len(calls) == 1
         print("PASS 10 accept_prediction 仅过节流时应用音乐副作用")

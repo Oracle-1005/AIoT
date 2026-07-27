@@ -81,6 +81,13 @@ SONIC_PI_BEATS_PER_BAR = SONIC_PI_TRACKS[SONIC_PI_DEFAULT_TRACK_ID]["beats_per_b
 
 # 可硬切的四个声部（区域手势自上而下：melody → harmony → bass → drums）
 MUSIC_LAYERS = ("melody", "harmony", "bass", "drums")
+SONIC_PI_STYLE_ORDER = ("acoustic_pop", "tropical_house", "festival_edm")
+SONIC_PI_STYLE_ALIASES = {
+    "sonic_pi": "acoustic_pop",
+    "piano": "acoustic_pop",
+    "strings": "tropical_house",
+    "brass": "festival_edm",
+}
 
 
 class LiveState:
@@ -372,6 +379,36 @@ class LiveState:
             return
         with self._lock:
             self.music_state["volume"] = min(1.0, max(0.0, value))
+
+    def set_music_current_gesture(self, gesture: Any) -> None:
+        gesture_text = str(gesture).strip()
+        if not gesture_text:
+            return
+        with self._lock:
+            self.music_state["current_gesture"] = gesture_text
+
+    def apply_music_style_intent(self, style: Any, *, gesture: Any = "style") -> None:
+        request = str(style).strip().lower()
+        if not request:
+            return
+        with self._lock:
+            current = str(self.music_state.get("style", "")).strip().lower()
+            current = SONIC_PI_STYLE_ALIASES.get(current, current)
+            if current not in SONIC_PI_STYLE_ORDER:
+                current = SONIC_PI_STYLE_ORDER[0]
+            current_index = SONIC_PI_STYLE_ORDER.index(current)
+
+            if request in {"previous", "prev"}:
+                selected = SONIC_PI_STYLE_ORDER[(current_index - 1) % len(SONIC_PI_STYLE_ORDER)]
+            elif request in {"next", "style_switch"}:
+                selected = SONIC_PI_STYLE_ORDER[(current_index + 1) % len(SONIC_PI_STYLE_ORDER)]
+            else:
+                selected = SONIC_PI_STYLE_ALIASES.get(request, request)
+                if selected not in SONIC_PI_STYLE_ORDER:
+                    return
+
+            self.music_state["style"] = selected
+            self.music_state["current_gesture"] = str(gesture).strip() or "style"
 
     def apply_coordinate_status(self, status: dict[str, Any]) -> None:
         """坐标识别器逐帧状态（手型/位置/触发进度/最近动作）。"""
@@ -704,10 +741,10 @@ class LiveState:
     def _apply_music_effect(self, gesture: str) -> None:
         self.music_state["current_gesture"] = gesture
 
-        if gesture in {"downbeat", "upbeat", "left_cue", "right_cue", "gesture_start"}:
+        if gesture in {"downbeat", "upbeat", "left_cue", "right_cue", "gesture_start", "resume"}:
             self.music_state["playing"] = True
 
-        elif gesture in {"cutoff", "stop"}:
+        elif gesture in {"cutoff", "stop", "gesture_end"}:
             self.music_state["playing"] = False
 
         elif gesture == "crescendo":
@@ -735,14 +772,13 @@ class LiveState:
             )
 
         elif gesture == "style_switch":
-            styles = ("piano", "strings", "brass")
-            current = self.music_state["style"]
-
-            if current not in styles:
-                current = styles[0]
-
-            self.music_state["style"] = styles[
-                (styles.index(current) + 1) % len(styles)
+            current = str(self.music_state.get("style", "")).strip().lower()
+            current = SONIC_PI_STYLE_ALIASES.get(current, current)
+            if current not in SONIC_PI_STYLE_ORDER:
+                current = SONIC_PI_STYLE_ORDER[0]
+            current_index = SONIC_PI_STYLE_ORDER.index(current)
+            self.music_state["style"] = SONIC_PI_STYLE_ORDER[
+                (current_index + 1) % len(SONIC_PI_STYLE_ORDER)
             ]
 
 

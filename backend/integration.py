@@ -128,7 +128,7 @@ def _maybe_publish_music(result: dict[str, Any]) -> bool:
                 return False
         elif dt < MUSIC_AUTO_PREEMPT_MIN_S:
             return False  # 不同手势：守住防频闪下限
-        live_state.set_prediction(result, apply_music=True)
+        live_state.set_prediction(result, apply_music=False)
         sonic_pi_adapter.publish_prediction(result, live_state.get_music())
         _music_auto_last["at"] = now
         _music_auto_last["gesture"] = gesture

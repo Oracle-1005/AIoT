@@ -95,6 +95,20 @@ class Rig:
             self.t += DT
             self.rec.process_frame(make_frame(frames, anchor=anchor), self.t)
 
+    def feed_motion(
+        self,
+        maker,
+        side: str,
+        *,
+        start_y: float,
+        step_y: float,
+        vy: float,
+        count: int,
+        anchor: object = True,
+    ) -> None:
+        for index in range(count):
+            self.feed([maker(side, y=start_y + step_y * index, vy=vy)], 1, anchor=anchor)
+
     def names(self) -> list[str]:
         return [name for name, _ in self.events]
 
@@ -131,31 +145,31 @@ def main() -> None:
     assert rig.names() == ["stop"], rig.events
     rig2 = Rig()
     rig2.feed([fist("left")], 3)                  # 先静置 3 帧
-    rig2.feed([fist("left", vy=-0.8)], cr.HOLD_FRAMES_PUSH + 3)  # EMA 收敛 ~2 帧
+    rig2.feed_motion(fist, "left", start_y=0.50, step_y=-0.025, vy=-0.8, count=cr.HOLD_FRAMES_PUSH + 5)
     assert "bpm_up" in rig2.names(), rig2.events
     assert "stop" not in rig2.names(), rig2.events
     print("PASS 3 左拳=stop / 左拳上推=BPM+（互斥正确）")
 
     # 4. 右拳下推 -> bpm_down 持续重复
     rig = Rig()
-    rig.feed([fist("right", vy=0.8)], cr.HOLD_FRAMES_PUSH + 3)
+    rig.feed_motion(fist, "right", start_y=0.50, step_y=0.025, vy=0.8, count=cr.HOLD_FRAMES_PUSH + 5)
     assert rig.names() == ["bpm_down"], rig.events
     # 继续按住：不到重复间隔不再发，超过 0.45s 后再发
-    rig.feed([fist("right", vy=0.8)], 3)          # ~0.19s
+    rig.feed_motion(fist, "right", start_y=0.72, step_y=0.025, vy=0.8, count=3)          # ~0.19s
     assert rig.names() == ["bpm_down"], rig.events
-    rig.feed([fist("right", vy=0.8)], 6)          # 累计 ~0.56s
+    rig.feed_motion(fist, "right", start_y=0.80, step_y=0.025, vy=0.8, count=8)          # 累计 ~0.56s
     assert rig.names().count("bpm_down") == 2, rig.events
     assert "start" not in rig.names(), rig.events
     print("PASS 4 右拳下推=BPM-（按住重复）")
 
     # 5. 单掌推音量：左掌上推 vol_up / 右掌下推 vol_down；静置不发
     rig = Rig()
-    rig.feed([palm("left", vy=-0.8)], cr.HOLD_FRAMES_PUSH + 3)
+    rig.feed_motion(palm, "left", start_y=0.50, step_y=-0.025, vy=-0.8, count=cr.HOLD_FRAMES_PUSH + 5)
     assert rig.names() == ["vol_up"], rig.events
     rig.feed([palm("left", vy=0.0)], cr.HOLD_FRAMES_PUSH + 3)
     assert rig.names() == ["vol_up"], rig.events   # 静置不重复
     rig2 = Rig()
-    rig2.feed([palm("right", vy=0.8)], cr.HOLD_FRAMES_PUSH + 3)
+    rig2.feed_motion(palm, "right", start_y=0.50, step_y=0.025, vy=0.8, count=cr.HOLD_FRAMES_PUSH + 5)
     assert rig2.names() == ["vol_down"], rig2.events
     print("PASS 5 单掌推=音量±（静置不误触）")
 

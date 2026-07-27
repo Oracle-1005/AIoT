@@ -3,10 +3,13 @@ import { createConductorFrame, describeCoordinateAction, makeInferenceLog } from
 
 const BACKEND_REST_DEFAULT = 'http://localhost:5000'
 const REST_POLL_INTERVAL_MS = 250
+const REST_FETCH_TIMEOUT_MS = 1200
 const TRANSPORT_FETCH_TIMEOUT_MS = 1200
 const CAMERA_STREAM_ENV = import.meta.env.VITE_CAMERA_STREAM_URL || ''
 const CAMERA_FRAME_ENV = import.meta.env.VITE_CAMERA_FRAME_URL || ''
 const PLAY_ACTIONS = new Set(['start', 'resume', 'play', 'reset', 'next', 'previous', 'prev'])
+const TRACK_SWITCH_ACTIONS = new Set(['next', 'previous', 'prev'])
+const PLAYLIST_CONTROLS_ENABLED = import.meta.env.VITE_ENABLE_PLAYLIST_CONTROLS === '1'
 const PAUSE_ACTIONS = new Set(['pause', 'stop', 'cutoff'])
 // A coordinate action stays "current" for this long after it fires.
 const COORD_ACTION_FRESH_SECONDS = 12
@@ -315,9 +318,7 @@ function normalizeRestFrame({ status = {}, prediction = {}, sensors = {}, music 
   const gateway = piStatus.gateway || status.pi_gateway || {}
   const piPreviewUrl = derivePiPreviewUrl(gateway)
   const sonicPi = status.sonic_pi || {}
-  const sonicPiConnected = typeof sonicPi.connected === 'boolean'
-    ? sonicPi.connected
-    : Boolean(music.sonic_pi_connected)
+  const sonicPiConnected = Boolean(sonicPi.connected || music.sonic_pi_connected)
   const runtime = piStatus.runtime || {}
   const controlPayload = getLastControlPayload(runtime)
   const coordinateNorm = normalizeCoordinateState(coordinate)
@@ -423,7 +424,10 @@ function normalizeRestFrame({ status = {}, prediction = {}, sensors = {}, music 
         Number(music.energy),
         Math.round(Math.max(20, Math.min(100, volume * 0.8 + confidence * 0.2))),
       ),
-      density: music.playing ? base.music.density : 20,
+      density: toPercent(
+        Number(music.density),
+        music.playing ? toPercent(Number(music.energy), 50) : 0,
+      ),
       style: music.style ? toTitleCase(String(music.style)) : base.music.style,
       progress: clamp(toNumber(music.progress, music.playing ? base.music.progress : 0), 0, 100),
       elapsedSeconds: toNumber(music.elapsed_seconds, base.music.elapsedSeconds),
@@ -492,6 +496,76 @@ function normalizeRemoteFrame(payload) {
   }
 }
 
+function createPendingConductorFrame() {
+  const base = createConductorFrame(0)
+  return {
+    ...base,
+    connection: {
+      ...base.connection,
+      camera: 'Waiting',
+      hands: 'No Hands Detected',
+      tracking: 'Standby',
+      fps: 0,
+      latency: 0,
+      backend: 'REST Pending',
+      piGateway: 'Gateway Pending',
+      piGatewayConnected: false,
+      piGatewayRunning: false,
+      piGatewayHost: '0.0.0.0:9000',
+      piLastMessage: 'No Pi message yet',
+      piMessageCounts: {},
+      piLastError: null,
+    },
+    camera: {
+      ...base.camera,
+      source: 'waiting',
+      leftHandY: 0.5,
+      rightHandX: 0.5,
+      handDistance: 0,
+      movementSpeed: 0,
+      trajectoryAngle: 0,
+      hands: [],
+      streamUrl: '',
+      frameUrl: '',
+      hasLiveVideo: false,
+      hasLiveLandmarks: false,
+      raw: {},
+    },
+    microbit: {
+      left: { ...base.microbit.left, signal: 'Waiting', motion: 'No live packet', x: 0, y: 0, z: 0 },
+      right: { ...base.microbit.right, signal: 'Waiting', motion: 'No live packet', x: 0, y: 0, z: 0 },
+    },
+    prediction: {
+      gesture: 'idle',
+      label: 'STANDBY',
+      zh: 'Waiting for live gesture data',
+      confidence: 0,
+      response: 'Waiting for Pi/backend input',
+      top3: [{ label: 'Standby', value: 100 }],
+    },
+    actuation: {
+      led: { pattern: 'ready', brightness: 0, durationMs: 0 },
+      databaseSaved: false,
+    },
+    music: {
+      ...base.music,
+      title: 'Shape of You (Ed Sheeran)',
+      key: 'C# Minor',
+      bpm: 96,
+      volume: 80,
+      energy: 0,
+      density: 0,
+      style: 'Waiting',
+      progress: 0,
+      elapsedSeconds: 0,
+      performanceElapsedSeconds: 0,
+      playing: false,
+      sonicPiConnected: false,
+      uiReceivedAt: Date.now() / 1000,
+    },
+  }
+}
+
 function createTransportOverride(action, currentMusic = {}, status = 'sending', error = '') {
   const actionText = String(action).trim().toLowerCase()
   const requestedAt = Date.now() / 1000
@@ -544,11 +618,17 @@ export function useConductorFeed(options = {}) {
   const wsUrl = options.wsUrl || import.meta.env.VITE_CONDUCTOR_WS_URL
   const restBaseUrl = options.restBaseUrl || import.meta.env.VITE_BACKEND_BASE_URL || BACKEND_REST_DEFAULT
   const [tick, setTick] = useState(0)
-  const [frame, setFrame] = useState(() => createConductorFrame(0))
-  const [connectionState, setConnectionState] = useState(wsUrl ? 'connecting websocket' : 'demo preview')
+  const [frame, setFrame] = useState(() => createPendingConductorFrame())
+  const [connectionState, setConnectionState] = useState(wsUrl ? 'connecting websocket' : 'connecting backend')
   const transportOverrideRef = useRef(null)
   const sendSonicPiTransport = async (action) => {
     const actionText = String(action).trim().toLowerCase()
+    if (TRACK_SWITCH_ACTIONS.has(actionText) && !PLAYLIST_CONTROLS_ENABLED) {
+      const blockedOverride = createTransportOverride(actionText, frame.music, 'backend error', 'Playlist controls are disabled in safe Sonic Pi mode')
+      transportOverrideRef.current = blockedOverride
+      setFrame((current) => applyTransportOverride(current, blockedOverride))
+      return { sent: false, local: false, error: blockedOverride.error }
+    }
     const optimisticOverride = createTransportOverride(actionText, frame.music)
     transportOverrideRef.current = optimisticOverride
     setFrame((current) => applyTransportOverride(current, optimisticOverride))
@@ -557,10 +637,14 @@ export function useConductorFeed(options = {}) {
       const response = await fetchJsonWithTimeout(`${restBaseUrl}/api/sonic-pi/transport`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: actionText }),
+        body: JSON.stringify({ action: actionText, wait_ms: 1800 }),
       })
       if (!response.ok) throw new Error(`Sonic Pi transport returned ${response.status}`)
       const payload = await response.json()
+      const deliveryStatus = String(payload.delivery?.status || '').toLowerCase()
+      if (deliveryStatus && deliveryStatus !== 'acked') {
+        throw new Error(payload.sonic_pi?.last_error || `Sonic Pi command ${deliveryStatus}`)
+      }
 
       if (payload.music) {
         const music = payload.music
@@ -617,42 +701,28 @@ export function useConductorFeed(options = {}) {
 
       return payload
     } catch (error) {
-      const localOverride = {
+      const failedOverride = {
         ...optimisticOverride,
         requestedAt: Date.now() / 1000,
-        status: 'local preview',
+        status: 'backend error',
         error: error.name === 'AbortError' ? 'Backend timeout' : error.message,
       }
-      transportOverrideRef.current = localOverride
-      setFrame((current) => applyTransportOverride(current, localOverride))
-      return { sent: false, local: true, error: localOverride.error }
+      transportOverrideRef.current = failedOverride
+      setFrame((current) => applyTransportOverride(current, failedOverride))
+      return { sent: false, local: false, error: failedOverride.error }
     }
   }
 
   useEffect(() => {
     let restTimer
-    let mockTimer
     let socket
     let cancelled = false
     let feedTick = 0
-    let mockStarted = false
     let restStarted = false
-
-    const startMockFeed = () => {
-      if (mockStarted || cancelled) return
-      mockStarted = true
-      setConnectionState('demo preview')
-      if (restTimer) window.clearInterval(restTimer)
-      mockTimer = window.setInterval(() => {
-        feedTick += 1
-        setTick(feedTick)
-        setFrame(applyTransportOverride(createConductorFrame(feedTick), transportOverrideRef.current))
-      }, 1800)
-    }
 
     const fetchBackendState = async () => {
       const fetchJson = async (path) => {
-        const response = await fetch(`${restBaseUrl}${path}`)
+        const response = await fetchJsonWithTimeout(`${restBaseUrl}${path}`, {}, REST_FETCH_TIMEOUT_MS)
         if (!response.ok) throw new Error(`${path} returned ${response.status}`)
         return response.json()
       }
@@ -664,14 +734,35 @@ export function useConductorFeed(options = {}) {
         }
       }
 
-      const [status, prediction, sensors, music] = await Promise.all(
-        ['/api/status', '/api/gesture/current', '/api/sensors/live', '/api/music/state'].map(fetchJson),
-      )
-      const piStatus = await fetchOptionalJson('/api/pi/status', {
-        gateway: status.pi_gateway || {},
-        runtime: {},
-      })
-      const coordinate = await fetchOptionalJson('/api/coordinate/state', {})
+      let status
+      let prediction
+      let sensors
+      let music
+      let piStatus
+      let coordinate
+
+      try {
+        const liveFrame = await fetchJson('/api/live/frame')
+        status = liveFrame.status || {}
+        prediction = liveFrame.prediction || {}
+        sensors = liveFrame.sensors || {}
+        music = liveFrame.music || {}
+        piStatus = liveFrame.pi_status || {
+          gateway: status.pi_gateway || {},
+          runtime: {},
+        }
+        coordinate = liveFrame.coordinate || {}
+      } catch {
+        [status, prediction, sensors, music] = await Promise.all(
+          ['/api/status', '/api/gesture/current', '/api/sensors/live', '/api/music/state'].map(fetchJson),
+        )
+        piStatus = await fetchOptionalJson('/api/pi/status', {
+          gateway: status.pi_gateway || {},
+          runtime: {},
+        })
+        coordinate = await fetchOptionalJson('/api/coordinate/state', {})
+      }
+
       feedTick += 1
       setTick(feedTick)
       setFrame(applyTransportOverride(
@@ -685,16 +776,18 @@ export function useConductorFeed(options = {}) {
       if (restStarted || cancelled) return
       restStarted = true
       fetchBackendState()
-        .then(() => {
+        .catch((error) => {
+          if (!cancelled) {
+            setConnectionState(error.name === 'AbortError' ? 'backend timeout' : 'backend unavailable')
+          }
+        })
+        .finally(() => {
           if (cancelled) return
           restTimer = window.setInterval(() => {
             fetchBackendState().catch(() => {
-              if (!cancelled) startMockFeed()
+              if (!cancelled) setConnectionState('backend unavailable')
             })
           }, REST_POLL_INTERVAL_MS)
-        })
-        .catch(() => {
-          if (!cancelled) startMockFeed()
         })
     }
 
@@ -724,7 +817,6 @@ export function useConductorFeed(options = {}) {
     return () => {
       cancelled = true
       if (restTimer) window.clearInterval(restTimer)
-      if (mockTimer) window.clearInterval(mockTimer)
       if (socket && socket.readyState < 2) socket.close()
     }
   }, [wsUrl, restBaseUrl])

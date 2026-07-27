@@ -40,7 +40,7 @@
 use_debug false
 use_cue_logging false
 use_osc "127.0.0.1", 4561
-set_sched_ahead_time! 0.75
+set_sched_ahead_time! 2.0
 
 set :playing, true
 set :soy_current_bpm, 96
@@ -88,7 +88,7 @@ end
 
 define :soy_wait_until_playing do
   while (get(:playing) != true) or (get(:active_piece) != :soy)
-    sync :aiot_tick
+    sleep 0.5
   end
 end
 
@@ -103,7 +103,7 @@ define :soy_wait_music_beats do |beats|
       sleep step
       remaining = remaining - step
     else
-      sync :aiot_tick
+      sleep 0.5
     end
   end
 end

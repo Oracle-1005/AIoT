@@ -1,5 +1,6 @@
-# AIoT Smart Conducting -- generated playlist loader
+# AIoT Smart Conducting -- generated safe loader
 # Open this file in Sonic Pi and press Run exactly once.
-# Fully quit Sonic Pi before loading an updated build.
+# This stable entry loads one song only, avoiding the full playlist's many
+# always-resident live_loops. Use this for live demos.
 
-run_file "G:/code/AIoT/AIoT/music/sonic_pi/build/aiot_conductor_playlist.rb"
+run_file "G:/code/AIoT/AIoT/music/sonic_pi/aiot_conductor_shape_of_you.rb"

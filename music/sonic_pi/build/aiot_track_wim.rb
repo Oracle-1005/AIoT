@@ -40,7 +40,7 @@
 use_debug false
 use_cue_logging false
 use_osc "127.0.0.1", 4561
-set_sched_ahead_time! 0.75
+set_sched_ahead_time! 2.0
 
 set :playing, true
 set :wim_current_bpm, 132
@@ -88,7 +88,7 @@ end
 
 define :wim_wait_until_playing do
   while (get(:playing) != true) or (get(:active_piece) != :wim)
-    sync :aiot_tick
+    sleep 0.5
   end
 end
 
@@ -101,7 +101,7 @@ define :wim_wait_music_beats do |beats|
       sleep step
       remaining=remaining-step
     else
-      sync :aiot_tick
+      sleep 0.5
     end
   end
 end

@@ -4,7 +4,7 @@
 use_debug false
 use_cue_logging false
 use_osc "127.0.0.1", 4561
-set_sched_ahead_time! 1.0
+set_sched_ahead_time! 2.0
 GC.disable
 
 set :playlist_epoch, (Time.now.to_f * 1000000).to_i
@@ -381,7 +381,7 @@ end
 live_loop :playlist_ticker do
   use_real_time
   cue :aiot_tick
-  sleep 0.2
+  sleep 1.0
 end
 
 live_loop :playlist_reboot_watchdog do

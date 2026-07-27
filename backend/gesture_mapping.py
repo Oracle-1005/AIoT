@@ -5,6 +5,9 @@ from typing import Any
 CANONICAL_GESTURES = (
     "idle", "gesture_start", "stop", "downbeat", "upbeat",
     "crescendo", "decrescendo", "left_cue", "right_cue",
+    "cutoff", "style_switch", "tempo_up", "tempo_down",
+    "bpm_up", "bpm_down", "vol_up", "vol_down",
+    "zone_on", "zone_off", "style",
 )
 
 _LABEL_ALIASES = {
@@ -17,6 +20,15 @@ _LABEL_ALIASES = {
     "decrescendo": "decrescendo", "diminuendo": "decrescendo", "渐弱": "decrescendo",
     "left_cue": "left_cue", "left_prompt": "left_cue", "左手提示": "left_cue",
     "right_cue": "right_cue", "right_prompt": "right_cue", "右手提示": "right_cue",
+    "gesture_end": "stop", "pause": "stop",
+    "tempo_up": "tempo_up", "bpm_up": "bpm_up", "speed_up": "tempo_up",
+    "tempo_down": "tempo_down", "bpm_down": "bpm_down", "speed_down": "tempo_down",
+    "vol_up": "vol_up", "volume_up": "vol_up", "louder": "vol_up",
+    "vol_down": "vol_down", "volume_down": "vol_down", "quieter": "vol_down",
+    "style_switch": "style_switch", "style": "style", "style_next": "style_switch",
+    "style_prev": "style_switch", "style_previous": "style_switch",
+    "zone_on": "zone_on", "layer_on": "zone_on",
+    "zone_off": "zone_off", "layer_off": "zone_off",
 }
 GESTURE_IDS = {name: index for index, name in enumerate(CANONICAL_GESTURES)}
 

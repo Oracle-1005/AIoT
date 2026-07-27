@@ -276,21 +276,24 @@ def namespace_piece(prefix: str, meta: dict) -> str:
         f"{prefix}: gate wait_music_beats",
     )
 
-    # 7b2) park WITHOUT advancing virtual time. The sources' 0.05 s busy-nap
-    #     makes a parked thread fall behind its own schedule (Windows timer
-    #     granularity ~15.6 ms overshoots every nap) until Sonic Pi kills it
-    #     with "Timing error: can't keep up" -- observed killing all of the
-    #     inactive piece's live_loops ~0.65-0.95 s after Run. sync parks with
-    #     zero virtual-time advance and re-times the thread on every wake;
-    #     the wrapper cues :aiot_tick at 5 Hz so parked threads re-check their
-    #     gate at most 0.2 s late. Both sources use sleep 0.05 only inside the
-    #     two wait defines above, so exactly 2 substitutions.
+    # 7b2) Park inactive pieces with a low-frequency musical sleep. A previous
+    #     build used sync :aiot_tick here; after a pause or song switch, many
+    #     parked score threads could resume from stale logical time and Sonic Pi
+    #     would kill them with "thread got too far behind time".
     text = _sub_count(
-        r"sleep 0\.05",
-        "sync :aiot_tick",
+        r"(while \(get\(:playing\) != true\) or "
+        r"\(get\(:active_piece\) != :" + prefix + r"\)\n[ \t]+)sleep 0\.25",
+        r"\1sleep 0.5",
         text,
-        2,
-        f"{prefix}: sync-park waits",
+        1,
+        f"{prefix}: slow-park wait_until_playing",
+    )
+    text = _sub_count(
+        r"(else\n[ \t]+)sleep 0\.25",
+        r"\1sleep 0.5",
+        text,
+        1,
+        f"{prefix}: slow-park wait_music_beats",
     )
 
     # NOTE: an earlier revision rewrote the musical waits here to
@@ -375,7 +378,7 @@ WRAPPER_TEMPLATE = '''# GENERATED FILE -- DO NOT EDIT (build_playlist_wrapper.py
 use_debug false
 use_cue_logging false
 use_osc "127.0.0.1", 4561
-set_sched_ahead_time! 1.0
+set_sched_ahead_time! 2.0
 GC.disable
 
 set :playlist_epoch, (Time.now.to_f * 1000000).to_i
@@ -660,7 +663,7 @@ end
 live_loop :playlist_ticker do
   use_real_time
   cue :aiot_tick
-  sleep 0.2
+  sleep 1.0
 end
 
 live_loop :playlist_reboot_watchdog do
@@ -677,11 +680,19 @@ playlist_report_active
 set :playing, true
 '''
 
-LOADER_TEMPLATE = '''# AIoT Smart Conducting -- generated playlist loader
+SAFE_LOADER_TEMPLATE = '''# AIoT Smart Conducting -- generated safe loader
 # Open this file in Sonic Pi and press Run exactly once.
-# Fully quit Sonic Pi before loading an updated build.
+# This stable entry loads one song only, avoiding the full playlist's many
+# always-resident live_loops. Use this for live demos.
 
-run_file "__WRAPPER_PATH__"
+run_file \"__SAFE_TRACK_PATH__\"
+'''
+
+PLAYLIST_LOADER_TEMPLATE = '''# AIoT Smart Conducting -- generated playlist loader
+# High-load five-track playlist. Use only for stress testing.
+# Fully quit Sonic Pi before loading this after the safe loader.
+
+run_file \"__WRAPPER_PATH__\"
 '''
 
 
@@ -774,8 +785,25 @@ def main() -> None:
     outputs.append(wrapper_path)
     print(f"built {wrapper_path.name}: {len(wrapper)} bytes")
 
-    loader = LOADER_TEMPLATE.replace(
+    playlist_loader = PLAYLIST_LOADER_TEMPLATE.replace(
         "__WRAPPER_PATH__", wrapper_path.resolve().as_posix()
+    )
+    playlist_loader.encode("ascii")
+    playlist_loader_path = HERE / "aiot_loader_playlist.rb"
+    playlist_loader_path.write_text(
+        playlist_loader,
+        encoding="ascii",
+        newline="\n",
+    )
+    outputs.append(playlist_loader_path)
+    print(
+        f"built {playlist_loader_path.name}: "
+        f"{len(playlist_loader)} bytes"
+    )
+
+    safe_track_path = PIECES["soy"]["source"].resolve().as_posix()
+    loader = SAFE_LOADER_TEMPLATE.replace(
+        "__SAFE_TRACK_PATH__", safe_track_path
     )
     loader.encode("ascii")
     loader_path = HERE / "aiot_loader.rb"

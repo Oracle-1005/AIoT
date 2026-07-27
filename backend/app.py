@@ -41,13 +41,42 @@ def _request_command_id(body: dict) -> str:
 
 
 def _wait_for_sonic_pi_delivery(body: dict, command_id: str) -> dict:
+    raw_wait_ms = body.get("wait_ms")
+    if raw_wait_ms is None and body.get("wait"):
+        raw_wait_ms = 1800
     try:
-        wait_ms = min(2000.0, max(0.0, float(body.get("wait_ms", 0))))
+        wait_ms = min(2000.0, max(0.0, float(raw_wait_ms or 0)))
     except (TypeError, ValueError):
         wait_ms = 0.0
     if wait_ms > 0:
         return sonic_pi_adapter.wait_for_command(command_id, wait_ms / 1000.0)
     return sonic_pi_adapter.command_status(command_id)
+
+
+def _live_frame_payload() -> dict:
+    status_payload = {
+        "status": "ok",
+        "camera_connected": live_state.camera_connected,
+        "microbit_left": live_state.microbit_left_connected,
+        "microbit_right": live_state.microbit_right_connected,
+        "model_loaded": model_service.loaded,
+        "pi_gateway": pi_gateway.status(),
+        "sonic_pi": sonic_pi_adapter.status(),
+        "inference": inference_pipeline.status(),
+        "uptime_seconds": live_state.uptime_seconds(),
+    }
+    return {
+        "server_time": time.time(),
+        "status": status_payload,
+        "prediction": live_state.get_prediction(),
+        "sensors": live_state.get_sensors(),
+        "music": live_state.get_music(),
+        "pi_status": {
+            "gateway": status_payload["pi_gateway"],
+            "runtime": live_state.get_pi_state(),
+        },
+        "coordinate": live_state.get_coordinate(),
+    }
 
 
 def create_app() -> Flask:
@@ -61,17 +90,11 @@ def create_app() -> Flask:
 
     @app.get("/api/status")
     def status():
-        return jsonify({
-            "status": "ok",
-            "camera_connected": live_state.camera_connected,
-            "microbit_left": live_state.microbit_left_connected,
-            "microbit_right": live_state.microbit_right_connected,
-            "model_loaded": model_service.loaded,
-            "pi_gateway": pi_gateway.status(),
-            "sonic_pi": sonic_pi_adapter.status(),
-            "inference": inference_pipeline.status(),
-            "uptime_seconds": live_state.uptime_seconds(),
-        })
+        return jsonify(_live_frame_payload()["status"])
+
+    @app.get("/api/live/frame")
+    def live_frame():
+        return jsonify(_live_frame_payload())
 
     @app.get("/api/pi/status")
     def pi_status():
@@ -184,9 +207,10 @@ def create_app() -> Flask:
             }), 400
         command_id = _request_command_id(body)
         sent = sonic_pi_adapter.send_transport(action, command_id=command_id)
-        if sent:
-            live_state.apply_sonic_pi_transport_intent(action, time.time())
         delivery = _wait_for_sonic_pi_delivery(body, command_id)
+        track_selection_action = action in {"next", "previous", "prev"}
+        if sent and (delivery.get("status") == "acked" or track_selection_action):
+            live_state.apply_sonic_pi_transport_intent(action, time.time())
         return jsonify({
             "sent": sent,
             "command_id": command_id,

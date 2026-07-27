@@ -41,7 +41,7 @@
 use_debug false
 use_cue_logging false
 use_osc "127.0.0.1", 4561
-set_sched_ahead_time! 1.0
+set_sched_ahead_time! 2.0
 
 set :playing, true
 set :rolling_current_bpm, 98
@@ -71,7 +71,7 @@ end
 
 define :rolling_wait_until_playing do
   while (get(:playing) != true) or (get(:active_piece) != :rolling)
-    sync :aiot_tick
+    sleep 0.5
   end
 end
 
@@ -84,7 +84,7 @@ define :rolling_wait_music_beats do |beats|
       sleep step
       remaining=remaining-step
     else
-      sync :aiot_tick
+      sleep 0.5
     end
   end
 end

@@ -65,13 +65,16 @@ ZONE_LAYERS = ("melody", "harmony", "bass", "drums")
 
 # 触发窗口（帧数，~16Hz：5≈0.3s 8≈0.5s 10≈0.6s）
 HOLD_FRAMES_ZONE = int(os.getenv("AIOT_COORD_HOLD_ZONE", "5"))
-HOLD_FRAMES_STYLE = int(os.getenv("AIOT_COORD_HOLD_STYLE", "8"))
-HOLD_FRAMES_TRANSPORT = int(os.getenv("AIOT_COORD_HOLD_TRANSPORT", "10"))
-HOLD_FRAMES_PUSH = int(os.getenv("AIOT_COORD_HOLD_PUSH", "4"))
+HOLD_FRAMES_STYLE = int(os.getenv("AIOT_COORD_HOLD_STYLE", "10"))
+HOLD_FRAMES_TRANSPORT = int(os.getenv("AIOT_COORD_HOLD_TRANSPORT", "12"))
+HOLD_FRAMES_PUSH = int(os.getenv("AIOT_COORD_HOLD_PUSH", "5"))
 
 # 速度阈值（归一化单位/秒，y 向下）
-PUSH_VELOCITY = float(os.getenv("AIOT_COORD_PUSH_VEL", "0.5"))
-STILL_VELOCITY = float(os.getenv("AIOT_COORD_STILL_VEL", "0.15"))
+PUSH_VELOCITY = float(os.getenv("AIOT_COORD_PUSH_VEL", "0.6"))
+STILL_VELOCITY = float(os.getenv("AIOT_COORD_STILL_VEL", "0.10"))
+PUSH_MIN_DELTA = float(os.getenv("AIOT_COORD_PUSH_DELTA", "0.035"))
+SINGLE_HAND_ONLY = _flag("AIOT_COORD_SINGLE_HAND_ONLY", "1")
+ZONE_MAX_HAND_SEP = float(os.getenv("AIOT_COORD_ZONE_HAND_SEP", "0.12"))
 
 # 双手拳高度差（风格切换）
 STYLE_SEPARATION = float(os.getenv("AIOT_COORD_STYLE_SEP", "0.18"))
@@ -105,7 +108,7 @@ class _HandTrack:
 
     __slots__ = (
         "present", "last_seen", "openness", "y", "vy",
-        "label", "label_missing",
+        "label", "label_missing", "y_history",
     )
 
     def __init__(self) -> None:
@@ -116,10 +119,12 @@ class _HandTrack:
         self.vy = 0.0
         self.label = "unknown"      # fist / palm / unknown
         self.label_missing = 0      # 连续非当前手型帧数（供 re-arm）
+        self.y_history: deque[float] = deque(maxlen=8)
 
     def update(self, openness: float, y: float, vy: float,
                extended: int, at: float) -> None:
         if not self.present:
+            self.y_history.clear()
             self.openness = openness
             self.y = y
             self.vy = vy
@@ -129,6 +134,7 @@ class _HandTrack:
             self.vy += (vy - self.vy) * EMA_VELOCITY
         self.present = True
         self.last_seen = at
+        self.y_history.append(self.y)
 
         fist = (
             self.openness < OPENNESS_FIST_MAX
@@ -148,11 +154,17 @@ class _HandTrack:
             self.label = new_label
             self.label_missing = 0
 
+    def displacement(self) -> float:
+        if len(self.y_history) < HOLD_FRAMES_PUSH:
+            return 0.0
+        return self.y - self.y_history[0]
+
     def expire_if_stale(self, at: float) -> bool:
         """超时判离；本帧刚过期返回 True（供识别器即时 re-arm）。"""
         if self.present and at - self.last_seen > HAND_TIMEOUT_S:
             self.present = False
             self.label = "unknown"
+            self.y_history.clear()
             return True
         return False
 
@@ -382,7 +394,8 @@ class CoordinateRecognizer:
 
         left_zone = zone_for_y(left.y)
         right_zone = zone_for_y(right.y)
-        if left_zone is not None and left_zone == right_zone:
+        if (left_zone is not None and left_zone == right_zone
+                and abs(left.y - right.y) <= ZONE_MAX_HAND_SEP):
             key = "zone_off"
             if self._armed.get(key, True):
                 if self._sustain(key, HOLD_FRAMES_ZONE):
@@ -406,7 +419,8 @@ class CoordinateRecognizer:
     ) -> bool:
         left_zone = zone_for_y(left.y)
         right_zone = zone_for_y(right.y)
-        if left_zone is not None and left_zone == right_zone:
+        if (left_zone is not None and left_zone == right_zone
+                and abs(left.y - right.y) <= ZONE_MAX_HAND_SEP):
             key = "zone_on"
             if self._armed.get(key, True):
                 if self._sustain(key, HOLD_FRAMES_ZONE):
@@ -431,10 +445,12 @@ class CoordinateRecognizer:
         right_fist = right.present and right.label == "fist"
         left_palm = left.present and left.label == "palm"
         right_palm = right.present and right.label == "palm"
+        left_single = not right.present if SINGLE_HAND_ONLY else not right_fist
+        right_single = not left.present if SINGLE_HAND_ONLY else not left_fist
 
         # 左拳：上推 BPM+；静置 STOP（对侧不得也是拳，否则走双手逻辑）
-        if left_fist and not right_fist:
-            if left.vy <= -PUSH_VELOCITY:
+        if left_fist and left_single:
+            if left.vy <= -PUSH_VELOCITY and left.displacement() <= -PUSH_MIN_DELTA:
                 self._reset("stop")
                 if self._push_repeat("bpm_up", at):
                     self._fire("bpm_up", at)
@@ -455,8 +471,8 @@ class CoordinateRecognizer:
             self._track_rearm("stop", left, REARM_FRAMES)
 
         # 右拳：下推 BPM−；静置 START
-        if right_fist and not left_fist:
-            if right.vy >= PUSH_VELOCITY:
+        if right_fist and right_single:
+            if right.vy >= PUSH_VELOCITY and right.displacement() >= PUSH_MIN_DELTA:
                 self._reset("start")
                 if self._push_repeat("bpm_down", at):
                     self._fire("bpm_down", at)
@@ -477,8 +493,8 @@ class CoordinateRecognizer:
             self._track_rearm("start", right, REARM_FRAMES)
 
         # 单掌推音量（对侧不得为掌/拳冲突）
-        if left_palm and not right_palm and not right_fist:
-            if left.vy <= -PUSH_VELOCITY:
+        if left_palm and left_single:
+            if left.vy <= -PUSH_VELOCITY and left.displacement() <= -PUSH_MIN_DELTA:
                 if self._push_repeat("vol_up", at):
                     self._fire("vol_up", at)
             else:
@@ -486,8 +502,8 @@ class CoordinateRecognizer:
         else:
             self._reset("vol_up")
 
-        if right_palm and not left_palm and not left_fist:
-            if right.vy >= PUSH_VELOCITY:
+        if right_palm and right_single:
+            if right.vy >= PUSH_VELOCITY and right.displacement() >= PUSH_MIN_DELTA:
                 if self._push_repeat("vol_down", at):
                     self._fire("vol_down", at)
             else:
@@ -537,28 +553,7 @@ class CoordinateRecognizer:
     # ── 默认动作出口 ────────────────────────────────────────────────────
     @staticmethod
     def _default_action_sink(name: str, detail: dict[str, Any]) -> None:
-        now = time.time()
-        if name == "start":
-            live_state.apply_sonic_pi_transport_intent("start", now)
-            sonic_pi_adapter.send_transport("start")
-        elif name == "stop":
-            live_state.apply_sonic_pi_transport_intent("stop", now)
-            sonic_pi_adapter.send_transport("stop")
-        elif name == "bpm_up":
-            _send_bpm_delta(+BPM_STEP)
-        elif name == "bpm_down":
-            _send_bpm_delta(-BPM_STEP)
-        elif name == "vol_up":
-            _send_volume_delta(+VOLUME_STEP)
-        elif name == "vol_down":
-            _send_volume_delta(-VOLUME_STEP)
-        elif name == "style":
-            sonic_pi_adapter.send_style(str(detail.get("direction", "next")))
-        elif name in {"zone_on", "zone_off"}:
-            layer = str(detail.get("layer", ""))
-            enabled = bool(detail.get("enabled"))
-            if live_state.set_music_layer(layer, enabled):
-                sonic_pi_adapter.send_layer(layer, enabled)
+        sonic_pi_adapter.send_gesture_command(name, detail)
 
     # ── 状态发布（前端可视化） ──────────────────────────────────────────
     def _publish_status(self, at: float) -> None:

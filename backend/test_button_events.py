@@ -34,9 +34,9 @@ def main() -> None:
     for _ in range(4):
         ls.apply_control_event(_control_payload("style_switch"), time.time())
         seen.append(ls.get_music()["style"])
-    assert seen == ["strings", "brass", "piano", "strings"], seen
+    assert seen == ["tropical_house", "festival_edm", "acoustic_pop", "tropical_house"], seen
     assert ls.get_music()["current_gesture"] == "style_switch"
-    print("PASS 1 style_switch 按键循环风格 piano→strings→brass")
+    print("PASS 1 style_switch button cycles single-song styles")
 
     # 1b. 其他按键语义不受影响
     ls2 = state.LiveState()

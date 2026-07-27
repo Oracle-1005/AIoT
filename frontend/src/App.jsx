@@ -124,7 +124,7 @@ function getSonicPiDisplayState(music = {}) {
     }
   }
 
-  if (music.transportStatus === 'local preview') {
+  if (music.transportStatus === 'backend error') {
     return {
       label: 'Backend Offline',
       pillClass: 'status-pill border-coral/40 text-rose-200',
@@ -181,13 +181,14 @@ function AssetPlaceholder({ title, path, note, type = 'video' }) {
 
 function TopNav({ onPresentation, onExperience, connectionState }) {
   const lowerState = connectionState.toLowerCase()
-  const statusTone = lowerState.includes('mock') || lowerState.includes('preview') || lowerState.includes('connecting') ? 'gold' : 'green'
+  const offline = lowerState.includes('unavailable') || lowerState.includes('timeout') || lowerState.includes('error')
+  const statusTone = offline ? 'red' : lowerState.includes('connecting') ? 'gold' : 'green'
   const statusLabel = lowerState.includes('websocket')
     ? 'Live Connected'
     : lowerState.includes('rest')
       ? 'Backend Connected'
-      : lowerState.includes('mock') || lowerState.includes('preview')
-        ? 'Demo Preview'
+      : offline
+        ? 'Backend Offline'
         : 'Connecting'
 
   return (

@@ -33,7 +33,7 @@
 use_debug false
 use_cue_logging false
 use_osc "127.0.0.1", 4561
-set_sched_ahead_time! 0.75
+set_sched_ahead_time! 2.0
 
 set :playing, true
 set :current_bpm, 132
@@ -81,7 +81,7 @@ end
 
 define :wait_until_playing do
   while get(:playing) != true
-    sleep 0.05
+    sleep 0.25
   end
 end
 
@@ -94,7 +94,7 @@ define :wait_music_beats do |beats|
       sleep step
       remaining=remaining-step
     else
-      sleep 0.05
+      sleep 0.25
     end
   end
 end
@@ -4424,6 +4424,11 @@ track_5_events=[
 ]
 
 
+live_loop :osc_ping_receiver do
+  use_real_time
+  command_id, = sync "/osc*/conductor/ping"
+  osc "/music/pong", command_id
+end
 live_loop :osc_transport_receiver do
   use_real_time
   command_id, action=sync "/osc*/conductor/transport"
