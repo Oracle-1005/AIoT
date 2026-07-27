@@ -84,8 +84,10 @@ class LedConsumer:
         default_pattern: Pattern to revert to after a timed command, and the
             pattern used at startup (must be in PATTERNS).
         brightness_limit: Passed through to LedController (safety cap 0-1).
-        music_panel: Split mode — gestures on panel 0, music visualiser on
-            the last panel (passed through to LedController).
+        music_panel: Music mode — both panels form one 16x32 vertically
+            stacked music canvas (passed through to LedController).
+        music_stack_top_panel: Which physical panel is the top half of the
+            16-row canvas (0 or 1; passed through to LedController).
         controller: Pre-built controller for tests; bypasses auto-construction.
         clock: Monotonic clock, injectable for tests.
     """
@@ -97,6 +99,7 @@ class LedConsumer:
         default_pattern: str = "breathing",
         brightness_limit: float = 0.25,
         music_panel: bool = False,
+        music_stack_top_panel: int = 0,
         controller=None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
@@ -104,6 +107,7 @@ class LedConsumer:
             default_pattern if default_pattern in PATTERNS else "breathing"
         )
         self._music_panel = bool(music_panel)
+        self._music_stack_top_panel = int(music_stack_top_panel)
         self._clock = clock
         self._revert_at: float | None = None
 
@@ -129,6 +133,7 @@ class LedConsumer:
                 self._controller = LedController(
                     brightness_limit=brightness_limit,
                     music_panel_enabled=self._music_panel,
+                    music_stack_top_panel=self._music_stack_top_panel,
                 )
             except Exception:
                 logger.exception("LED consumer: LedController init failed — commands will be dropped.")

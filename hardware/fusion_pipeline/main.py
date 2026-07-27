@@ -241,6 +241,7 @@ class FusionApp:
                 default_pattern=led_cfg.get("default_pattern", "breathing"),
                 brightness_limit=float(led_cfg.get("brightness_limit", 0.25)),
                 music_panel=bool(led_cfg.get("music_panel", False)),
+                music_stack_top_panel=int(led_cfg.get("music_stack_top", 0)),
             )
             self._tcp.set_downlink_handler(self._led.handle_message)
 

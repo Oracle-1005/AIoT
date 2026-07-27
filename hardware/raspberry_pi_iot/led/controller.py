@@ -10,14 +10,16 @@ Backend is auto-detected at init:
 LED control is entirely local — no serial protocol or network dependency.
 
 Panel layout:
-- Panel 0 (LEDs 0-255): left hand
-- Panel 1 (LEDs 256-511): right hand
-- Each panel is an 8(row) x 32(col) matrix, physically 32 columns
-  (left→right) x 8 rows (top→bottom). Wiring is COLUMN-major
-  serpentine: each physical column is 8 consecutive LEDs; even columns
-  run top→bottom, odd columns bottom→top. (Verified on hardware
-  2026-07-26 with a raw-index block sweep — the earlier row-major
-  assumption was wrong and scrambled all 2D effects.)
+- Panel 0 (LEDs 0-255) and Panel 1 (LEDs 256-511) are each an
+  8(row) x 32(col) matrix, physically 32 columns (left→right) x 8 rows
+  (top→bottom). Wiring is COLUMN-major serpentine: each physical column
+  is 8 consecutive LEDs; even columns run top→bottom, odd columns
+  bottom→top. (Verified on hardware 2026-07-26 with a raw-index block
+  sweep — the earlier row-major assumption was wrong and scrambled all
+  2D effects.)
+- Music mode (music_panel_enabled): both panels stack VERTICALLY into a
+  16-row x 32-col canvas (2026-07-27 user-specified; not 8x64 horizontal).
+  music_stack_top_panel selects the top-half physical panel.
 
 Base patterns (set_pattern): breathing / wave / idle — continuous,
 parameterised by set_state(). A beat pulse (show_beat) temporarily
@@ -144,10 +146,14 @@ class LedController:
         rows: Matrix rows per panel (default 8). rows*cols must equal
             led_per_panel for the 2D gesture animations to map correctly.
         cols: Matrix columns per panel (default 32).
-        music_panel_enabled: Split mode — gesture patterns render only on
-            panel 0 while the last panel runs the music spectrum
-            visualiser (driven by set_music_state/music_kick). Default
+        music_panel_enabled: Music mode — BOTH panels become one music
+            spectrum visualiser stacked vertically into a 16-row x 32-col
+            canvas (driven by set_music_state/music_kick). Gesture
+            patterns get an empty canvas in this mode (gesture feedback
+            moved to the frontend, 2026-07-26 22:05 decision). Default
             False keeps the legacy mirrored behaviour.
+        music_stack_top_panel: Which physical panel is the TOP half of the
+            16-row canvas (default 0; the other panel is rows 8-15).
     """
 
     LED_FREQ_HZ = 800000
@@ -163,6 +169,7 @@ class LedController:
         rows: int = 8,
         cols: int = 32,
         music_panel_enabled: bool = False,
+        music_stack_top_panel: int = 0,
     ):
         self._gpio = gpio
         self._panel_count = panel_count
@@ -192,15 +199,19 @@ class LedController:
         self._backend = "none"
         self._consecutive_errors = 0
 
-        # Split mode: gesture patterns are confined to panel 0 and the last
-        # panel runs the music spectrum visualiser.
+        # Music mode (2026-07-26 22:05 决策 + 07-27 用户指定拼接方向):
+        # 双灯板全部给音乐波形，手势响应移出灯板改前端呈现。两板竖拼成
+        # 16 行×32 列画布（非横拼 8×64）：music_stack_top_panel 指定上半
+        # 屏物理板号（默认 0，rows 0-7），另一板为下半屏（rows 8-15）。
+        # 频谱柱从画布底行（row 15）向上生长，重拍闪画布底行。
         self._music_panel_enabled = bool(music_panel_enabled)
+        self._music_stack_top_panel = int(music_stack_top_panel)
         self._music = {"playing": False, "bpm": 0.0, "energy": 0.0, "section": ""}
         self._kick_at = 0.0
         self._kick_strength = 0.0
         self._kick_is_downbeat = False
-        # Spectrum column state (float heights in rows) persists across
-        # frames for attack/decay motion; everything else is stateless.
+        # Spectrum column state (float heights in canvas rows) persists
+        # across frames for attack/decay motion; everything else stateless.
         self._spec_heights = [0.0] * cols
         self._spec_last_t: float | None = None
         self._music_energy_smooth = 0.0
@@ -422,6 +433,7 @@ class LedController:
             "actual_brightness": round(self._brightness, 3),
             "current_pattern": self._current_pattern,
             "music_panel_enabled": self._music_panel_enabled,
+            "music_stack_top_panel": self._music_stack_top_panel,
             "music": dict(self._music),
             "fps": 50,
             "error": self._error,
@@ -432,10 +444,12 @@ class LedController:
     def _gesture_panels(self) -> list[int]:
         """Panels available to gesture patterns.
 
-        Split mode reserves the last panel for the music visualiser.
+        Music mode: none — the visualiser owns both panels and rewrites
+        them every frame; gesture renderers get an empty canvas (their
+        output is overwritten anyway).
         """
         if self._music_panel_enabled and self._panel_count > 1:
-            return list(range(self._panel_count - 1))
+            return []
         return list(range(self._panel_count))
 
     def _gesture_span(self) -> int:
@@ -547,8 +561,10 @@ class LedController:
             else:
                 self._render_idle()
 
-        # Split mode: the reserved panel is fully rewritten every frame by
-        # the music visualiser, so gesture renderers can never leak into it.
+        # Music mode: the spectrum visualiser owns BOTH panels (16x32
+        # stacked canvas) and fully rewrites every pixel every frame, so
+        # gesture renderers above can never leak through. Gesture feedback
+        # moved to the frontend (2026-07-26 22:05 decision).
         if self._music_panel_enabled and self._panel_count > 1:
             self._render_music_spectrum(now)
 
@@ -812,18 +828,41 @@ class LedController:
             self._fill_panel(0, self._color(255, 64, 160, 0.08))
             self._fill_panel(1, self._color(255, 64, 160, 0.3 + 0.7 * pulse))
 
-    # 频谱柱参数（音乐律动，split 模式的保留面板）
-    _SPEC_FALL_ROWS_S = 6.0   # 柱高重力回落速度（行/秒）
+    # 频谱柱参数（音乐律动，music 模式的双板 16×32 竖拼画布）
+    _SPEC_FALL_ROWS_S = 10.0  # 柱高重力回落速度（画布行/秒，16 行比例）
     _SPEC_KICK_DECAY = 4.0    # kick 包络指数衰减率
 
-    def _render_music_spectrum(self, now: float) -> None:
-        """Music-reactive spectrum bars on the reserved panel (split mode).
+    def _canvas_panels(self) -> list[int]:
+        """竖拼画布的物理板顺序：[上半屏, 下半屏]。"""
+        top = self._music_stack_top_panel % max(1, self._panel_count)
+        if self._panel_count < 2:
+            return [top]
+        return [top, (top + 1) % self._panel_count]
 
-        Column heights = slow pseudo-random base (deterministic, no RNG →
-        no flicker) scaled by energy, plus a per-beat kick envelope.
-        Instant attack, gravity fall, lighter peak dot trailing each
-        column. Hue follows energy (blue → orange). All black when not
-        playing. Writes every pixel of the reserved panel every frame.
+    def _canvas_rows(self) -> int:
+        """画布总行数：单板 8 行，双板竖拼 16 行。"""
+        return self._rows * len(self._canvas_panels())
+
+    def _canvas_set(self, col: int, row: int, color) -> None:
+        """写 16×32 竖拼画布的一个像素（row 0=画布顶，row 15=画布底）。"""
+        panels = self._canvas_panels()
+        half = self._rows
+        panel_idx = row // half
+        if panel_idx >= len(panels):
+            return
+        self._set_xy(panels[panel_idx], row % half, col, color)
+
+    def _render_music_spectrum(self, now: float) -> None:
+        """Music-reactive spectrum bars over BOTH panels (music mode).
+
+        Canvas is the two panels stacked vertically: 16 rows x 32 cols
+        (top half = music_stack_top_panel). Column heights = slow
+        pseudo-random base (deterministic, no RNG → no flicker) scaled by
+        energy, plus a per-beat kick envelope. Instant attack, gravity
+        fall. Bars grow from canvas bottom (row 15) upward; downbeat
+        flashes the canvas bottom row white. Hue follows energy
+        (blue → orange). All black when not playing. Writes every pixel
+        of both panels every frame, so no other renderer can leak through.
         """
         if self._spec_last_t is None:
             dt = 0.0
@@ -839,8 +878,7 @@ class LedController:
 
         kick = self._kick_strength * math.exp(-(now - self._kick_at) * self._SPEC_KICK_DECAY)
         hue = 200.0 - 180.0 * e  # 200° blue (calm) → 20° orange/red (hot)
-        rows, cols = self._rows, self._cols
-        panel = self._panel_count - 1
+        rows, cols = self._canvas_rows(), self._cols
 
         for c in range(cols):
             # 静态列权重 + 各列独立摆动（无空间相位耦合 → 柱子原地弹跳，
@@ -869,11 +907,11 @@ class LedController:
                 if from_bottom < h:
                     # Brighter toward the column tip
                     scale = max(0.45, 1.0 - 0.12 * (h - 1 - from_bottom))
-                    self._set_xy(panel, r, c, self._color(r_col, g_col, b_col, scale))
+                    self._canvas_set(c, r, self._color(r_col, g_col, b_col, scale))
                 else:
-                    self._set_xy(panel, r, c, self._color(0, 0, 0))
+                    self._canvas_set(c, r, self._color(0, 0, 0))
 
-        # Downbeat: bottom-row white flash riding on the kick envelope.
+        # Downbeat: canvas bottom-row white flash riding on the kick envelope.
         if playing and self._kick_is_downbeat and kick > 0.35:
             for c in range(cols):
-                self._set_xy(panel, rows - 1, c, self._color(255, 255, 255, min(1.0, kick)))
+                self._canvas_set(c, rows - 1, self._color(255, 255, 255, min(1.0, kick)))
