@@ -77,9 +77,11 @@ define :soy_wait_music_beats do |beats|
   remaining = [beats.to_f, 0.0].max
   while remaining > 0.0001
     if (get(:playing) == true) and (get(:active_piece) == :soy)
-            step = [remaining, 1.0].min
-      use_real_time
-      sleep step * 60.0 / [get(:soy_current_bpm).to_f, 20.0].max
+      use_bpm get(:soy_current_bpm).to_f
+      # Poll once per beat at most. The previous 1/16-beat polling caused
+      # hundreds of scheduler wake-ups per second across all MIDI tracks.
+      step = [remaining, 1.0].min
+      sleep step
       remaining = remaining - step
     else
       sync :aiot_tick
@@ -121,7 +123,7 @@ define :soy_voice_config do |role|
     elsif role == :harmony
       config = [:prophet, 0.16, 0.68, 0, -0.12]
     elsif role == :bass
-      config = [:tb303, 0.30, 0.56, 12, 0.0]
+      config = [:tb303, 0.24, 0.56, 12, 0.0]  # 0.30 -> 0.24 per user feedback: bass too loud (2026-07-27)
     end
   else
     if role == :melody
@@ -6744,57 +6746,49 @@ live_loop :soy_state_reporter do
 end
 
 live_loop :soy_shape_track_3 do
-  sync :soy_shape_cycle
   soy_perform_event_track soy_track_3_events, :melody, soy_loop_beats
 end
 
 live_loop :soy_shape_track_4 do
-  sync :soy_shape_cycle
   soy_perform_event_track soy_track_4_events, :hook, soy_loop_beats
 end
 
 live_loop :soy_shape_track_5 do
-  sync :soy_shape_cycle
   soy_perform_event_track soy_track_5_events, :harmony, soy_loop_beats
 end
 
 live_loop :soy_shape_track_6 do
-  sync :soy_shape_cycle
   soy_perform_event_track soy_track_6_events, :harmony, soy_loop_beats
 end
 
 live_loop :soy_shape_track_7 do
-  sync :soy_shape_cycle
   soy_perform_event_track soy_track_7_events, :bass, soy_loop_beats
 end
 
 live_loop :soy_shape_track_8 do
-  sync :soy_shape_cycle
   soy_perform_event_track soy_track_8_events, :hook, soy_loop_beats
 end
 
 live_loop :soy_shape_track_9 do
-  sync :soy_shape_cycle
   soy_perform_event_track soy_track_9_events, :rhythm, soy_loop_beats
 end
 
 live_loop :soy_shape_track_11 do
-  sync :soy_shape_cycle
   soy_perform_event_track soy_track_11_events, :rhythm, soy_loop_beats
 end
 
 live_loop :soy_shape_track_12 do
-  sync :soy_shape_cycle
   soy_perform_event_track soy_track_12_events, :rhythm, soy_loop_beats
 end
 
 live_loop :soy_shape_track_13 do
-  sync :soy_shape_cycle
   soy_perform_event_track soy_track_13_events, :rhythm, soy_loop_beats
 end
 
-
-live_loop :soy_shape_cycle_clock do
-  cue :soy_shape_cycle
-  soy_wait_music_beats soy_loop_beats
-end
+# NO cycle clock / cycle sync (2026-07-27: four thread deaths in the fixed
+# order 13,12,8). At every 93-bar wrap the shared cue woke ALL track threads
+# in one scheduling herd, and each adoptee restarted its virtual time from
+# the cue's SEND-time value -- the herd's tail woke >1.75 s late and died
+# at its next sleep (TimingError). Deadline-based sleeps never drift
+# (core.rb sleep), so tracks simply loop their own score: no shared cue,
+# no herd, no stale virtual-time adoption. Do NOT reintroduce a wrap sync.

@@ -4542,27 +4542,22 @@ live_loop :state_reporter do
 end
 
 live_loop :world_track_1 do
-  sync :world_cycle
   perform_event_track track_1_events, :melody, loop_beats
 end
 
 live_loop :world_track_2 do
-  sync :world_cycle
   perform_event_track track_2_events, :harmony, loop_beats
 end
 
 live_loop :world_track_3 do
-  sync :world_cycle
   perform_event_track track_3_events, :bass, loop_beats
 end
 
 live_loop :world_track_5 do
-  sync :world_cycle
   perform_event_track track_5_events, :rhythm, loop_beats
 end
 
-
-live_loop :world_cycle_clock do
-  cue :world_cycle
-  wait_music_beats loop_beats
-end
+# NO cycle clock / cycle sync: see the note in aiot_conductor_shape_of_you.rb
+# (wrap-time shared cue + herd wake + stale virtual-time adoption killed
+# track threads deterministically, 2026-07-27). Tracks loop their own score
+# on deadline-based sleeps, which never drift. Do NOT reintroduce.

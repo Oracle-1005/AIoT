@@ -116,7 +116,7 @@ define :voice_config do |role|
     elsif role == :harmony
       config = [:prophet, 0.16, 0.68, 0, -0.12]
     elsif role == :bass
-      config = [:tb303, 0.30, 0.56, 12, 0.0]
+      config = [:tb303, 0.24, 0.56, 12, 0.0]  # 0.30 -> 0.24 per user feedback: bass too loud (2026-07-27)
     end
   else
     if role == :melody
@@ -6749,57 +6749,49 @@ live_loop :state_reporter do
 end
 
 live_loop :shape_track_3 do
-  sync :shape_cycle
   perform_event_track track_3_events, :melody, loop_beats
 end
 
 live_loop :shape_track_4 do
-  sync :shape_cycle
   perform_event_track track_4_events, :hook, loop_beats
 end
 
 live_loop :shape_track_5 do
-  sync :shape_cycle
   perform_event_track track_5_events, :harmony, loop_beats
 end
 
 live_loop :shape_track_6 do
-  sync :shape_cycle
   perform_event_track track_6_events, :harmony, loop_beats
 end
 
 live_loop :shape_track_7 do
-  sync :shape_cycle
   perform_event_track track_7_events, :bass, loop_beats
 end
 
 live_loop :shape_track_8 do
-  sync :shape_cycle
   perform_event_track track_8_events, :hook, loop_beats
 end
 
 live_loop :shape_track_9 do
-  sync :shape_cycle
   perform_event_track track_9_events, :rhythm, loop_beats
 end
 
 live_loop :shape_track_11 do
-  sync :shape_cycle
   perform_event_track track_11_events, :rhythm, loop_beats
 end
 
 live_loop :shape_track_12 do
-  sync :shape_cycle
   perform_event_track track_12_events, :rhythm, loop_beats
 end
 
 live_loop :shape_track_13 do
-  sync :shape_cycle
   perform_event_track track_13_events, :rhythm, loop_beats
 end
 
-
-live_loop :shape_cycle_clock do
-  cue :shape_cycle
-  wait_music_beats loop_beats
-end
+# NO cycle clock / cycle sync (2026-07-27: four thread deaths in the fixed
+# order 13,12,8). At every 93-bar wrap the shared cue woke ALL track threads
+# in one scheduling herd, and each adoptee restarted its virtual time from
+# the cue's SEND-time value -- the herd's tail woke >1.75 s late and died
+# at its next sleep (TimingError). Deadline-based sleeps never drift
+# (core.rb sleep), so tracks simply loop their own score: no shared cue,
+# no herd, no stale virtual-time adoption. Do NOT reintroduce a wrap sync.

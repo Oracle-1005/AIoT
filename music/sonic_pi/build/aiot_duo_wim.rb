@@ -77,9 +77,9 @@ define :wim_wait_music_beats do |beats|
   remaining=[beats.to_f, 0.0].max
   while remaining>0.0001
     if (get(:playing) == true) and (get(:active_piece) == :wim)
-            step = [remaining, 1.0].min
-      use_real_time
-      sleep step * 60.0 / [get(:wim_current_bpm).to_f, 20.0].max
+      use_bpm get(:wim_current_bpm).to_f
+      step=[remaining, 1.0].min
+      sleep step
       remaining=remaining-step
     else
       sync :aiot_tick
@@ -4539,27 +4539,22 @@ live_loop :wim_state_reporter do
 end
 
 live_loop :wim_world_track_1 do
-  sync :wim_world_cycle
   wim_perform_event_track wim_track_1_events, :melody, wim_loop_beats
 end
 
 live_loop :wim_world_track_2 do
-  sync :wim_world_cycle
   wim_perform_event_track wim_track_2_events, :harmony, wim_loop_beats
 end
 
 live_loop :wim_world_track_3 do
-  sync :wim_world_cycle
   wim_perform_event_track wim_track_3_events, :bass, wim_loop_beats
 end
 
 live_loop :wim_world_track_5 do
-  sync :wim_world_cycle
   wim_perform_event_track wim_track_5_events, :rhythm, wim_loop_beats
 end
 
-
-live_loop :wim_world_cycle_clock do
-  cue :wim_world_cycle
-  wim_wait_music_beats wim_loop_beats
-end
+# NO cycle clock / cycle sync: see the note in aiot_conductor_shape_of_you.rb
+# (wrap-time shared cue + herd wake + stale virtual-time adoption killed
+# track threads deterministically, 2026-07-27). Tracks loop their own score
+# on deadline-based sleeps, which never drift. Do NOT reintroduce.
