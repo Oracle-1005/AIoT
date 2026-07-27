@@ -385,7 +385,7 @@ class SonicPiOscAdapter:
             gesture,
             detail,
             music_state=music_state,
-            update_live_state=True,
+            update_live_state=False,
         )
         if gesture in ACCENT_GESTURES:
             self.send_accent(_as_float(detail.get("strength"), 0.8), gesture)
@@ -981,13 +981,19 @@ class SonicPiOscAdapter:
     def _handle_pong(self, _address: str, command_id: Any = "", *_args: Any) -> None:
         received_at = time.time()
         with self._lock:
-            if str(command_id) == str(getattr(self, "_last_ping_id", "")):
-                self._last_pong_at = received_at
-                if self._last_ping_at is not None:
-                    self._last_ping_latency_ms = round(
-                        max(0.0, received_at - self._last_ping_at) * 1000.0,
-                        1,
-                    )
+            # Any pong proves the 4560 command channel is alive. A pong that
+            # arrives after the next ping went out (slow/loaded Tau) no longer
+            # matches the latest ping id; dropping it made command_channel_ready
+            # flap even though the channel was fine.
+            self._last_pong_at = received_at
+            if (
+                str(command_id) == str(getattr(self, "_last_ping_id", ""))
+                and self._last_ping_at is not None
+            ):
+                self._last_ping_latency_ms = round(
+                    max(0.0, received_at - self._last_ping_at) * 1000.0,
+                    1,
+                )
         self._record_feedback(received_at)
 
     def _handle_output(self, _address: str, output_mode: Any = "") -> None:

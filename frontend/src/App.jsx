@@ -116,6 +116,22 @@ function formatDuration(seconds = 0) {
 }
 
 function getSonicPiDisplayState(music = {}) {
+  if (music.sonicPiConnected && music.sonicPiCommandReady === false) {
+    return {
+      label: 'Command Channel Dead',
+      pillClass: 'status-pill border-coral/40 text-rose-200',
+      hint: 'Feedback is alive but Sonic Pi is not receiving commands. Fully quit Sonic Pi and Run aiot_loader.rb once.',
+    }
+  }
+
+  if (music.transportStatus === 'disabled') {
+    return {
+      label: 'Safe Mode: Single Track',
+      pillClass: 'status-pill border-gold/40 text-gold',
+      hint: music.transportError || 'Track switching is disabled in safe Sonic Pi mode.',
+    }
+  }
+
   if (music.sonicPiConnected) {
     return {
       label: 'Sonic Pi Live',

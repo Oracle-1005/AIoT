@@ -1,4 +1,13 @@
-# Small launcher for the generated Faded arrangement.
-# Open this file in Sonic Pi and press Run.
+# Faded launcher (multi-machine): keep the large generated score
+# outside Sonic Pi's editor buffer. Open this file in Sonic Pi and press Run.
 
-run_file "G:/code/AIoT/AIoT/music/sonic_pi/aiot_conductor_faded.rb"
+aiot_track = [
+  "G:/code/AIoT/AIoT/music/sonic_pi/aiot_conductor_faded.rb",
+  "D:/CC/AIoT/music/sonic_pi/aiot_conductor_faded.rb",
+].uniq.find { |path| File.exist?(path) }
+
+if aiot_track
+  run_file aiot_track
+else
+  puts "AIOT LOADER ERROR: track file not found. Edit the paths in this loader."
+end

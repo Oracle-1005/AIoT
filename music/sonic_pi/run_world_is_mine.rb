@@ -1,4 +1,13 @@
-# Small launcher for the generated World is Mine arrangement.
-# Open this file in Sonic Pi and press Run.
+# World is Mine launcher (multi-machine): keep the large generated score
+# outside Sonic Pi's editor buffer. Open this file in Sonic Pi and press Run.
 
-run_file "G:/code/AIoT/AIoT/music/sonic_pi/aiot_conductor_world_is_mine.rb"
+aiot_track = [
+  "G:/code/AIoT/AIoT/music/sonic_pi/aiot_conductor_world_is_mine.rb",
+  "D:/CC/AIoT/music/sonic_pi/aiot_conductor_world_is_mine.rb",
+].uniq.find { |path| File.exist?(path) }
+
+if aiot_track
+  run_file aiot_track
+else
+  puts "AIOT LOADER ERROR: track file not found. Edit the paths in this loader."
+end

@@ -4,7 +4,12 @@ import { createConductorFrame, describeCoordinateAction, makeInferenceLog } from
 const BACKEND_REST_DEFAULT = 'http://localhost:5000'
 const REST_POLL_INTERVAL_MS = 250
 const REST_FETCH_TIMEOUT_MS = 1200
-const TRANSPORT_FETCH_TIMEOUT_MS = 1200
+// Must exceed the backend ack wait (wait_ms 1800) so a real Sonic Pi timeout
+// surfaces its precise error instead of a misleading AbortError "Backend timeout".
+const TRANSPORT_FETCH_TIMEOUT_MS = 2600
+// Optimistic transport overrides must expire; otherwise a stale override pins
+// the UI playing/progress state forever and masks later gesture-driven changes.
+const TRANSPORT_OVERRIDE_TTL_SECONDS = 8
 const CAMERA_STREAM_ENV = import.meta.env.VITE_CAMERA_STREAM_URL || ''
 const CAMERA_FRAME_ENV = import.meta.env.VITE_CAMERA_FRAME_URL || ''
 const PLAY_ACTIONS = new Set(['start', 'resume', 'play', 'reset', 'next', 'previous', 'prev'])
@@ -318,7 +323,12 @@ function normalizeRestFrame({ status = {}, prediction = {}, sensors = {}, music 
   const gateway = piStatus.gateway || status.pi_gateway || {}
   const piPreviewUrl = derivePiPreviewUrl(gateway)
   const sonicPi = status.sonic_pi || {}
-  const sonicPiConnected = Boolean(sonicPi.connected || music.sonic_pi_connected)
+  // Trust only the 5s-decayed live flag. music.sonic_pi_connected is sticky-true
+  // in the backend and would keep the pill green after Sonic Pi dies.
+  const sonicPiConnected = Boolean(sonicPi.connected)
+  // False only when the backend explicitly reports a dead command channel
+  // (feedback alive but Tau 4560 not receiving); undefined on older backends.
+  const sonicPiCommandReady = sonicPi.command_channel_ready !== false
   const runtime = piStatus.runtime || {}
   const controlPayload = getLastControlPayload(runtime)
   const coordinateNorm = normalizeCoordinateState(coordinate)
@@ -444,6 +454,7 @@ function normalizeRestFrame({ status = {}, prediction = {}, sensors = {}, music 
       lastBeat: Number.isFinite(Number(music.last_beat)) ? Number(music.last_beat) : base.music.lastBeat,
       beatStrength: toPercent(Number(music.beat_strength), base.music.beatStrength),
       sonicPiConnected,
+      sonicPiCommandReady,
       layers: music.layers && typeof music.layers === 'object'
         ? {
             melody: Boolean(music.layers.melody),
@@ -583,13 +594,15 @@ function createTransportOverride(action, currentMusic = {}, status = 'sending', 
 function applyTransportOverride(nextFrame, override) {
   if (!override || !nextFrame?.music) return nextFrame
 
-  const resetMusic = ['reset', 'next', 'previous', 'prev'].includes(override.action)
+  // 'disabled' overrides only carry a notice; live music state passes through.
+  const disabled = override.status === 'disabled'
+  const resetMusic = !disabled && ['reset', 'next', 'previous', 'prev'].includes(override.action)
 
   return {
     ...nextFrame,
     music: {
       ...nextFrame.music,
-      playing: override.playing,
+      playing: disabled ? nextFrame.music.playing : override.playing,
       progress: resetMusic ? 0 : nextFrame.music.progress,
       elapsedSeconds: resetMusic ? 0 : nextFrame.music.elapsedSeconds,
       uiReceivedAt: override.requestedAt,
@@ -624,7 +637,9 @@ export function useConductorFeed(options = {}) {
   const sendSonicPiTransport = async (action) => {
     const actionText = String(action).trim().toLowerCase()
     if (TRACK_SWITCH_ACTIONS.has(actionText) && !PLAYLIST_CONTROLS_ENABLED) {
-      const blockedOverride = createTransportOverride(actionText, frame.music, 'backend error', 'Playlist controls are disabled in safe Sonic Pi mode')
+      // Safe single-track mode: surface a notice WITHOUT pinning playing/progress
+      // (a pinned 0:00 + playing=true made the dead button look like corruption).
+      const blockedOverride = createTransportOverride(actionText, frame.music, 'disabled', 'Safe mode: single track only. Track switching needs the playlist loader.')
       transportOverrideRef.current = blockedOverride
       setFrame((current) => applyTransportOverride(current, blockedOverride))
       return { sent: false, local: false, error: blockedOverride.error }
@@ -765,6 +780,12 @@ export function useConductorFeed(options = {}) {
 
       feedTick += 1
       setTick(feedTick)
+      if (
+        transportOverrideRef.current
+        && Date.now() / 1000 - transportOverrideRef.current.requestedAt > TRANSPORT_OVERRIDE_TTL_SECONDS
+      ) {
+        transportOverrideRef.current = null
+      }
       setFrame(applyTransportOverride(
         normalizeRestFrame({ status, prediction, sensors, music, piStatus, coordinate }, feedTick),
         transportOverrideRef.current,

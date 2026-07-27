@@ -685,14 +685,34 @@ SAFE_LOADER_TEMPLATE = '''# AIoT Smart Conducting -- generated safe loader
 # This stable entry loads one song only, avoiding the full playlist's many
 # always-resident live_loops. Use this for live demos.
 
-run_file \"__SAFE_TRACK_PATH__\"
+aiot_track = [
+  \"__SAFE_TRACK_PATH__\",
+  \"G:/code/AIoT/AIoT/music/sonic_pi/aiot_conductor_shape_of_you.rb\",
+  \"D:/CC/AIoT/music/sonic_pi/aiot_conductor_shape_of_you.rb\",
+].uniq.find { |path| File.exist?(path) }
+
+if aiot_track
+  run_file aiot_track
+else
+  puts \"AIOT LOADER ERROR: track file not found. Edit the paths in this loader.\"
+end
 '''
 
 PLAYLIST_LOADER_TEMPLATE = '''# AIoT Smart Conducting -- generated playlist loader
 # High-load five-track playlist. Use only for stress testing.
 # Fully quit Sonic Pi before loading this after the safe loader.
 
-run_file \"__WRAPPER_PATH__\"
+aiot_playlist = [
+  \"__WRAPPER_PATH__\",
+  \"G:/code/AIoT/AIoT/music/sonic_pi/build/aiot_conductor_playlist.rb\",
+  \"D:/CC/AIoT/music/sonic_pi/build/aiot_conductor_playlist.rb\",
+].uniq.find { |path| File.exist?(path) }
+
+if aiot_playlist
+  run_file aiot_playlist
+else
+  puts \"AIOT LOADER ERROR: playlist file not found. Edit the paths in this loader.\"
+end
 '''
 
 
