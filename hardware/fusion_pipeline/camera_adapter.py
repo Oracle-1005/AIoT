@@ -60,6 +60,7 @@ class CameraAdapter:
         enable_preview_jpeg: bool = False,
         preview_jpeg_quality: int = 70,
         preview_jpeg_every_n_frames: int = 2,
+        preview_anchor_provider=None,
     ) -> None:
         self._width = width
         self._height = height
@@ -75,6 +76,7 @@ class CameraAdapter:
         self._enable_preview_jpeg = enable_preview_jpeg
         self._preview_jpeg_quality = preview_jpeg_quality
         self._preview_jpeg_every_n_frames = preview_jpeg_every_n_frames
+        self._preview_anchor_provider = preview_anchor_provider
 
         # Camera frame buffer: time-sorted, oldest at index 0.
         # Each entry: {"ts_ns": pi_aligned_timestamp_ns, "frame_id": ..., "hands": [...]}
@@ -116,6 +118,7 @@ class CameraAdapter:
                 enable_preview_jpeg=self._enable_preview_jpeg,
                 preview_jpeg_quality=self._preview_jpeg_quality,
                 preview_jpeg_every_n_frames=self._preview_jpeg_every_n_frames,
+                preview_anchor_provider=self._preview_anchor_provider,
             )
         except ImportError as exc:
             logger.error("Camera not available: %s", exc)

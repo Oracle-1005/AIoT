@@ -26,11 +26,23 @@ DT = 1.0 / 16.0   # 实测帧率 ~16Hz
 def make_frame(hands: list[dict], *, anchor: object = True) -> dict:
     frame = {"camera": {"hands": hands}}
     if anchor is True:
-        # micro:bit 锚点（门控默认开）：测试帧默认带双侧活性锚点
+        # micro:bit 锚点（门控默认开）：测试帧默认带双侧活性锚点。
+        # 用线上真实形状：microbits 为列表，available 由 Pi 端对齐器判定。
+        frame["microbits"] = [
+            {"hand": "left", "available": True, "time_delta_ms": 12.3},
+            {"hand": "right", "available": True, "time_delta_ms": 15.1},
+        ]
+    elif anchor == "stale":
+        frame["microbits"] = [
+            {"hand": "left", "available": False, "time_delta_ms": 9000.0},
+            {"hand": "right", "available": False, "time_delta_ms": 9000.0},
+        ]
+    elif anchor == "dict-live":
+        # 向后兼容：status 消息式字典形态（age_ms < 阈值 = 活）
         frame["microbits"] = {
             "left": {"age_ms": 50}, "right": {"age_ms": 50},
         }
-    elif anchor == "stale":
+    elif anchor == "dict-stale":
         frame["microbits"] = {
             "left": {"age_ms": 9000}, "right": {"age_ms": 9000},
         }
@@ -238,6 +250,16 @@ def main() -> None:
     rig3.feed([fist("right")], cr.HOLD_FRAMES_TRANSPORT - 1)
     assert rig3.names() == ["start"], rig3.events
     print("PASS 13 micro:bit 锚点门控（无锚点不识别 + 丢锚不续命）")
+
+    # 14. 锚点数据形状兼容：线上列表形态（available）与 status 字典形态
+    #     （age_ms）都能正确判定活性
+    rig = Rig()
+    rig.feed([fist("right")], cr.HOLD_FRAMES_TRANSPORT, anchor="dict-live")
+    assert rig.names() == ["start"], rig.events
+    rig2 = Rig()
+    rig2.feed([fist("right")], cr.HOLD_FRAMES_TRANSPORT + 2, anchor="dict-stale")
+    assert rig2.events == [], rig2.events
+    print("PASS 14 锚点形状兼容（列表 available / 字典 age_ms）")
 
     print("\nAll coordinate_recognizer tests passed.")
 

@@ -201,6 +201,12 @@ class FusionApp:
         self._event_count = 0
         self._status_count = 0
 
+        # Micro:bit anchor liveness for the camera preview overlay.
+        # Stamped per accepted sample in _on_microbit_sample; the preview
+        # JPEG encoder drops the hand skeleton when no side is fresh.
+        self._mb_anchor_last_rx: dict[str, float] = {"left": 0.0, "right": 0.0}
+        self._mb_anchor_max_age_s = 1.0
+
     # ── Start / Stop ──────────────────────────────────────────────────
 
     async def start(self) -> None:
@@ -306,6 +312,7 @@ class FusionApp:
             enable_preview_jpeg=bool(preview_cfg.get("enabled", False)),
             preview_jpeg_quality=int(preview_cfg.get("jpeg_quality", 70)),
             preview_jpeg_every_n_frames=int(preview_cfg.get("jpeg_every_n_frames", 2)),
+            preview_anchor_provider=self._preview_anchor_active,
         )
 
         camera_ok = self._camera.start()
@@ -451,10 +458,25 @@ class FusionApp:
 
     def _on_microbit_sample(self, sample: MicrobitSample) -> None:
         """GatewayAdapter → FusionEngine buffer."""
+        side = str(getattr(sample, "source", "")).strip().lower()
+        if side in self._mb_anchor_last_rx:
+            self._mb_anchor_last_rx[side] = time.monotonic()
         if self._preview_state:
             self._preview_state.set_filtered_microbit(sample.to_dict())
         if self._fusion:
             self._fusion.push_microbit_sample(sample)
+
+    def _preview_anchor_active(self) -> bool:
+        """True while at least one micro:bit sample arrived recently.
+
+        Feeds CameraSensor.preview_anchor_provider: no live anchor -> the
+        MJPEG preview is encoded without the hand skeleton overlay.
+        """
+        now = time.monotonic()
+        return any(
+            last > 0.0 and (now - last) < self._mb_anchor_max_age_s
+            for last in self._mb_anchor_last_rx.values()
+        )
 
     def _on_control_event(self, event: dict) -> None:
         """GatewayAdapter → FusionEngine control event queue + direct send."""

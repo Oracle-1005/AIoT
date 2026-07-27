@@ -542,9 +542,17 @@ function ConductorSignalScene({ frame, compact = false, heightClass = '' }) {
   const cameraWidth = Number(frame.camera?.width) || 640
   const cameraHeight = Number(frame.camera?.height) || 480
   const mediaSource = frame.camera?.streamUrl || frame.camera?.frameUrl || ''
+  // Micro:bit anchor gate: when the backend anchor gate is on and no live
+  // micro:bit is present, hand skeletons are hidden (same rule as gesture
+  // recognition — no anchor, no tracking display).
+  const anchor = frame.coordinate?.anchor
+  const anchorBlocks = Boolean(anchor && anchor.mode && anchor.mode !== 'off' && !anchor.active)
   const liveHands = useMemo(
-    () => (Array.isArray(frame.camera?.hands) ? frame.camera.hands : []).filter((hand) => hand?.landmarks?.length),
-    [frame.camera?.hands],
+    () => {
+      if (anchorBlocks) return []
+      return (Array.isArray(frame.camera?.hands) ? frame.camera.hands : []).filter((hand) => hand?.landmarks?.length)
+    },
+    [frame.camera?.hands, anchorBlocks],
   )
   const hasLiveLandmarks = liveHands.length > 0
   const lastSceneAction = frame.coordinate?.lastActions?.length

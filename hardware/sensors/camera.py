@@ -74,6 +74,7 @@ class CameraSensor:
         enable_preview_jpeg: bool = False,
         preview_jpeg_quality: int = 70,
         preview_jpeg_every_n_frames: int = 2,
+        preview_anchor_provider=None,
     ):
         self._width = width
         self._height = height
@@ -95,6 +96,10 @@ class CameraSensor:
         self._enable_preview_jpeg = enable_preview_jpeg
         self._preview_jpeg_quality = max(30, min(95, preview_jpeg_quality))
         self._preview_jpeg_every_n_frames = max(1, preview_jpeg_every_n_frames)
+        # Optional callable -> bool: micro:bit anchor liveness. When it
+        # returns False the preview JPEG is encoded WITHOUT the hand
+        # skeleton overlay (no anchor, no tracking display).
+        self._preview_anchor_provider = preview_anchor_provider
 
         self._thread: threading.Thread | None = None
         self._running = threading.Event()
@@ -511,6 +516,13 @@ class CameraSensor:
             return None
         if self._frame_counter % self._preview_jpeg_every_n_frames != 0:
             return None
+
+        if hands and self._preview_anchor_provider is not None:
+            try:
+                if not self._preview_anchor_provider():
+                    hands = []
+            except Exception:
+                logger.debug("Preview anchor provider failed", exc_info=True)
 
         try:
             cv2 = self._cv2

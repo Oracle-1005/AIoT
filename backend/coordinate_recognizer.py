@@ -290,11 +290,24 @@ class CoordinateRecognizer:
         return out
 
     def _anchor_state(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """micro:bit 锚点活性：读同帧 fused_frame 的 microbits 块，
-        语义与 live_state.apply_fused_frame 一致（age_ms 优先）。"""
+        """micro:bit 锚点活性：读同帧 fused_frame 的 microbits 块。
+
+        实际线上形状是**列表**：[{"hand": "left", "available": bool,
+        "time_delta_ms": ...}, ...]（available 由 Pi 端 TimeAligner 按
+        max_age_ms=120 判定，语义与 live_state.apply_fused_frame 一致）。
+        字典形态 {left: {age_ms}, right: {age_ms}} 来自 status 消息，
+        保留作向后兼容。
+        """
         microbits = payload.get("microbits")
         live = {"left": False, "right": False}
-        if isinstance(microbits, dict):
+        if isinstance(microbits, list):
+            for entry in microbits:
+                if not isinstance(entry, dict):
+                    continue
+                side = str(entry.get("hand", "")).strip().lower()
+                if side in live:
+                    live[side] = bool(entry.get("available"))
+        elif isinstance(microbits, dict):
             for side in ("left", "right"):
                 entry = microbits.get(side)
                 if not isinstance(entry, dict):
