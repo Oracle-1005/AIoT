@@ -248,18 +248,39 @@ function HeroSection({ frame, onPresentation, onExperience, onVideo }) {
     ['Music Engine', 'Sonic Pi OSC'],
     ['Current Latency', `${frame.connection.latency} ms`],
   ]
-  const ledAction = frame.prediction.gesture === 'cutoff'
-    ? 'Red cutoff flash'
-    : frame.prediction.gesture === 'crescendo'
-      ? 'Energy wave'
-      : 'Beat pulse'
   const actionChain = [
     ['Detected Gesture', frame.prediction.label],
     ['AI Confidence', `${frame.prediction.confidence}%`],
     ['Music Action', frame.prediction.response],
-    ['LED Action', ledAction],
     ['Database', frame.connection.backend === 'REST Online' ? 'Saved' : 'Ready'],
   ]
+  // Synthesized 16x32 dual-panel music waveform, mirroring the Pi-side
+  // led_consumer layout (two 32x8 panels stacked into a 16-row x 32-col
+  // canvas). Driven only by live music state so the preview tracks the
+  // real beat/energy instead of showing static decoration.
+  const ledWaveLevels = Array.from({ length: 32 }, (_, column) => {
+    const barPhase = Number(frame.music.lastBar || 0) * 1.7 + Number(frame.music.lastBeat || 0) * 0.9
+    const shape = Math.abs(Math.sin(column * 0.52 + barPhase)) * 0.65
+      + Math.abs(Math.sin(column * 0.19 - barPhase * 0.7)) * 0.35
+    const energy = Math.max(0.15, Math.min(1, Number(frame.music.energy || 45) / 100))
+    const beat = Math.max(0, Math.min(1, Number(frame.music.beatStrength || 0) / 100))
+    if (!frame.music.playing) return 0.05
+    return Math.min(1, shape * (0.35 + energy * 0.65) * (0.55 + beat * 0.45) + beat * 0.18)
+  })
+  const ledWaveCells = []
+  for (let row = 15; row >= 0; row -= 1) {
+    for (let column = 0; column < 32; column += 1) {
+      const level = ledWaveLevels[column]
+      const lit = level * 16 > row + 0.5
+      ledWaveCells.push(
+        <span
+          key={`${row}-${column}`}
+          className="h-[5px] rounded-[1px]"
+          style={{ backgroundColor: lit ? `rgba(56,189,248,${0.35 + level * 0.65})` : 'rgba(255,255,255,0.07)' }}
+        />,
+      )
+    }
+  }
   const roadshowEntries = [
     {
       title: 'Prepared Demo Video',
@@ -379,7 +400,7 @@ function HeroSection({ frame, onPresentation, onExperience, onVideo }) {
         </motion.div>
 
         <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-          <div className="glass-panel screen-frame overflow-hidden p-4">
+          <div className="glass-panel screen-frame flex flex-col overflow-hidden p-4">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2 text-sm font-semibold text-white">
                 <Activity size={16} className="text-cyan" />
@@ -390,7 +411,7 @@ function HeroSection({ frame, onPresentation, onExperience, onVideo }) {
                 {frame.prediction.label} · {frame.prediction.confidence}%
               </span>
             </div>
-            <ConductorSignalScene frame={frame} compact />
+            <ConductorSignalScene frame={frame} compact heightClass="flex-1 min-h-52" />
           </div>
           <div className="glass-panel p-5">
             <p className="flex items-center gap-2 text-sm font-semibold text-white">
@@ -409,16 +430,14 @@ function HeroSection({ frame, onPresentation, onExperience, onVideo }) {
               ))}
             </div>
             <div className="mt-4 rounded-lg border border-white/10 bg-black/25 p-4">
-              <p className="text-xs uppercase text-slate-500">LED Matrix Preview</p>
-              <div className="mt-3 grid grid-cols-8 gap-1">
-                {Array.from({ length: 32 }, (_, index) => (
-                  <span
-                    key={index}
-                    className={`h-3 rounded-sm ${index % 5 === 0 ? 'bg-gold' : index % 3 === 0 ? 'bg-cyan' : 'bg-white/10'}`}
-                  />
-                ))}
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs uppercase text-slate-500">LED Matrix Preview</p>
+                <p className="font-mono text-[10px] text-slate-500">16 × 32 dual panel</p>
               </div>
-              <p className="mt-3 text-xs text-slate-300">{ledAction}</p>
+              <div className="mt-3 grid gap-[2px]" style={{ gridTemplateColumns: 'repeat(32, minmax(0, 1fr))' }}>
+                {ledWaveCells}
+              </div>
+              <p className="mt-3 text-xs text-slate-300">{frame.music.playing ? 'Live music waveform' : 'Standby — music paused'}</p>
             </div>
           </div>
         </div>
@@ -600,7 +619,7 @@ function ConductorSignalScene({ frame, compact = false, heightClass = '' }) {
       )}
       <div className="absolute inset-0 bg-black/25" />
       <div className="signal-ribbon absolute inset-x-0 top-0 h-16" />
-      {!hasLiveLandmarks ? (
+      {!mediaSource && !hasLiveLandmarks ? (
         <>
           <motion.div
             className="absolute left-[22%] top-[26%] h-5 w-5 rounded-full bg-cyan shadow-[0_0_28px_rgba(56,189,248,0.8)]"
@@ -614,25 +633,9 @@ function ConductorSignalScene({ frame, compact = false, heightClass = '' }) {
           />
         </>
       ) : null}
+      {!mediaSource ? (
       <svg className="absolute inset-0 h-full w-full" viewBox="0 0 900 360" role="presentation" aria-hidden="true">
-        {!hasLiveLandmarks ? (
-          <>
-            <path
-              d="M140 190 C 240 80, 330 280, 430 150 S 610 90, 760 210"
-              fill="none"
-              stroke="rgba(56,189,248,0.55)"
-              strokeWidth="3"
-              strokeDasharray="9 10"
-            />
-            <path
-              d="M180 240 C 310 310, 380 120, 510 190 S 670 290, 800 110"
-              fill="none"
-              stroke="rgba(244,199,107,0.58)"
-              strokeWidth="3"
-              strokeDasharray="5 12"
-            />
-          </>
-        ) : (
+        {!hasLiveLandmarks ? null : (
           <>
             {Object.entries(handTrails).map(([key, trail]) => (
               trail.length > 1 ? (
@@ -693,6 +696,7 @@ function ConductorSignalScene({ frame, compact = false, heightClass = '' }) {
           </>
         )}
       </svg>
+      ) : null}
       {!mediaSource && !hasLiveLandmarks && !compact ? (
         <div className="absolute left-1/2 top-1/2 w-[min(480px,calc(100%-48px))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-dashed border-cyan/30 bg-black/35 p-4 text-center backdrop-blur">
           <p className="text-sm font-semibold text-white">Raspberry Pi Camera Preview</p>
@@ -702,6 +706,7 @@ function ConductorSignalScene({ frame, compact = false, heightClass = '' }) {
             : '等待树莓派链路接入：这里显示 Pi 摄像头实时画面（MJPEG，不调用电脑本地摄像头），手部关键点和运动轨迹会叠加在画面上。'}</p>
         </div>
       ) : null}
+      {!mediaSource ? (
       <div className="absolute inset-x-6 bottom-5 flex h-20 items-end justify-center gap-1.5">
         {waveBars.map((bar, index) => (
           <span
@@ -711,6 +716,7 @@ function ConductorSignalScene({ frame, compact = false, heightClass = '' }) {
           />
         ))}
       </div>
+      ) : null}
       <div className="absolute left-5 top-5 grid gap-2 text-xs">
         <span className="status-pill">
           <StatusDot tone={frame.connection.camera === 'Connected' ? 'green' : 'gold'} />
@@ -788,9 +794,6 @@ function CameraGesturePanel({ frame }) {
       </div>
       <div className="scanline relative overflow-hidden rounded-lg border border-cyan/20 bg-black/50">
         <ConductorSignalScene frame={frame} />
-        <div className="absolute inset-x-6 top-16 h-40 rounded-lg border border-dashed border-white/20 bg-white/[0.025] text-center">
-          <p className="mt-4 text-xs font-medium text-slate-300">Two-hand tracking zone</p>
-        </div>
       </div>
       <div className="mt-4">
         <AssetPlaceholder
