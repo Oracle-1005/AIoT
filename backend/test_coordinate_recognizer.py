@@ -23,8 +23,18 @@ import coordinate_recognizer as cr
 DT = 1.0 / 16.0   # 实测帧率 ~16Hz
 
 
-def make_frame(hands: list[dict]) -> dict:
-    return {"camera": {"hands": hands}}
+def make_frame(hands: list[dict], *, anchor: object = True) -> dict:
+    frame = {"camera": {"hands": hands}}
+    if anchor is True:
+        # micro:bit 锚点（门控默认开）：测试帧默认带双侧活性锚点
+        frame["microbits"] = {
+            "left": {"age_ms": 50}, "right": {"age_ms": 50},
+        }
+    elif anchor == "stale":
+        frame["microbits"] = {
+            "left": {"age_ms": 9000}, "right": {"age_ms": 9000},
+        }
+    return frame
 
 
 def hand(
@@ -68,10 +78,10 @@ class Rig:
         )
         self.t = 1000.0
 
-    def feed(self, frames: list[dict], count: int = 1) -> None:
+    def feed(self, frames: list[dict], count: int = 1, *, anchor: object = True) -> None:
         for _ in range(count):
             self.t += DT
-            self.rec.process_frame(make_frame(frames), self.t)
+            self.rec.process_frame(make_frame(frames, anchor=anchor), self.t)
 
     def names(self) -> list[str]:
         return [name for name, _ in self.events]
@@ -211,6 +221,23 @@ def main() -> None:
              cr.HOLD_FRAMES_ZONE + 3)
     assert rig.events == [], rig.events
     print("PASS 12 死区（带间/边界）不触发")
+
+    # 13. micro:bit 锚点门控：无锚点/锚点过期不识别任何手势；
+    #     中途丢锚点在途计数清零（恢复后不续命）；恢复后正常触发
+    rig = Rig()
+    rig.feed([fist("right")], cr.HOLD_FRAMES_TRANSPORT + 5, anchor=False)
+    assert rig.events == [], rig.events
+    rig2 = Rig()
+    rig2.feed([fist("right")], cr.HOLD_FRAMES_TRANSPORT + 2, anchor="stale")
+    assert rig2.events == [], rig2.events
+    rig3 = Rig()
+    rig3.feed([fist("right")], cr.HOLD_FRAMES_TRANSPORT - 1)
+    rig3.feed([fist("right")], 3, anchor=False)      # 丢锚：计数清零
+    rig3.feed([fist("right")], 1)                     # 恢复 1 帧不够
+    assert rig3.events == [], rig3.events
+    rig3.feed([fist("right")], cr.HOLD_FRAMES_TRANSPORT - 1)
+    assert rig3.names() == ["start"], rig3.events
+    print("PASS 13 micro:bit 锚点门控（无锚点不识别 + 丢锚不续命）")
 
     print("\nAll coordinate_recognizer tests passed.")
 

@@ -43,83 +43,102 @@ export const teamMembers = [
   },
 ]
 
+// Maps a coordinate-recognizer action name (from /api/coordinate/state
+// last_actions) to a visitor-friendly [label, music effect] pair.
+export function describeCoordinateAction(name = '') {
+  const key = String(name).toLowerCase()
+  const table = {
+    start: ['Right Fist', 'Music starts'],
+    stop: ['Left Fist', 'Music stops'],
+    vol_up: ['Left Palm Up', 'Volume up'],
+    vol_down: ['Right Palm Down', 'Volume down'],
+    bpm_up: ['Left Fist Up', 'BPM up'],
+    bpm_down: ['Right Fist Down', 'BPM down'],
+  }
+  if (table[key]) return table[key]
+  if (key.startsWith('zone_on')) return ['Palms In Zone', 'Layer switched ON']
+  if (key.startsWith('zone_off')) return ['Fists In Zone', 'Layer switched OFF']
+  if (key.startsWith('style')) return ['Both Fists Tilt', 'Style changes']
+  return [key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()), 'Music control']
+}
+
 export const gestureCatalog = [
   {
     key: 'idle',
-    label: 'IDLE',
-    zh: 'Hold state',
-    response: 'Maintain current playback state',
+    label: 'STANDBY',
+    zh: 'Waiting for a gesture',
+    response: 'Hold current playback state',
     color: '#94a3b8',
   },
   {
-    key: 'crescendo',
-    label: 'CRESCENDO',
-    zh: 'Build intensity',
-    response: 'Volume +14%, Energy +28%',
-    color: '#f4c76b',
-  },
-  {
-    key: 'downbeat',
-    label: 'DOWNBEAT',
-    zh: 'Primary beat',
-    response: 'Trigger Beat, BPM Sync',
-    color: '#38bdf8',
-  },
-  {
-    key: 'tempoUp',
-    label: 'TEMPO UP',
-    zh: 'Accelerate tempo',
-    response: 'BPM +6',
+    key: 'start',
+    label: 'START',
+    zh: 'Right fist',
+    response: 'Start the music',
     color: '#22c55e',
   },
   {
-    key: 'decrescendo',
-    label: 'DECRESCENDO',
-    zh: 'Reduce intensity',
-    response: 'Volume -10%, Energy -18%',
-    color: '#8b5cf6',
-  },
-  {
-    key: 'cutoff',
-    label: 'CUTOFF',
-    zh: 'Stop the performance',
-    response: 'Pause Audio, Save Session',
+    key: 'stop',
+    label: 'STOP',
+    zh: 'Left fist',
+    response: 'Stop the music',
     color: '#fb7185',
   },
   {
-    key: 'style_switch',
-    label: 'STYLE SWITCH',
-    zh: 'Change timbre preset',
-    response: 'Switch style preset',
-    color: '#f97316',
-  },
-  {
-    key: 'tempoDown',
-    label: 'TEMPO DOWN',
-    zh: 'Slow down tempo',
-    response: 'BPM -6',
-    color: '#a78bfa',
-  },
-  {
-    key: 'left_wrist_strike',
-    label: 'LEFT WRIST STRIKE',
-    zh: 'Left wrist strike',
-    response: 'Trigger left-hand beat cue',
-    color: '#38bdf8',
-  },
-  {
-    key: 'right_wrist_strike',
-    label: 'RIGHT WRIST STRIKE',
-    zh: 'Right wrist strike',
-    response: 'Trigger right-hand downbeat cue',
+    key: 'vol_up',
+    label: 'VOLUME UP',
+    zh: 'Left palm push up',
+    response: 'Raise master volume',
     color: '#f4c76b',
   },
   {
-    key: 'bilateral_strike',
-    label: 'BILATERAL STRIKE',
-    zh: 'Bilateral accent',
-    response: 'Trigger synchronized accent',
+    key: 'vol_down',
+    label: 'VOLUME DOWN',
+    zh: 'Right palm push down',
+    response: 'Lower master volume',
+    color: '#f97316',
+  },
+  {
+    key: 'bpm_up',
+    label: 'BPM UP',
+    zh: 'Left fist push up',
+    response: 'Increase tempo',
+    color: '#38bdf8',
+  },
+  {
+    key: 'bpm_down',
+    label: 'BPM DOWN',
+    zh: 'Right fist push down',
+    response: 'Decrease tempo',
+    color: '#a78bfa',
+  },
+  {
+    key: 'style_prev',
+    label: 'PREVIOUS STYLE',
+    zh: 'Both fists · left high',
+    response: 'Switch to previous style preset',
+    color: '#8b5cf6',
+  },
+  {
+    key: 'style_next',
+    label: 'NEXT STYLE',
+    zh: 'Both fists · right high',
+    response: 'Switch to next style preset',
     color: '#22c55e',
+  },
+  {
+    key: 'zone_on',
+    label: 'LAYER ON',
+    zh: 'Two palms in a zone',
+    response: 'Enable the zone layer (top to bottom: melody, harmony, bass, drums)',
+    color: '#38bdf8',
+  },
+  {
+    key: 'zone_off',
+    label: 'LAYER OFF',
+    zh: 'Two fists in a zone',
+    response: 'Mute the zone layer (same zones)',
+    color: '#fb7185',
   },
 ]
 
@@ -247,33 +266,33 @@ export const historicalRows = [
   {
     time: '20:16:31',
     source: 'Camera + IMU',
-    gesture: 'Crescendo',
-    confidence: '94%',
-    response: 'Volume 58% -> 72%',
+    gesture: 'Volume Up',
+    confidence: 'Rule',
+    response: 'Volume 58% -> 64%',
     latency: '84 ms',
   },
   {
     time: '20:16:28',
     source: 'Camera',
-    gesture: 'Downbeat',
-    confidence: '91%',
-    response: 'Trigger Beat',
+    gesture: 'Start',
+    confidence: 'Rule',
+    response: 'Music Started',
     latency: '79 ms',
   },
   {
     time: '20:16:22',
     source: 'IMU',
-    gesture: 'Tempo Up',
-    confidence: '88%',
-    response: 'BPM 102 -> 108',
+    gesture: 'BPM Up',
+    confidence: 'Rule',
+    response: 'BPM 102 -> 106',
     latency: '96 ms',
   },
   {
     time: '20:16:15',
     source: 'Camera + IMU',
-    gesture: 'Cutoff',
-    confidence: '90%',
-    response: 'Audio Paused',
+    gesture: 'Stop',
+    confidence: 'Rule',
+    response: 'Music Stopped',
     latency: '82 ms',
   },
 ]
@@ -291,12 +310,12 @@ export const analyticsSeries = Array.from({ length: 16 }, (_, index) => {
 })
 
 export const gestureDistribution = [
-  { name: 'Downbeat', value: 32, color: '#38bdf8' },
-  { name: 'Crescendo', value: 21, color: '#f4c76b' },
-  { name: 'Tempo Up', value: 16, color: '#22c55e' },
-  { name: 'Tempo Down', value: 12, color: '#8b5cf6' },
-  { name: 'Cutoff', value: 9, color: '#fb7185' },
-  { name: 'Others', value: 10, color: '#94a3b8' },
+  { name: 'Volume Up', value: 26, color: '#f4c76b' },
+  { name: 'BPM Down', value: 18, color: '#a78bfa' },
+  { name: 'BPM Up', value: 16, color: '#38bdf8' },
+  { name: 'Start', value: 14, color: '#22c55e' },
+  { name: 'Stop', value: 12, color: '#fb7185' },
+  { name: 'Style / Layers', value: 14, color: '#94a3b8' },
 ]
 
 export const trainingSteps = [
@@ -309,22 +328,22 @@ export const trainingSteps = [
 
 export const validationCards = [
   {
-    title: 'AI Recognition Process',
-    claim: 'The system makes the recognition process visible by combining hand landmarks, time-window features, and acceleration peaks.',
-    evidence: 'Confidence scores, event payloads, inference logs, and live feature panels show how the Pi-side decision is formed.',
-    demo: 'During wrist strikes and downbeat gestures, watch confidence, event type, BPM, and volume update together.',
+    title: 'Gesture Recognition Process',
+    claim: 'The system makes recognition visible by combining hand landmarks, palm/fist classification, and micro:bit anchoring.',
+    evidence: 'Hand labels, zone progress, action logs, and live feature panels show how each Pi-side decision is formed.',
+    demo: 'During fist start/stop and palm volume pushes, watch hand labels, action events, BPM, and volume update together.',
   },
   {
     title: 'Sensor Fusion Value',
-    claim: 'The camera captures spatial movement while Micro:bit devices capture fast drops and intensity peaks, so the two inputs complement each other.',
-    evidence: 'Right-hand downbeats can be reinforced by IMU peaks, while left-hand height maps naturally to volume and energy.',
-    demo: 'During fast movements or partial occlusion, compare the camera stream and IMU values for a stable response.',
+    claim: 'The camera captures hand shape and position while the Micro:bit pair anchors the performer, so only the intended conductor drives the music.',
+    evidence: 'A live micro:bit anchor is required before any gesture is recognized — bystanders waving at the camera cannot hijack the show.',
+    demo: 'Remove or power off a micro:bit and watch gestures stop registering; put it back and control returns instantly.',
   },
   {
     title: 'Real-time Performance',
     claim: 'Pi-side event detection and REST polling keep interaction latency within the range needed for a live demonstration.',
     evidence: 'The live stage continuously displays FPS, response latency, BPM, and music parameter changes.',
-    demo: 'Perform one downbeat and observe whether the visual pulse, BPM, and volume feedback stay synchronized.',
+    demo: 'Perform one fist start and observe whether the visual pulse, BPM, and volume feedback stay synchronized.',
   },
   {
     title: 'Data Loop',
@@ -342,32 +361,32 @@ export const validationCards = [
 
 const predictionSets = [
   [
-    { label: 'Crescendo', value: 94 },
-    { label: 'Tempo Up', value: 4 },
-    { label: 'Idle', value: 2 },
+    { label: 'Volume Up', value: 94 },
+    { label: 'BPM Up', value: 4 },
+    { label: 'Standby', value: 2 },
   ],
   [
-    { label: 'Downbeat', value: 91 },
-    { label: 'Crescendo', value: 6 },
-    { label: 'Cutoff', value: 3 },
+    { label: 'Start', value: 91 },
+    { label: 'Volume Up', value: 6 },
+    { label: 'Stop', value: 3 },
   ],
   [
-    { label: 'Tempo Up', value: 88 },
-    { label: 'Downbeat', value: 8 },
-    { label: 'Idle', value: 4 },
+    { label: 'BPM Up', value: 88 },
+    { label: 'Start', value: 8 },
+    { label: 'Standby', value: 4 },
   ],
   [
-    { label: 'Cutoff', value: 90 },
-    { label: 'Idle', value: 7 },
-    { label: 'Tempo Down', value: 3 },
+    { label: 'Stop', value: 90 },
+    { label: 'Standby', value: 7 },
+    { label: 'BPM Down', value: 3 },
   ],
 ]
 
 export function createConductorFrame(tick = 0) {
   const gesture = gestureCatalog[tick % gestureCatalog.length]
   const phase = tick / 3
-  const bpm = Math.round(104 + Math.sin(phase) * 10 + (gesture.key === 'tempoUp' ? 8 : 0))
-  const volume = Math.round(58 + Math.sin(phase / 1.5) * 12 + (gesture.key === 'crescendo' ? 14 : 0))
+  const bpm = Math.round(104 + Math.sin(phase) * 10 + (gesture.key === 'bpm_up' ? 8 : 0))
+  const volume = Math.round(58 + Math.sin(phase / 1.5) * 12 + (gesture.key === 'vol_up' ? 14 : 0))
   const confidence = predictionSets[tick % predictionSets.length][0].value
   const latency = Math.round(84 + Math.sin(phase * 1.4) * 12)
 
@@ -414,7 +433,7 @@ export function createConductorFrame(tick = 0) {
         id: 'Device A',
         battery: 86,
         signal: 'Excellent',
-        motion: gesture.key === 'crescendo' ? 'Rising' : 'Stable',
+        motion: gesture.key === 'vol_up' ? 'Rising' : 'Stable',
         x: Number((0.12 + Math.sin(phase) * 0.24).toFixed(2)),
         y: Number((1.25 + Math.abs(Math.sin(phase)) * 0.58).toFixed(2)),
         z: Number((0.3 + Math.cos(phase) * 0.22).toFixed(2)),
@@ -423,7 +442,7 @@ export function createConductorFrame(tick = 0) {
         id: 'Device B',
         battery: 81,
         signal: 'Good',
-        motion: gesture.key === 'downbeat' ? 'Downbeat' : 'Expressive',
+        motion: gesture.key === 'start' ? 'Beat' : 'Expressive',
         x: Number((0.76 + Math.sin(phase / 1.3) * 0.32).toFixed(2)),
         y: Number((1.72 + Math.abs(Math.cos(phase)) * 0.62).toFixed(2)),
         z: Number((0.58 + Math.sin(phase / 1.8) * 0.2).toFixed(2)),
@@ -439,14 +458,14 @@ export function createConductorFrame(tick = 0) {
     },
     actuation: {
       led: {
-        pattern: gesture.key === 'cutoff' ? 'red_cutoff_flash' : 'beat_pulse',
-        brightness: gesture.key === 'crescendo' ? 0.85 : 0.55,
+        pattern: gesture.key === 'stop' ? 'red_stop_flash' : 'beat_pulse',
+        brightness: gesture.key === 'vol_up' ? 0.85 : 0.55,
         durationMs: 120,
       },
       databaseSaved: tick > 0,
     },
     music: {
-      title: 'Ode to Joy Conductor Mix',
+      title: 'Shape of You (Ed Sheeran)',
       bpm,
       volume: Math.max(0, Math.min(100, volume)),
       energy: Math.round(48 + Math.abs(Math.sin(phase)) * 36),
@@ -484,6 +503,7 @@ export function createConductorFrame(tick = 0) {
       progress: {},
       lastActions: [],
       updatedAt: 0,
+      anchor: { active: true, mode: 'off', left_live: false, right_live: false },
     },
   }
 }

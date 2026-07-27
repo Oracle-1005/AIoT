@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { createConductorFrame, gestureCatalog, makeInferenceLog } from '../data/conductorData'
+import { createConductorFrame, describeCoordinateAction, makeInferenceLog } from '../data/conductorData'
 
 const BACKEND_REST_DEFAULT = 'http://localhost:5000'
 const REST_POLL_INTERVAL_MS = 250
@@ -8,50 +8,8 @@ const CAMERA_STREAM_ENV = import.meta.env.VITE_CAMERA_STREAM_URL || ''
 const CAMERA_FRAME_ENV = import.meta.env.VITE_CAMERA_FRAME_URL || ''
 const PLAY_ACTIONS = new Set(['start', 'resume', 'play', 'reset', 'next', 'previous', 'prev'])
 const PAUSE_ACTIONS = new Set(['pause', 'stop', 'cutoff'])
-
-const gestureResponses = {
-  idle: 'Maintain current playback state',
-  downbeat: 'Start playback, trigger beat',
-  crescendo: 'Increase volume',
-  decrescendo: 'Decrease volume',
-  cutoff: 'Pause playback',
-  style_switch: 'Switch style preset',
-  tempo_up: 'Increase BPM',
-  tempo_down: 'Decrease BPM',
-  left_wrist_strike: 'Trigger left-hand beat cue',
-  right_wrist_strike: 'Trigger right-hand downbeat cue',
-  bilateral_strike: 'Trigger synchronized accent',
-  gesture_start: 'Enter active gesture window',
-  gesture_end: 'Close gesture window',
-  stop: 'Pause playback',
-  resume: 'Resume playback',
-}
-
-const gestureSubtitles = {
-  idle: 'Hold state',
-  downbeat: 'Primary beat',
-  crescendo: 'Build intensity',
-  decrescendo: 'Reduce intensity',
-  cutoff: 'Stop the performance',
-  style_switch: 'Change timbre preset',
-  tempo_up: 'Accelerate tempo',
-  tempo_down: 'Slow down tempo',
-  left_wrist_strike: 'Left wrist strike',
-  right_wrist_strike: 'Right wrist strike',
-  bilateral_strike: 'Bilateral accent',
-  gesture_start: 'Gesture started',
-  gesture_end: 'Gesture ended',
-  stop: 'Stop playback',
-  resume: 'Resume playback',
-}
-
-function toCamelGestureKey(gesture = 'idle') {
-  return gesture.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase())
-}
-
-function toGestureLabel(gesture = 'idle') {
-  return gesture.replaceAll('_', ' ').toUpperCase()
-}
+// A coordinate action stays "current" for this long after it fires.
+const COORD_ACTION_FRESH_SECONDS = 12
 
 function toTitleCase(value = '') {
   return value
@@ -305,56 +263,6 @@ function getLastControlPayload(runtime = {}) {
   return payload && typeof payload === 'object' ? payload : {}
 }
 
-function getMeaningfulGesture(value) {
-  if (typeof value !== 'string') return null
-  const gesture = value.trim()
-  if (!gesture || gesture === 'idle') return null
-  return gesture
-}
-
-function selectCurrentGesture({ prediction = {}, music = {}, controlPayload = {} }) {
-  const eventGesture = getMeaningfulGesture(controlPayload.event?.type)
-  const musicGesture = getMeaningfulGesture(music.current_gesture)
-  const predictionGesture = getMeaningfulGesture(prediction.gesture)
-
-  return musicGesture || eventGesture || predictionGesture || prediction.gesture || music.current_gesture || 'idle'
-}
-
-function readControlConfidence(controlPayload = {}) {
-  const confidence = Number(controlPayload.event?.confidence)
-  return Number.isFinite(confidence) ? confidence : null
-}
-
-function topPredictionsFromAllProbs(allProbs = {}, fallbackGesture = 'idle', fallbackConfidence = 0) {
-  const entries = Object.entries(allProbs)
-
-  if (!entries.length) {
-    const fallback = [
-      {
-        label: toTitleCase(fallbackGesture),
-        value: fallbackConfidence,
-      },
-    ]
-
-    if (fallbackGesture !== 'idle') {
-      fallback.push({
-        label: 'Idle',
-        value: Math.max(0, 100 - fallbackConfidence),
-      })
-    }
-
-    return fallback.slice(0, 3)
-  }
-
-  return entries
-    .map(([label, value]) => ({
-      label: toTitleCase(label),
-      value: toPercent(Number(value), 0),
-    }))
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 3)
-}
-
 function normalizeCoordinateHand(hand = {}) {
   return {
     present: Boolean(hand.present),
@@ -388,6 +296,9 @@ function normalizeCoordinateState(coordinate = {}) {
     progress: coordinate.progress && typeof coordinate.progress === 'object' ? coordinate.progress : {},
     lastActions: Array.isArray(coordinate.last_actions) ? coordinate.last_actions : [],
     updatedAt: toNumber(coordinate.updated_at, 0),
+    anchor: coordinate.anchor && typeof coordinate.anchor === 'object'
+      ? coordinate.anchor
+      : { active: true, mode: 'off', left_live: false, right_live: false },
   }
 }
 
@@ -409,15 +320,27 @@ function normalizeRestFrame({ status = {}, prediction = {}, sensors = {}, music 
     : Boolean(music.sonic_pi_connected)
   const runtime = piStatus.runtime || {}
   const controlPayload = getLastControlPayload(runtime)
-  const gesture = selectCurrentGesture({ prediction, music, controlPayload })
-  const gestureKey = toCamelGestureKey(gesture)
-  const catalogMatch = gestureCatalog.find((item) => item.key === gestureKey || item.key === gesture)
-  const predictionConfidence = Number(prediction.confidence)
-  const eventConfidence = readControlConfidence(controlPayload)
-  const confidence = Number.isFinite(predictionConfidence) && predictionConfidence > 0
-    ? toPercent(predictionConfidence, 0)
-    : toPercent(eventConfidence ?? predictionConfidence, 0)
-  const useEventTop3 = Boolean(getMeaningfulGesture(gesture)) && gesture !== prediction.gesture
+  const coordinateNorm = normalizeCoordinateState(coordinate)
+  // Prediction panel is driven by the coordinate recognizer's action log:
+  // the most recent action (within a freshness window) is the "current
+  // gesture", and the last few actions form the top-3 strip.
+  const lastCoordAction = coordinateNorm.lastActions.length
+    ? coordinateNorm.lastActions[coordinateNorm.lastActions.length - 1]
+    : null
+  const coordActionFresh = Boolean(
+    lastCoordAction
+    && Number.isFinite(Number(lastCoordAction.at))
+    && (Date.now() / 1000 - Number(lastCoordAction.at)) < COORD_ACTION_FRESH_SECONDS,
+  )
+  const coordAction = coordActionFresh ? describeCoordinateAction(lastCoordAction.name) : null
+  const confidence = coordAction ? 100 : 0
+  const predictionTop3 = coordinateNorm.lastActions
+    .slice(-3)
+    .reverse()
+    .map((action) => ({
+      label: describeCoordinateAction(action?.name)[0],
+      value: 100,
+    }))
 
   return {
     ...base,
@@ -477,12 +400,12 @@ function normalizeRestFrame({ status = {}, prediction = {}, sensors = {}, music 
       raw: rawCamera,
     },
     prediction: {
-      gesture,
-      label: catalogMatch?.label || toGestureLabel(gesture),
-      zh: catalogMatch?.zh || gestureSubtitles[gesture] || toTitleCase(gesture),
+      gesture: coordActionFresh ? lastCoordAction.name : 'idle',
+      label: coordAction ? coordAction[0].toUpperCase() : 'STANDBY',
+      zh: coordAction ? coordAction[0] : 'Hands in view, waiting for a gesture',
       confidence,
-      response: catalogMatch?.response || gestureResponses[gesture] || 'Update live state',
-      top3: topPredictionsFromAllProbs(useEventTop3 ? {} : prediction.all_probs, gesture, confidence),
+      response: coordAction ? coordAction[1] : 'Waiting for a gesture action',
+      top3: predictionTop3.length ? predictionTop3 : [{ label: 'Standby', value: 100 }],
     },
     actuation: {
       ...base.actuation,
@@ -529,7 +452,7 @@ function normalizeRestFrame({ status = {}, prediction = {}, sensors = {}, music 
       trackIndex: toNumber(music.track_index, base.music.trackIndex),
       trackCount: toNumber(music.track_count, base.music.trackCount),
     },
-    coordinate: normalizeCoordinateState(coordinate),
+    coordinate: coordinateNorm,
   }
 }
 

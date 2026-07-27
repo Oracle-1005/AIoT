@@ -54,6 +54,7 @@ import {
 import {
   analyticsSeries,
   assetSlots,
+  describeCoordinateAction,
   experienceScenarios,
   flowSteps,
   gestureCatalog,
@@ -1037,9 +1038,9 @@ function MusicControlCenter({ frame, onTransport }) {
       <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.04] p-4">
         <p className="text-xs font-semibold uppercase text-slate-400">Gesture Mapping</p>
         <div className="mt-3 space-y-3 text-sm text-slate-200">
-          <MappingRow left="Left hand Y position" right="Pitch / Chord / Volume" />
-          <MappingRow left="Right hand X position" right="Panning / Timbre" />
-          <MappingRow left="Acceleration peak" right="Beat / Downbeat detection" />
+          <MappingRow left="Hand height zone" right="Layer select (melody → drums)" />
+          <MappingRow left="Fist push direction" right="Start / Stop / BPM" />
+          <MappingRow left="Palm push direction" right="Volume up / down" />
         </div>
       </div>
     </div>
@@ -1158,6 +1159,14 @@ function GestureConsole({ frame }) {
             <StatusDot tone={coord.enabled ? 'green' : 'gold'} />
             {coord.enabled ? `Recognizer ${coord.fps} fps` : 'Recognizer Standby'}
           </span>
+          {coord.anchor && coord.anchor.mode !== 'off' && (
+            <span className="status-pill" title="Micro:bit 锚点：无活性锚点时不识别任何手势">
+              <StatusDot tone={coord.anchor.active ? 'green' : 'red'} />
+              {coord.anchor.active
+                ? `Anchor L${coord.anchor.left_live ? '●' : '○'} R${coord.anchor.right_live ? '●' : '○'}`
+                : 'Micro:bit anchor missing — gestures disabled'}
+            </span>
+          )}
           <span className="status-pill">{frame.music.style}</span>
           <span className="status-pill">
             Track {Number(frame.music.trackIndex || 0) + 1}/{frame.music.trackCount || 1}
@@ -1644,7 +1653,7 @@ function CalibrationTraining() {
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-sm font-semibold text-white">Gesture Collection Task</p>
-              <p className="mt-1 text-xs text-slate-400">Label: Crescendo · Plan: 10 samples · Completed: 6</p>
+              <p className="mt-1 text-xs text-slate-400">Label: Volume Up · Plan: 10 samples · Completed: 6</p>
             </div>
             <button type="button" className="secondary-button">
               <Radio size={15} />
@@ -1753,24 +1762,8 @@ function AboutProject() {
   )
 }
 
-// Maps a coordinate-recognizer action name (from /api/coordinate/state
-// last_actions) to a visitor-friendly [label, music effect] pair.
-function describeCoordinateAction(name = '') {
-  const key = String(name).toLowerCase()
-  const table = {
-    start: ['Right Fist', 'Music starts'],
-    stop: ['Left Fist', 'Music stops'],
-    vol_up: ['Left Palm Up', 'Volume up'],
-    vol_down: ['Right Palm Down', 'Volume down'],
-    bpm_up: ['Left Fist Up', 'BPM up'],
-    bpm_down: ['Right Fist Down', 'BPM down'],
-  }
-  if (table[key]) return table[key]
-  if (key.startsWith('zone_on')) return ['Palms In Zone', 'Layer switched ON']
-  if (key.startsWith('zone_off')) return ['Fists In Zone', 'Layer switched OFF']
-  if (key.startsWith('style')) return ['Both Fists Tilt', 'Style changes']
-  return [key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()), 'Music control']
-}
+// Maps a coordinate-recognizer action name to visitor-friendly text —
+// shared from conductorData (imported above).
 
 function ExperienceMode({ open, onClose, frame, onTransport }) {
   const [selectedIndex, setSelectedIndex] = useState(0)
@@ -2376,7 +2369,7 @@ function PresentationMode({ open, onClose, frame, onTransport }) {
   const techStackItems = ['React', 'Vite', 'Tailwind CSS', 'Flask REST', 'Raspberry Pi', 'MediaPipe', 'Micro:bit', 'Sonic Pi', 'SQLite']
   const guestModeItems = [
     ['Watch your hand', 'The Pi camera view shows the visitor and hand tracking overlay.'],
-    ['Try a gesture', 'Raise left hand, strike right wrist, move faster, or perform cutoff.'],
+    ['Try a gesture', 'Make a fist to start or stop, push a palm to change volume, or push a fist to change BPM.'],
     ['See music change', 'BPM, volume, energy, density, and beat power update visually.'],
     ['Reset quickly', 'The session resets quickly so the next visitor can try it immediately.'],
   ]
@@ -2497,7 +2490,7 @@ function PresentationMode({ open, onClose, frame, onTransport }) {
             <div className="mt-3 grid gap-2 sm:grid-cols-3">
               {[
                 ['Motion Input', 'Camera and wrist sensors capture the conductor movement.'],
-                ['AI Interpretation', 'The system recognizes intention such as tempo, accent, and cutoff.'],
+                ['AI Interpretation', 'The system recognizes intention such as start, stop, tempo, and volume.'],
                 ['Musical Response', 'Sonic Pi turns the decision into audible changes in real time.'],
               ].map(([label, value]) => (
                 <div key={label} className="rounded-md border border-white/10 bg-white/[0.045] px-3 py-2">
@@ -2572,10 +2565,10 @@ function PresentationMode({ open, onClose, frame, onTransport }) {
               <p className="mb-4 text-sm font-semibold uppercase text-cyan">Gesture Mapping</p>
               <div className="grid gap-3">
                 {[
-                  ['Left hand height', 'Volume / Energy'],
-                  ['Right wrist strike', 'Beat / Accent'],
-                  ['Faster movement', 'BPM / Density'],
-                  ['Cutoff gesture', 'Pause / Save action'],
+                  ['Two palms in a zone', 'Layer ON (melody → drums)'],
+                  ['Right fist', 'Start music'],
+                  ['Fist push up / down', 'BPM up / down'],
+                  ['Left fist', 'Stop music'],
                 ].map(([gesture, output]) => (
                   <div key={gesture} className="flex items-center justify-between gap-4 rounded-md border border-white/10 bg-black/20 px-4 py-3">
                     <span className="text-sm font-semibold text-white">{gesture}</span>

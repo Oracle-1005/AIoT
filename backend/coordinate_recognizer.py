@@ -38,6 +38,15 @@ def _flag(name: str, default: str) -> bool:
 ENABLED = _flag("AIOT_COORD_ENABLED", "1")
 SWAP_HANDS = _flag("AIOT_COORD_SWAP_HANDS", "0")
 
+# micro:bit 锚点门控（用户要求 2026-07-27）：没有任何活性 micro:bit 时
+# 不识别任何手势——既是 IoT 多传感融合的体现（摄像头必须配腕戴锚点），
+# 也防止围观者的手误入镜头误触发。活性判据与 live_state 一致：
+# 同帧 microbits.<side>.age_ms < 阈值（无 age_ms 时退 connected 标志）。
+# AIOT_COORD_MB_ANCHOR_MODE=any（默认，任一活性即可）| both（双手必须都在）。
+MB_ANCHOR_ENABLED = _flag("AIOT_COORD_MB_ANCHOR", "1")
+MB_ANCHOR_MODE = os.getenv("AIOT_COORD_MB_ANCHOR_MODE", "any").strip().lower()
+MB_ANCHOR_MAX_AGE_MS = float(os.getenv("AIOT_COORD_MB_ANCHOR_MAX_AGE_MS", "1000"))
+
 # 手型分类（openness 0=拳 1=掌；finger_states 五指 1=伸 0=屈）
 OPENNESS_FIST_MAX = float(os.getenv("AIOT_COORD_OPENNESS_FIST", "0.40"))
 OPENNESS_PALM_MIN = float(os.getenv("AIOT_COORD_OPENNESS_PALM", "0.55"))
@@ -160,6 +169,7 @@ class CoordinateRecognizer:
     ) -> None:
         self.enabled = ENABLED if enabled is None else enabled
         self.swap_hands = swap_hands
+        self.mb_anchor_enabled = MB_ANCHOR_ENABLED
         self._action_sink = action_sink or self._default_action_sink
         self._hands = {"left": _HandTrack(), "right": _HandTrack()}
         self._counters: dict[str, int] = {}
@@ -169,6 +179,10 @@ class CoordinateRecognizer:
         self._frames = 0
         self._fps = 0.0
         self._last_frame_at: float | None = None
+        self._anchor: dict[str, Any] = {
+            "left_live": False, "right_live": False,
+            "mode": MB_ANCHOR_MODE, "active": True,
+        }
 
     # ── 主入口 ──────────────────────────────────────────────────────────
     def process_frame(
@@ -190,6 +204,21 @@ class CoordinateRecognizer:
             if self._frames == 0:
                 self._publish_status(at)
             self._frames += 1
+            return
+
+        anchor = self._anchor_state(payload)
+        self._anchor = anchor
+        if self.mb_anchor_enabled and not anchor["active"]:
+            # 锚点丢失：本帧不做任何判定。清空在途进度——围观者的手已
+            # 积累的计数不得在锚点恢复后续命；start/stop 重新武装。
+            for track in self._hands.values():
+                track.present = False
+                track.label = "unknown"
+            self._counters.clear()
+            self._armed["start"] = True
+            self._armed["stop"] = True
+            self._frames += 1
+            self._publish_status(at)
             return
 
         for hand in self._ingest(payload, at):
@@ -259,6 +288,30 @@ class CoordinateRecognizer:
                 "extended": extended,
             })
         return out
+
+    def _anchor_state(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """micro:bit 锚点活性：读同帧 fused_frame 的 microbits 块，
+        语义与 live_state.apply_fused_frame 一致（age_ms 优先）。"""
+        microbits = payload.get("microbits")
+        live = {"left": False, "right": False}
+        if isinstance(microbits, dict):
+            for side in ("left", "right"):
+                entry = microbits.get(side)
+                if not isinstance(entry, dict):
+                    continue
+                age_ms = entry.get("age_ms")
+                if isinstance(age_ms, (int, float)):
+                    live[side] = float(age_ms) < MB_ANCHOR_MAX_AGE_MS
+                else:
+                    live[side] = bool(entry.get("connected"))
+        if MB_ANCHOR_MODE == "both":
+            active = live["left"] and live["right"]
+        else:
+            active = live["left"] or live["right"]
+        return {
+            "left_live": live["left"], "right_live": live["right"],
+            "mode": MB_ANCHOR_MODE, "active": active,
+        }
 
     # ── 状态机 ──────────────────────────────────────────────────────────
     def _evaluate(self, at: float) -> None:
@@ -510,6 +563,10 @@ class CoordinateRecognizer:
         live_state.apply_coordinate_status({
             "enabled": self.enabled,
             "swap_hands": self.swap_hands,
+            "anchor": (
+                self._anchor if self.mb_anchor_enabled
+                else {**self._anchor, "active": True, "mode": "off"}
+            ),
             "fps": round(self._fps, 1),
             "hands": {
                 side: {
