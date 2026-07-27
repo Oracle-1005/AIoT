@@ -24,6 +24,12 @@ run_file "D:/CC/AIoT/music/sonic_pi/build/aiot_duo_wim.rb"
 
 duo_piece_order = [:soy, :wim]
 
+puts "============================================================"
+puts "DUO CONDUCTOR RUNNING (Shape of You + World is Mine)"
+puts "If you see this banner TWICE without a Stop in between, a"
+puts "zombie run survived -- quit Sonic Pi completely and re-Run."
+puts "============================================================"
+
 define :duo_track_feedback do |piece|
   if piece == :wim
     osc "/music/track", "world_is_mine", "World is Mine (Hatsune Miku)", "Unknown", 140, 4, 132
@@ -47,7 +53,13 @@ end
 live_loop :duo_transport_receiver do
   use_real_time
   command_id, action = sync "/osc*/conductor/transport"
-  action_text = action.to_s.downcase
+  # Dedup: if a zombie run from an earlier Run is still alive (Sonic Pi
+  # occasionally fails to kill it), both receivers wake for the same OSC
+  # cue -- with a shared Time-State the loser sees the id already taken and
+  # skips, so one command can never be applied twice.
+  if command_id.to_s != get(:duo_last_command_id).to_s
+    set :duo_last_command_id, command_id
+    action_text = action.to_s.downcase
   if ["start", "resume", "play"].include?(action_text)
     set :playing, true
     duo_report_active
@@ -75,7 +87,7 @@ live_loop :duo_transport_receiver do
       set :wim_target_bpm, 132.0
       set :wim_master_amp, 0.50
       set :wim_target_master_amp, 0.50
-      set :wim_current_style, :rock_band
+      set :wim_current_style, :piano_pop
       set :wim_layer_melody, true
       set :wim_layer_harmony, true
       set :wim_layer_bass, true
@@ -86,7 +98,7 @@ live_loop :duo_transport_receiver do
       set :soy_target_bpm, 96.0
       set :soy_master_amp, 0.52
       set :soy_target_master_amp, 0.52
-      set :soy_current_style, :tropical_house
+      set :soy_current_style, :festival_edm
       set :soy_layer_melody, true
       set :soy_layer_harmony, true
       set :soy_layer_bass, true
@@ -97,6 +109,7 @@ live_loop :duo_transport_receiver do
   else
     osc "/music/ack", command_id, "transport_unsupported:#{action_text}"
   end
+  end
 end
 
 # Keeps the backend aligned on the current track (heals any lost switch)
@@ -105,4 +118,13 @@ live_loop :duo_track_reporter do
   use_real_time
   duo_track_feedback get(:active_piece)
   sleep 1.0
+end
+
+# 5 Hz heartbeat. Inactive piece threads park on sync :aiot_tick (zero
+# virtual-time advance -- a sleep-nap park drifts and Sonic Pi kills the
+# thread with "Timing error: can't keep up" within ~1 s on Windows).
+live_loop :duo_ticker do
+  use_real_time
+  cue :aiot_tick
+  sleep 0.2
 end

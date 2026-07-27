@@ -69,7 +69,7 @@ end
 
 define :wim_wait_until_playing do
   while (get(:playing) != true) or (get(:active_piece) != :wim)
-    sleep 0.05
+    sync :aiot_tick
   end
 end
 
@@ -77,12 +77,12 @@ define :wim_wait_music_beats do |beats|
   remaining=[beats.to_f, 0.0].max
   while remaining>0.0001
     if (get(:playing) == true) and (get(:active_piece) == :wim)
-      use_bpm get(:wim_current_bpm).to_f
-      step=[remaining, 1.0].min
-      sleep step
+            step = [remaining, 1.0].min
+      use_real_time
+      sleep step * 60.0 / [get(:wim_current_bpm).to_f, 20.0].max
       remaining=remaining-step
     else
-      sleep 0.05
+      sync :aiot_tick
     end
   end
 end

@@ -69,7 +69,7 @@ end
 
 define :soy_wait_until_playing do
   while (get(:playing) != true) or (get(:active_piece) != :soy)
-    sleep 0.05
+    sync :aiot_tick
   end
 end
 
@@ -77,14 +77,12 @@ define :soy_wait_music_beats do |beats|
   remaining = [beats.to_f, 0.0].max
   while remaining > 0.0001
     if (get(:playing) == true) and (get(:active_piece) == :soy)
-      use_bpm get(:soy_current_bpm).to_f
-      # Poll once per beat at most. The previous 1/16-beat polling caused
-      # hundreds of scheduler wake-ups per second across all MIDI tracks.
-      step = [remaining, 1.0].min
-      sleep step
+            step = [remaining, 1.0].min
+      use_real_time
+      sleep step * 60.0 / [get(:soy_current_bpm).to_f, 20.0].max
       remaining = remaining - step
     else
-      sleep 0.05
+      sync :aiot_tick
     end
   end
 end

@@ -59,7 +59,7 @@ PIECES = {
             ("target_bpm", "96.0"),
             ("master_amp", "0.52"),
             ("target_master_amp", "0.52"),
-            ("current_style", ":tropical_house"),
+            ("current_style", ":festival_edm"),
             ("layer_melody", "true"),
             ("layer_harmony", "true"),
             ("layer_bass", "true"),
@@ -77,7 +77,7 @@ PIECES = {
             ("target_bpm", "132.0"),
             ("master_amp", "0.50"),
             ("target_master_amp", "0.50"),
-            ("current_style", ":rock_band"),
+            ("current_style", ":piano_pop"),
             ("layer_melody", "true"),
             ("layer_harmony", "true"),
             ("layer_bass", "true"),
@@ -213,6 +213,45 @@ def namespace_piece(prefix: str, meta: dict) -> str:
         f"{prefix}: gate wait_music_beats",
     )
 
+    # 7b2) park WITHOUT advancing virtual time. The sources' 0.05 s busy-nap
+    #     makes a parked thread fall behind its own schedule (Windows timer
+    #     granularity ~15.6 ms overshoots every nap) until Sonic Pi kills it
+    #     with "Timing error: can't keep up" -- observed killing all of the
+    #     inactive piece's live_loops ~0.65-0.95 s after Run. sync parks with
+    #     zero virtual-time advance and re-times the thread on every wake;
+    #     the wrapper cues :aiot_tick at 5 Hz so parked threads re-check their
+    #     gate at most 0.2 s late. Both sources use sleep 0.05 only inside the
+    #     two wait defines above, so exactly 2 substitutions.
+    text = _sub_count(
+        r"sleep 0\.05",
+        "sync :aiot_tick",
+        text,
+        2,
+        f"{prefix}: sync-park waits",
+    )
+
+    # 7b3) musical waits in REAL time. Sonic Pi's virtual-clock sleep on
+    #     Windows overshoots every short sleep (16th-note track = 0.156 s
+    #     steps), the thread's virtual time drifts behind wall time, and
+    #     once past the threshold Sonic Pi kills it: "Timing Exception:
+    #     thread got too far behind" -- observed killing soy_shape_track_13
+    #     ~1 min after it enters. Sleeping step*60/BPM real seconds anchors
+    #     every nap to NOW: no virtual clock, no accumulation, no death.
+    #     Sources differ (soy has comments + spaces, wim is compact).
+    text = _sub_count(
+        r"use_bpm get\(:" + prefix + r"_current_bpm\)\.to_f\n"
+        r"(?:\s*#[^\n]*\n)*"
+        r"\s*step ?= ?\[remaining, 1\.0\]\.min\n"
+        r"\s*sleep step\n",
+        "      step = [remaining, 1.0].min\n"
+        "      use_real_time\n"
+        "      sleep step * 60.0 / [get(:" + prefix
+        + "_current_bpm).to_f, 20.0].max\n",
+        text,
+        1,
+        f"{prefix}: real-time musical waits",
+    )
+
     # 7c) note gate: never voice a note while inactive
     text = _sub_count(
         r"if " + prefix + r"_layer_enabled_for_role role",
@@ -344,6 +383,12 @@ run_file "__WIM_PATH__"
 
 duo_piece_order = [:soy, :wim]
 
+puts "============================================================"
+puts "DUO CONDUCTOR RUNNING (Shape of You + World is Mine)"
+puts "If you see this banner TWICE without a Stop in between, a"
+puts "zombie run survived -- quit Sonic Pi completely and re-Run."
+puts "============================================================"
+
 define :duo_track_feedback do |piece|
   if piece == :wim
     osc "/music/track", __WIM_TRACK_ARGS__
@@ -367,7 +412,13 @@ end
 live_loop :duo_transport_receiver do
   use_real_time
   command_id, action = sync "/osc*/conductor/transport"
-  action_text = action.to_s.downcase
+  # Dedup: if a zombie run from an earlier Run is still alive (Sonic Pi
+  # occasionally fails to kill it), both receivers wake for the same OSC
+  # cue -- with a shared Time-State the loser sees the id already taken and
+  # skips, so one command can never be applied twice.
+  if command_id.to_s != get(:duo_last_command_id).to_s
+    set :duo_last_command_id, command_id
+    action_text = action.to_s.downcase
   if ["start", "resume", "play"].include?(action_text)
     set :playing, true
     duo_report_active
@@ -401,6 +452,7 @@ __SOY_RESET__
   else
     osc "/music/ack", command_id, "transport_unsupported:#{action_text}"
   end
+  end
 end
 
 # Keeps the backend aligned on the current track (heals any lost switch)
@@ -409,6 +461,15 @@ live_loop :duo_track_reporter do
   use_real_time
   duo_track_feedback get(:active_piece)
   sleep 1.0
+end
+
+# 5 Hz heartbeat. Inactive piece threads park on sync :aiot_tick (zero
+# virtual-time advance -- a sleep-nap park drifts and Sonic Pi kills the
+# thread with "Timing error: can't keep up" within ~1 s on Windows).
+live_loop :duo_ticker do
+  use_real_time
+  cue :aiot_tick
+  sleep 0.2
 end
 '''
 
