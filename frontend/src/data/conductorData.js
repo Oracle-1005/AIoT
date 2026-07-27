@@ -464,6 +464,26 @@ export function createConductorFrame(tick = 0) {
       lastBeat: (tick % 4) + 1,
       beatStrength: tick % 4 === 0 ? 100 : 45,
       sonicPiConnected: false,
+      layers: { melody: true, harmony: true, bass: true, drums: true },
+      trackId: 'shape_of_you',
+      trackIndex: 0,
+      trackCount: 2,
+    },
+    coordinate: {
+      enabled: false,
+      fps: 0,
+      swapHands: false,
+      hands: {
+        left: { present: false, label: 'unknown', openness: 0, y: 0.5, vy: 0, zone: null },
+        right: { present: false, label: 'unknown', openness: 0, y: 0.5, vy: 0, zone: null },
+      },
+      zones: {
+        bands: [[0.03, 0.22], [0.28, 0.47], [0.53, 0.72], [0.78, 0.97]],
+        layers: ['melody', 'harmony', 'bass', 'drums'],
+      },
+      progress: {},
+      lastActions: [],
+      updatedAt: 0,
     },
   }
 }

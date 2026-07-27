@@ -341,7 +341,43 @@ function topPredictionsFromAllProbs(allProbs = {}, fallbackGesture = 'idle', fal
     .slice(0, 3)
 }
 
-function normalizeRestFrame({ status = {}, prediction = {}, sensors = {}, music = {}, piStatus = {} }, tick = 0) {
+function normalizeCoordinateHand(hand = {}) {
+  return {
+    present: Boolean(hand.present),
+    label: typeof hand.label === 'string' ? hand.label : 'unknown',
+    openness: clamp(toNumber(hand.openness, 0), 0, 1),
+    y: clamp(toNumber(hand.y, 0.5), 0, 1),
+    vy: clamp(toNumber(hand.vy, 0), -5, 5),
+    zone: Number.isInteger(hand.zone) ? hand.zone : null,
+  }
+}
+
+function normalizeCoordinateState(coordinate = {}) {
+  const zones = coordinate.zones && typeof coordinate.zones === 'object' ? coordinate.zones : {}
+  const hands = coordinate.hands && typeof coordinate.hands === 'object' ? coordinate.hands : {}
+  return {
+    enabled: Boolean(coordinate.enabled),
+    fps: toNumber(coordinate.fps, 0),
+    swapHands: Boolean(coordinate.swap_hands),
+    hands: {
+      left: normalizeCoordinateHand(hands.left),
+      right: normalizeCoordinateHand(hands.right),
+    },
+    zones: {
+      bands: Array.isArray(zones.bands) && zones.bands.length === 4
+        ? zones.bands
+        : [[0.03, 0.22], [0.28, 0.47], [0.53, 0.72], [0.78, 0.97]],
+      layers: Array.isArray(zones.layers) && zones.layers.length === 4
+        ? zones.layers
+        : ['melody', 'harmony', 'bass', 'drums'],
+    },
+    progress: coordinate.progress && typeof coordinate.progress === 'object' ? coordinate.progress : {},
+    lastActions: Array.isArray(coordinate.last_actions) ? coordinate.last_actions : [],
+    updatedAt: toNumber(coordinate.updated_at, 0),
+  }
+}
+
+function normalizeRestFrame({ status = {}, prediction = {}, sensors = {}, music = {}, piStatus = {}, coordinate = {} }, tick = 0) {
   const base = createConductorFrame(tick)
   const leftSensor = sensors.microbit_left || {}
   const rightSensor = sensors.microbit_right || {}
@@ -466,7 +502,19 @@ function normalizeRestFrame({ status = {}, prediction = {}, sensors = {}, music 
       lastBeat: Number.isFinite(Number(music.last_beat)) ? Number(music.last_beat) : base.music.lastBeat,
       beatStrength: toPercent(Number(music.beat_strength), base.music.beatStrength),
       sonicPiConnected,
+      layers: music.layers && typeof music.layers === 'object'
+        ? {
+            melody: Boolean(music.layers.melody),
+            harmony: Boolean(music.layers.harmony),
+            bass: Boolean(music.layers.bass),
+            drums: Boolean(music.layers.drums),
+          }
+        : base.music.layers,
+      trackId: readString(music.track_id, base.music.trackId),
+      trackIndex: toNumber(music.track_index, base.music.trackIndex),
+      trackCount: toNumber(music.track_count, base.music.trackCount),
     },
+    coordinate: normalizeCoordinateState(coordinate),
   }
 }
 
@@ -685,10 +733,11 @@ export function useConductorFeed(options = {}) {
         gateway: status.pi_gateway || {},
         runtime: {},
       })
+      const coordinate = await fetchOptionalJson('/api/coordinate/state', {})
       feedTick += 1
       setTick(feedTick)
       setFrame(applyTransportOverride(
-        normalizeRestFrame({ status, prediction, sensors, music, piStatus }, feedTick),
+        normalizeRestFrame({ status, prediction, sensors, music, piStatus, coordinate }, feedTick),
         transportOverrideRef.current,
       ))
       setConnectionState('rest polling')

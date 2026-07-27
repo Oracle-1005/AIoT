@@ -743,6 +743,8 @@ function LiveStage({ frame, logs, onTransport }) {
         <MusicControlCenter frame={frame} onTransport={onTransport} />
       </div>
 
+      <GestureConsole frame={frame} />
+
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <MicrobitCard side="LEFT MICRO:BIT" data={frame.microbit.left} color="cyan" />
         <MicrobitCard side="RIGHT MICRO:BIT" data={frame.microbit.right} color="gold" />
@@ -1042,6 +1044,192 @@ function MappingRow({ left, right }) {
     </div>
   )
 }
+
+// ── 坐标手势控制台（识别器逐帧状态可视化，替代灯板手势反馈） ─────────────
+
+const COORD_ACTIONS = [
+  { key: 'stop', label: '停止', hint: '左拳静置', color: 'from-coral to-gold' },
+  { key: 'start', label: '开始', hint: '右拳静置', color: 'from-mint to-cyan' },
+  { key: 'vol_up', label: '音量+', hint: '左掌上推', color: 'from-gold to-amber-300' },
+  { key: 'vol_down', label: '音量-', hint: '右掌下推', color: 'from-gold to-amber-300' },
+  { key: 'bpm_up', label: 'BPM+', hint: '左拳上推', color: 'from-cyan to-gold' },
+  { key: 'bpm_down', label: 'BPM-', hint: '右拳下推', color: 'from-cyan to-gold' },
+  { key: 'style', label: '风格', hint: '双拳高低差', color: 'from-violet-400 to-cyan' },
+  { key: 'zone_on', label: '声部开', hint: '双掌同区', color: 'from-mint to-cyan' },
+  { key: 'zone_off', label: '声部关', hint: '双拳同区', color: 'from-coral to-gold' },
+]
+
+const HAND_LABEL = {
+  fist: { text: '拳 FIST', cls: 'border-gold/40 bg-gold/15 text-gold' },
+  palm: { text: '掌 PALM', cls: 'border-cyan/40 bg-cyan/15 text-cyan' },
+  unknown: { text: '无手', cls: 'border-white/10 bg-white/[0.04] text-slate-500' },
+}
+
+function CoordinateHandCard({ side, hand, zones }) {
+  const meta = hand.present ? (HAND_LABEL[hand.label] || HAND_LABEL.unknown) : HAND_LABEL.unknown
+  const pushing = hand.present && Math.abs(hand.vy) >= 0.5
+  const arrow = !hand.present ? '·' : hand.vy <= -0.5 ? '▲' : hand.vy >= 0.5 ? '▼' : '·'
+  return (
+    <div className="rounded-lg border border-white/10 bg-black/25 p-3">
+      <div className="mb-3 flex items-center justify-between">
+        <p className="text-xs font-semibold uppercase text-slate-400">{side}</p>
+        <span className={`rounded-md border px-2 py-0.5 text-[11px] font-semibold ${meta.cls}`}>
+          {meta.text}
+        </span>
+      </div>
+      <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+        <div className="relative h-36 overflow-hidden rounded-md border border-white/10 bg-black/40">
+          {zones.bands.map(([lo, hi], idx) => (
+            <div
+              key={idx}
+              className={`absolute inset-x-0 border-y ${hand.zone === idx
+                ? 'border-cyan/50 bg-cyan/20'
+                : 'border-white/10 bg-white/[0.05]'}`}
+              style={{ top: `${lo * 100}%`, height: `${(hi - lo) * 100}%` }}
+            >
+              <span className={`absolute left-1 top-0 text-[9px] ${hand.zone === idx ? 'text-cyan' : 'text-slate-500'}`}>
+                {zones.layers[idx]}
+              </span>
+            </div>
+          ))}
+          {hand.present && (
+            <motion.div
+              className={`absolute inset-x-0 h-[3px] rounded-full ${hand.label === 'fist' ? 'bg-gold' : 'bg-cyan'}`}
+              animate={{ top: `${hand.y * 100}%` }}
+              transition={{ type: 'tween', duration: 0.08 }}
+              style={{ boxShadow: hand.label === 'fist' ? '0 0 8px #f6c453' : '0 0 8px #38bdf8' }}
+            />
+          )}
+        </div>
+        <div className="flex w-12 flex-col items-center gap-1">
+          <motion.span
+            className={`font-display text-2xl ${pushing ? (hand.vy < 0 ? 'text-cyan' : 'text-gold') : 'text-slate-600'}`}
+            animate={pushing ? { y: hand.vy < 0 ? [-2, -6, -2] : [2, 6, 2] } : { y: 0 }}
+            transition={pushing ? { repeat: Infinity, duration: 0.7 } : {}}
+          >
+            {arrow}
+          </motion.span>
+          <span className="text-[10px] tabular-nums text-slate-500">
+            {hand.present ? `${Math.abs(hand.vy).toFixed(1)}/s` : '—'}
+          </span>
+          <span className="text-[10px] tabular-nums text-slate-500">
+            {hand.present ? `开${Math.round(hand.openness * 100)}%` : ''}
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function GestureConsole({ frame }) {
+  const coord = frame.coordinate || {}
+  const hands = coord.hands || { left: {}, right: {} }
+  const zones = coord.zones || { bands: [], layers: ['melody', 'harmony', 'bass', 'drums'] }
+  const progress = coord.progress || {}
+  const lastActions = coord.lastActions || []
+  const latest = lastActions.length ? lastActions[lastActions.length - 1] : null
+  const nowSec = Date.now() / 1000
+  const latestAge = latest ? nowSec - Number(latest.at || 0) : Infinity
+  const layers = frame.music.layers || {}
+  const layerOrder = ['melody', 'harmony', 'bass', 'drums']
+  const layerZh = { melody: '旋律', harmony: '和声', bass: '低音', drums: '打击' }
+
+  return (
+    <div className="glass-panel mt-4 p-5">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <p className="flex items-center gap-2 text-sm font-semibold text-white">
+          <Hand size={16} className="text-cyan" />
+          Gesture Conducting Console
+          <span className="text-xs font-normal text-slate-400">坐标手势 · 逐帧规则识别</span>
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <span className="status-pill">
+            <StatusDot tone={coord.enabled ? 'green' : 'gold'} />
+            {coord.enabled ? `Recognizer ${coord.fps} fps` : 'Recognizer Standby'}
+          </span>
+          <span className="status-pill">{frame.music.style}</span>
+          <span className="status-pill">
+            Track {Number(frame.music.trackIndex || 0) + 1}/{frame.music.trackCount || 1}
+          </span>
+        </div>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[0.9fr_1.25fr_0.9fr]">
+        <CoordinateHandCard side="LEFT HAND" hand={hands.left || {}} zones={zones} />
+
+        <div className="rounded-lg border border-white/10 bg-black/25 p-3">
+          <p className="mb-3 text-xs font-semibold uppercase text-slate-400">
+            Action Triggers <span className="ml-1 font-normal text-slate-500">持续帧进度 → 触发</span>
+          </p>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {COORD_ACTIONS.map((action) => {
+              const value = Math.round(Math.min(1, Number(progress[action.key] || 0)) * 100)
+              const fired = latest && latest.name === action.key && latestAge < 2
+              return (
+                <div
+                  key={action.key}
+                  className={`rounded-md border px-2.5 py-2 transition ${fired
+                    ? 'border-gold/60 bg-gold/15'
+                    : 'border-white/10 bg-white/[0.03]'}`}
+                >
+                  <div className="mb-1 flex items-center justify-between text-[11px]">
+                    <span className={fired ? 'font-semibold text-gold' : 'text-slate-300'}>
+                      {action.label}
+                      {fired ? ' ✦' : ''}
+                    </span>
+                    <span className="text-slate-500">{action.hint}</span>
+                  </div>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
+                    <motion.div
+                      className={`h-full rounded-full bg-gradient-to-r ${action.color}`}
+                      animate={{ width: `${value}%` }}
+                      transition={{ type: 'tween', duration: 0.1 }}
+                    />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          <div className="mt-3 flex items-center justify-between border-t border-white/10 pt-2 text-[11px] text-slate-400">
+            <span>
+              最近触发: {latest && latestAge < 30
+                ? `${COORD_ACTIONS.find((a) => a.key === latest.name)?.label || latest.name}${latest.layer ? ` · ${latest.layer}` : ''}${latest.direction ? ` · ${latest.direction}` : ''}`
+                : '—'}
+            </span>
+            <span>{latest && latestAge < 30 ? `${latestAge.toFixed(1)}s 前` : ''}</span>
+          </div>
+        </div>
+
+        <CoordinateHandCard side="RIGHT HAND" hand={hands.right || {}} zones={zones} />
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <span className="mr-1 flex items-center gap-1.5 text-xs text-slate-400">
+          <Layers size={13} className="text-cyan" />
+          声部
+        </span>
+        {layerOrder.map((name) => {
+          const on = layers[name] !== false
+          return (
+            <motion.span
+              key={name}
+              layout
+              className={`rounded-md border px-3 py-1 text-xs font-semibold transition ${on
+                ? 'border-cyan/40 bg-cyan/15 text-cyan'
+                : 'border-white/10 bg-white/[0.03] text-slate-600 line-through'}`}
+            >
+              {layerZh[name]} {name}
+            </motion.span>
+          )
+        })}
+        <span className="ml-auto text-xs tabular-nums text-slate-400">
+          BPM {frame.music.bpm} · VOL {frame.music.volume}%
+        </span>
+      </div>
+    </div>
+  )
+}
+
 
 function MicrobitCard({ side, data, color }) {
   const accent = color === 'cyan' ? 'text-cyan border-cyan/25 bg-cyan/10' : 'text-gold border-gold/25 bg-gold/10'
