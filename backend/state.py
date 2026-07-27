@@ -44,8 +44,35 @@ SONIC_PI_TRACKS = {
         "total_bars": 140,
         "beats_per_bar": 4,
     },
+    "faded": {
+        "title": "Faded (Alan Walker)",
+        "key": "F Minor",
+        "bpm": 90,
+        "total_bars": 78,
+        "beats_per_bar": 4,
+    },
+    "lemon": {
+        "title": "Lemon (Kenshi Yonezu)",
+        "key": "Unknown",
+        "bpm": 87,
+        "total_bars": 93,
+        "beats_per_bar": 4,
+    },
+    "rolling_girl": {
+        "title": "Rolling Girl (Hatsune Miku)",
+        "key": "Unknown",
+        "bpm": 98,
+        "total_bars": 77,
+        "beats_per_bar": 4,
+    },
 }
-SONIC_PI_TRACK_ORDER = ("shape_of_you", "world_is_mine")
+SONIC_PI_TRACK_ORDER = (
+    "shape_of_you",
+    "world_is_mine",
+    "faded",
+    "lemon",
+    "rolling_girl",
+)
 SONIC_PI_DEFAULT_TRACK_ID = SONIC_PI_TRACK_ORDER[0]
 SONIC_PI_TRACK_TITLE = SONIC_PI_TRACKS[SONIC_PI_DEFAULT_TRACK_ID]["title"]
 SONIC_PI_TRACK_KEY = SONIC_PI_TRACKS[SONIC_PI_DEFAULT_TRACK_ID]["key"]
@@ -93,8 +120,8 @@ class LiveState:
             "title": SONIC_PI_TRACK_TITLE,
             "key": SONIC_PI_TRACK_KEY,
             "playing": False,
-            "bpm": 108,
-            "default_bpm": 108,
+            "bpm": SONIC_PI_TRACKS[SONIC_PI_DEFAULT_TRACK_ID]["bpm"],
+            "default_bpm": SONIC_PI_TRACKS[SONIC_PI_DEFAULT_TRACK_ID]["bpm"],
             "volume": 0.8,
             "style": "sonic_pi",
             "engine": "sonic_pi",
@@ -102,7 +129,9 @@ class LiveState:
             "section": "main",
             "total_bars": SONIC_PI_TRACK_TOTAL_BARS,
             "beats_per_bar": SONIC_PI_BEATS_PER_BAR,
-            "duration_seconds": _loop_duration_seconds(108),
+            "duration_seconds": _loop_duration_seconds(
+                SONIC_PI_TRACKS[SONIC_PI_DEFAULT_TRACK_ID]["bpm"]
+            ),
             "elapsed_seconds": 0.0,
             "performance_elapsed_seconds": 0.0,
             "progress": 0,

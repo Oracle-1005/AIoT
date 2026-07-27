@@ -29,6 +29,27 @@ DOWNLINK_MESSAGE_TYPES = frozenset({"led_command", "led_state", "led_config", "s
                                     "music_beat", "music_state"})
 
 
+def _request_command_id(body: dict) -> str:
+    requested = str(body.get("command_id", "")).strip()
+    if (
+        requested
+        and len(requested) <= 96
+        and all(character.isalnum() or character in "-_.:" for character in requested)
+    ):
+        return requested
+    return sonic_pi_adapter.new_command_id()
+
+
+def _wait_for_sonic_pi_delivery(body: dict, command_id: str) -> dict:
+    try:
+        wait_ms = min(2000.0, max(0.0, float(body.get("wait_ms", 0))))
+    except (TypeError, ValueError):
+        wait_ms = 0.0
+    if wait_ms > 0:
+        return sonic_pi_adapter.wait_for_command(command_id, wait_ms / 1000.0)
+    return sonic_pi_adapter.command_status(command_id)
+
+
 def create_app() -> Flask:
     app = Flask(__name__)
     CORS(app)
@@ -135,6 +156,10 @@ def create_app() -> Flask:
     @app.get("/api/sonic-pi/status")
     def sonic_pi_status(): return jsonify(sonic_pi_adapter.status())
 
+    @app.get("/api/sonic-pi/commands/<command_id>")
+    def sonic_pi_command_status(command_id: str):
+        return jsonify(sonic_pi_adapter.command_status(command_id))
+
     @app.post("/api/sonic-pi/transport")
     def sonic_pi_transport():
         body = request.get_json(silent=True) or {}
@@ -157,11 +182,15 @@ def create_app() -> Flask:
             return jsonify({
                 "error": "action must be one of start, resume, play, pause, stop, cutoff, reset, next, previous"
             }), 400
-        sent = sonic_pi_adapter.send_transport(action)
+        command_id = _request_command_id(body)
+        sent = sonic_pi_adapter.send_transport(action, command_id=command_id)
         if sent:
             live_state.apply_sonic_pi_transport_intent(action, time.time())
+        delivery = _wait_for_sonic_pi_delivery(body, command_id)
         return jsonify({
             "sent": sent,
+            "command_id": command_id,
+            "delivery": delivery,
             "music": live_state.get_music(),
             "sonic_pi": sonic_pi_adapter.status(),
             "inference": inference_pipeline.status(),
@@ -172,11 +201,18 @@ def create_app() -> Flask:
         body = request.get_json(silent=True) or {}
         if not isinstance(body, dict):
             return jsonify({"error": "request body must be a JSON object"}), 400
+        command_id = _request_command_id(body)
         sent = sonic_pi_adapter.send_state_from_music(
             live_state.get_music(),
             body,
+            command_id=command_id,
         )
-        return jsonify({"sent": sent, "sonic_pi": sonic_pi_adapter.status()}), 200 if sent else 503
+        return jsonify({
+            "sent": sent,
+            "command_id": command_id,
+            "delivery": _wait_for_sonic_pi_delivery(body, command_id),
+            "sonic_pi": sonic_pi_adapter.status(),
+        }), 200 if sent else 503
 
     @app.post("/api/music/layers")
     def music_layers():
@@ -185,29 +221,50 @@ def create_app() -> Flask:
         if not isinstance(body, dict):
             return jsonify({"error": "request body must be a JSON object"}), 400
         layer = str(body.get("layer", "")).strip()
-        enabled = bool(body.get("enabled"))
-        if not live_state.set_music_layer(layer, enabled):
+        enabled_raw = body.get("enabled")
+        if isinstance(enabled_raw, str):
+            enabled = enabled_raw.strip().lower() not in {
+                "0",
+                "false",
+                "off",
+                "no",
+            }
+        else:
+            enabled = bool(enabled_raw)
+        if layer not in MUSIC_LAYERS:
             return jsonify({
                 "error": f"layer must be one of {list(MUSIC_LAYERS)}",
             }), 400
-        sent = sonic_pi_adapter.send_layer(layer, enabled)
+        command_id = _request_command_id(body)
+        sent = sonic_pi_adapter.send_layer(
+            layer,
+            enabled,
+            command_id=command_id,
+        )
+        if sent:
+            live_state.set_music_layer(layer, enabled)
         return jsonify({
             "sent": sent,
+            "command_id": command_id,
+            "delivery": _wait_for_sonic_pi_delivery(body, command_id),
             "layers": live_state.get_music()["layers"],
         }), 200 if sent else 503
 
     @app.post("/api/music/style")
     def music_style():
-        """风格切换：{"style": "next"/"previous"} 或预设名（acoustic_pop/tropical_house/festival_edm）。"""
+        """切换当前曲目风格：next/previous 或该曲目的明确预设名。"""
         body = request.get_json(silent=True) or {}
         if not isinstance(body, dict):
             return jsonify({"error": "request body must be a JSON object"}), 400
         style = str(body.get("style", "")).strip()
         if not style:
             return jsonify({"error": "style is required"}), 400
-        sent = sonic_pi_adapter.send_style(style)
+        command_id = _request_command_id(body)
+        sent = sonic_pi_adapter.send_style(style, command_id=command_id)
         return jsonify({
             "sent": sent,
+            "command_id": command_id,
+            "delivery": _wait_for_sonic_pi_delivery(body, command_id),
             "style": live_state.get_music()["style"],
         }), 200 if sent else 503
 

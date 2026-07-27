@@ -18,7 +18,7 @@
 #
 # OSC input (backend -> Sonic Pi, UDP 4560):
 #   /conductor/transport command_id action
-#   /conductor/state command_id bpm master_amp drum_amp drum_density bass_amp harmony_amp melody_amp energy reverb_mix cutoff
+#   /conductor/state command_id bpm master_amp drum_amp drum_density bass_amp harmony_amp melody_amp energy reverb_mix cutoff [style]
 #   /conductor/bpm command_id bpm
 #   /conductor/volume command_id volume
 #   /conductor/style command_id style
@@ -38,8 +38,8 @@ set_sched_ahead_time! 0.75
 set :playing, true
 set :current_bpm, 132
 set :target_bpm, 132
-set :master_amp, 0.50
-set :target_master_amp, 0.50
+set :master_amp, 0.43
+set :target_master_amp, 0.43
 set :current_style, :piano_pop
 set :beat_count, 0
 set :bar_count, 0
@@ -48,6 +48,7 @@ set :layer_melody, true
 set :layer_harmony, true
 set :layer_bass, true
 set :layer_rhythm, true
+set :command_results, []
 
 style_order=[:piano_pop, :vocaloid_electro, :rock_band]
 loop_beats=560
@@ -58,6 +59,24 @@ end
 
 define :approach_value do |current, target, amount|
   current.to_f + ((target.to_f - current.to_f) * amount.to_f)
+end
+
+define :cached_command_result do |command_id|
+  command_text=command_id.to_s
+  match=(get(:command_results)||[]).find do |entry|
+    entry[0]==command_text
+  end
+  match ? match[1] : nil
+end
+
+define :finish_command do |command_id, result|
+  command_text=command_id.to_s
+  result_text=result.to_s
+  recent=(get(:command_results)||[]).reject do |entry|
+    entry[0]==command_text
+  end
+  set :command_results, ([[command_text, result_text]]+recent)[0, 32]
+  osc "/music/ack", command_text, result_text
 end
 
 define :wait_until_playing do
@@ -126,9 +145,9 @@ end
 define :play_voice_event do |role, note_value, duration, velocity|
   if layer_enabled_for_role role
     synth_name, role_amp, release_scale, transpose, pan_value=voice_config role
+    release_value=[[duration.to_f*release_scale.to_f, 0.05].max, 6.0].min
     use_synth synth_name
     amp_value=clamp_value(velocity, 0.04, 1.0)*role_amp.to_f*get(:master_amp).to_f
-    release_value=[[duration.to_f*release_scale.to_f, 0.05].max, 6.0].min
     play note_value.to_i+transpose.to_i,
          attack: 0.005,
          release: release_value,
@@ -151,7 +170,7 @@ define :play_rhythm_event do |note_value, velocity|
       else
         sample_name=:elec_cymbal
       end
-      style_amp=0.40
+      style_amp=0.52
       cutoff_value=116
     else
       if [35, 36].include?(midi_note)
@@ -166,10 +185,10 @@ define :play_rhythm_event do |note_value, velocity|
         sample_name=:drum_tom_mid_soft
       end
       if style==:piano_pop
-        style_amp=0.24
-        cutoff_value=96
+        style_amp=0.42
+        cutoff_value=104
       else
-        style_amp=0.52
+        style_amp=0.62
         cutoff_value=123
       end
     end
@@ -4408,105 +4427,146 @@ track_5_events=[
 live_loop :osc_transport_receiver do
   use_real_time
   command_id, action=sync "/osc*/conductor/transport"
-  action_text=action.to_s.downcase
-  if ["start", "resume", "play"].include?(action_text)
-    set :playing, true
-  elsif ["pause", "stop", "cutoff"].include?(action_text)
-    set :playing, false
-  elsif action_text=="reset"
-    set :playing, true
-    set :current_bpm, 132.0
-    set :target_bpm, 132.0
-    set :master_amp, 0.50
-    set :target_master_amp, 0.50
-    set :current_style, :rock_band
-    set :layer_melody, true
-    set :layer_harmony, true
-    set :layer_bass, true
-    set :layer_rhythm, true
+  cached_result=cached_command_result command_id
+  if cached_result
+    osc "/music/ack", command_id, cached_result
+  else
+    action_text=action.to_s.downcase
+    if ["start", "resume", "play"].include?(action_text)
+      set :playing, true
+    elsif ["pause", "stop", "cutoff"].include?(action_text)
+      set :playing, false
+    elsif action_text=="reset"
+      set :playing, true
+      set :current_bpm, 132.0
+      set :target_bpm, 132.0
+      set :master_amp, 0.43
+      set :target_master_amp, 0.43
+      set :current_style, :piano_pop
+      set :layer_melody, true
+      set :layer_harmony, true
+      set :layer_bass, true
+      set :layer_rhythm, true
+    end
+    report_state
+    report_layers
+    finish_command command_id, "transport:#{action_text}"
   end
-  report_state
-  report_layers
-  osc "/music/ack", command_id, "transport:#{action_text}"
 end
 
 live_loop :osc_state_receiver do
   use_real_time
   command_id, bpm, master_amp, drum_amp, drum_density,
     bass_amp, harmony_amp, melody_amp, energy,
-    reverb_mix, cutoff=sync "/osc*/conductor/state"
-  set :target_bpm, clamp_value(bpm, 72, 148)
-  set :target_master_amp, clamp_value(master_amp, 0.0, 1.0)
-  osc "/music/ack", command_id, "state"
+    reverb_mix, cutoff, requested_style=sync "/osc*/conductor/state"
+  cached_result=cached_command_result command_id
+  if cached_result
+    osc "/music/ack", command_id, cached_result
+  else
+    set :target_bpm, clamp_value(bpm, 72, 148)
+    set :target_master_amp, clamp_value(master_amp, 0.0, 1.0)
+    style_map={
+      "piano" => :piano_pop,
+      "strings" => :vocaloid_electro,
+      "brass" => :rock_band,
+      "piano_pop" => :piano_pop,
+      "vocaloid_electro" => :vocaloid_electro,
+      "rock_band" => :rock_band
+    }
+    selected=style_map[requested_style.to_s.downcase]
+    if selected && selected!=get(:current_style)
+      set :current_style, selected
+      osc "/music/style", "world_is_mine", selected.to_s
+    end
+    finish_command command_id, "state"
+  end
 end
 
 live_loop :osc_bpm_receiver do
   use_real_time
   command_id, bpm=sync "/osc*/conductor/bpm"
-  set :target_bpm, clamp_value(bpm, 72, 148)
-  osc "/music/ack", command_id, "bpm:#{get(:target_bpm).round(1)}"
+  cached_result=cached_command_result command_id
+  if cached_result
+    osc "/music/ack", command_id, cached_result
+  else
+    set :target_bpm, clamp_value(bpm, 72, 148)
+    finish_command command_id, "bpm:#{get(:target_bpm).round(1)}"
+  end
 end
 
 live_loop :osc_volume_receiver do
   use_real_time
   command_id, volume=sync "/osc*/conductor/volume"
-  set :target_master_amp, clamp_value(volume, 0.0, 1.0)
-  osc "/music/ack", command_id, "volume:#{get(:target_master_amp).round(2)}"
+  cached_result=cached_command_result command_id
+  if cached_result
+    osc "/music/ack", command_id, cached_result
+  else
+    set :target_master_amp, clamp_value(volume, 0.0, 1.0)
+    finish_command command_id, "volume:#{get(:target_master_amp).round(2)}"
+  end
 end
 
 live_loop :osc_style_receiver do
   use_real_time
   command_id, requested_style=sync "/osc*/conductor/style"
-  requested=requested_style.to_s.downcase
-  current=get(:current_style)
-  current_index=style_order.index(current)||0
-  if ["previous", "prev"].include?(requested)
-    selected=style_order[(current_index-1)%style_order.length]
-  elsif requested=="next"
-    selected=style_order[(current_index+1)%style_order.length]
-  elsif requested=="piano_pop"
-    selected=:piano_pop
-  elsif requested=="vocaloid_electro"
-    selected=:vocaloid_electro
-  elsif requested=="rock_band"
-    selected=:rock_band
+  cached_result=cached_command_result command_id
+  if cached_result
+    osc "/music/ack", command_id, cached_result
   else
-    selected=nil
-  end
-  if selected && style_order.include?(selected)
-    set :current_style, selected
-    sample :elec_blip2, amp: 0.34*get(:master_amp).to_f
-    osc "/music/style", "world_is_mine", selected.to_s
-    osc "/music/ack", command_id, "style:#{selected}"
-  else
-    osc "/music/ack", command_id, "style_unsupported:#{requested}"
+    requested=requested_style.to_s.downcase
+    current=get(:current_style)
+    current_index=style_order.index(current)||0
+    if ["previous", "prev"].include?(requested)
+      selected=style_order[(current_index-1)%style_order.length]
+    elsif requested=="next"
+      selected=style_order[(current_index+1)%style_order.length]
+    elsif requested=="piano_pop"
+      selected=:piano_pop
+    elsif requested=="vocaloid_electro"
+      selected=:vocaloid_electro
+    elsif requested=="rock_band"
+      selected=:rock_band
+    else
+      selected=nil
+    end
+    if selected && style_order.include?(selected)
+      set :current_style, selected
+      sample :elec_blip2, amp: 0.34*get(:master_amp).to_f
+      osc "/music/style", "world_is_mine", selected.to_s
+      finish_command command_id, "style:#{selected}"
+    else
+      finish_command command_id, "style_unsupported:#{requested}"
+    end
   end
 end
 
 live_loop :osc_layer_receiver do
   use_real_time
   command_id, requested_layer, enabled=sync "/osc*/conductor/layer"
-  layer_text=requested_layer.to_s.downcase
-  # Backend sends floats (1.0/0.0); "0.0" must read as OFF. "drums" is the
-  # backend contract name for the rhythm layer.
-  enabled_value=!["0", "0.0", "false", "off"].include?(enabled.to_s.downcase)
-  if ["1", "melody"].include?(layer_text)
-    layer_key=:layer_melody;layer_name="melody"
-  elsif ["2", "harmony"].include?(layer_text)
-    layer_key=:layer_harmony;layer_name="harmony"
-  elsif ["3", "bass"].include?(layer_text)
-    layer_key=:layer_bass;layer_name="bass"
-  elsif ["4", "rhythm", "drums"].include?(layer_text)
-    layer_key=:layer_rhythm;layer_name="rhythm"
+  cached_result=cached_command_result command_id
+  if cached_result
+    osc "/music/ack", command_id, cached_result
   else
-    layer_key=nil;layer_name=layer_text
-  end
-  if layer_key
-    set layer_key, enabled_value
-    report_layers
-    osc "/music/ack", command_id, "layer:#{layer_name}:#{enabled_value ? 'on' : 'off'}"
-  else
-    osc "/music/ack", command_id, "layer_unsupported:#{layer_name}"
+    layer_text=requested_layer.to_s.downcase
+    enabled_value=!["0", "0.0", "false", "off"].include?(enabled.to_s.downcase)
+    if ["1", "melody"].include?(layer_text)
+      layer_key=:layer_melody;layer_name="melody"
+    elsif ["2", "harmony"].include?(layer_text)
+      layer_key=:layer_harmony;layer_name="harmony"
+    elsif ["3", "bass"].include?(layer_text)
+      layer_key=:layer_bass;layer_name="bass"
+    elsif ["4", "rhythm", "drums"].include?(layer_text)
+      layer_key=:layer_rhythm;layer_name="rhythm"
+    else
+      layer_key=nil;layer_name=layer_text
+    end
+    if layer_key
+      set layer_key, enabled_value
+      report_layers
+      finish_command command_id, "layer:#{layer_name}:#{enabled_value ? 'on' : 'off'}"
+    else
+      finish_command command_id, "layer_unsupported:#{layer_name}"
+    end
   end
 end
 
@@ -4557,7 +4617,4 @@ live_loop :world_track_5 do
   perform_event_track track_5_events, :rhythm, loop_beats
 end
 
-# NO cycle clock / cycle sync: see the note in aiot_conductor_shape_of_you.rb
-# (wrap-time shared cue + herd wake + stale virtual-time adoption killed
-# track threads deterministically, 2026-07-27). Tracks loop their own score
-# on deadline-based sleeps, which never drift. Do NOT reintroduce.
+# No shared cycle cue. Tracks loop on their own deadline-based schedule.

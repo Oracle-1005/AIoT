@@ -1,9 +1,9 @@
 # GENERATED FILE -- DO NOT EDIT
-# Built by build_duo_wrapper.py from aiot_conductor_shape_of_you.rb
+# Built by build_playlist_wrapper.py from aiot_conductor_shape_of_you.rb
 # Piece prefix: soy_ (defines, state keys, live_loops, locals).
 # Silent + frozen unless get(:active_piece) == :soy.
-# /conductor/transport is owned by aiot_conductor_duo.rb.
-# Regenerate after editing the source: python build_duo_wrapper.py
+# /conductor/* is owned by aiot_conductor_playlist.rb.
+# Regenerate after editing the source: python build_playlist_wrapper.py
 
 # AIoT Smart Conducting Performance System
 # Track: Shape of You (user-supplied MIDI arrangement)
@@ -25,7 +25,7 @@
 #
 # OSC input (backend -> Sonic Pi, UDP 4560):
 #   /conductor/transport command_id action
-#   /conductor/state command_id bpm master_amp drum_amp drum_density bass_amp harmony_amp melody_amp energy reverb_mix cutoff
+#   /conductor/state command_id bpm master_amp drum_amp drum_density bass_amp harmony_amp melody_amp energy reverb_mix cutoff [style]
 #   /conductor/bpm command_id bpm
 #   /conductor/volume command_id volume
 #   /conductor/style command_id style
@@ -45,9 +45,9 @@ set_sched_ahead_time! 0.75
 set :playing, true
 set :soy_current_bpm, 96
 set :soy_target_bpm, 96
-set :soy_master_amp, 0.52
-set :soy_target_master_amp, 0.52
-set :soy_current_style, :festival_edm
+set :soy_master_amp, 0.44
+set :soy_target_master_amp, 0.44
+set :soy_current_style, :acoustic_pop
 set :soy_beat_count, 0
 set :soy_bar_count, 0
 set :soy_track_id, :shape_of_you
@@ -55,6 +55,7 @@ set :soy_layer_melody, true
 set :soy_layer_harmony, true
 set :soy_layer_bass, true
 set :soy_layer_rhythm, true
+set :command_results, []
 
 soy_style_order = [:acoustic_pop, :tropical_house, :festival_edm]
 soy_loop_beats = 374
@@ -65,6 +66,24 @@ end
 
 define :soy_approach_value do |current, target, amount|
   current.to_f + ((target.to_f - current.to_f) * amount.to_f)
+end
+
+define :cached_command_result do |command_id|
+  command_text = command_id.to_s
+  match = (get(:command_results) || []).find do |entry|
+    entry[0] == command_text
+  end
+  match ? match[1] : nil
+end
+
+define :finish_command do |command_id, result|
+  command_text = command_id.to_s
+  result_text = result.to_s
+  recent = (get(:command_results) || []).reject do |entry|
+    entry[0] == command_text
+  end
+  set :command_results, ([[command_text, result_text]] + recent)[0, 32]
+  osc "/music/ack", command_text, result_text
 end
 
 define :soy_wait_until_playing do
@@ -123,7 +142,7 @@ define :soy_voice_config do |role|
     elsif role == :harmony
       config = [:prophet, 0.16, 0.68, 0, -0.12]
     elsif role == :bass
-      config = [:tb303, 0.24, 0.56, 12, 0.0]  # 0.30 -> 0.24 per user feedback: bass too loud (2026-07-27)
+      config = [:tb303, 0.24, 0.56, 12, 0.0]
     end
   else
     if role == :melody
@@ -143,9 +162,9 @@ end
 define :soy_play_voice_event do |role, note_value, duration, velocity|
   if (soy_layer_enabled_for_role role) and (get(:active_piece) == :soy)
     synth_name, role_amp, release_scale, transpose, pan_value = soy_voice_config role
+    release_value = [[duration.to_f * release_scale.to_f, 0.05].max, 5.0].min
     use_synth synth_name
     amp_value = soy_clamp_value(velocity, 0.04, 1.0) * role_amp.to_f * get(:soy_master_amp).to_f
-    release_value = [[duration.to_f * release_scale.to_f, 0.05].max, 5.0].min
     play note_value.to_i + transpose.to_i,
          attack: 0.005,
          release: release_value,
@@ -179,14 +198,15 @@ define :soy_play_rhythm_event do |note_value, velocity|
     end
 
     if style == :acoustic_pop
-      allowed = [35, 36, 37, 38, 39, 40].include?(midi_note) || midi_note >= 60
-      style_amp = 0.22
-      cutoff_value = 92
+      allowed = [35, 36, 37, 38, 39, 40, 42, 44, 45].include?(midi_note) ||
+                midi_note >= 60
+      style_amp = 0.42
+      cutoff_value = 104
     elsif style == :festival_edm
-      style_amp = 0.56
+      style_amp = 0.68
       cutoff_value = 125
     else
-      style_amp = 0.38
+      style_amp = 0.52
       cutoff_value = 110
     end
 
@@ -6615,104 +6635,10 @@ soy_track_13_events = [
 
 
 
-live_loop :soy_osc_state_receiver do
-  use_real_time
-  command_id, bpm, master_amp, drum_amp, drum_density,
-    bass_amp, harmony_amp, melody_amp, energy,
-    reverb_mix, cutoff = sync "/osc*/conductor/state"
-  if get(:active_piece) == :soy
-  set :soy_target_bpm, soy_clamp_value(bpm, 72, 148)
-  set :soy_target_master_amp, soy_clamp_value(master_amp, 0.0, 1.0)
-  osc "/music/ack", command_id, "state"
-  end
-end
 
-live_loop :soy_osc_bpm_receiver do
-  use_real_time
-  command_id, bpm = sync "/osc*/conductor/bpm"
-  if get(:active_piece) == :soy
-  set :soy_target_bpm, soy_clamp_value(bpm, 72, 148)
-  osc "/music/ack", command_id, "bpm:#{get(:soy_target_bpm).round(1)}"
-  end
-end
 
-live_loop :soy_osc_volume_receiver do
-  use_real_time
-  command_id, volume = sync "/osc*/conductor/volume"
-  if get(:active_piece) == :soy
-  set :soy_target_master_amp, soy_clamp_value(volume, 0.0, 1.0)
-  osc "/music/ack", command_id, "volume:#{get(:soy_target_master_amp).round(2)}"
-  end
-end
 
-live_loop :soy_osc_style_receiver do
-  use_real_time
-  command_id, requested_style = sync "/osc*/conductor/style"
-  if get(:active_piece) == :soy
-  requested = requested_style.to_s.downcase
-  current = get(:soy_current_style)
-  current_index = soy_style_order.index(current) || 0
 
-  if ["previous", "prev"].include?(requested)
-    selected = soy_style_order[(current_index - 1) % soy_style_order.length]
-  elsif requested == "next"
-    selected = soy_style_order[(current_index + 1) % soy_style_order.length]
-  elsif requested == "acoustic_pop"
-    selected = :acoustic_pop
-  elsif requested == "tropical_house"
-    selected = :tropical_house
-  elsif requested == "festival_edm"
-    selected = :festival_edm
-  else
-    selected = nil
-  end
-
-  if selected && soy_style_order.include?(selected)
-    set :soy_current_style, selected
-    sample :perc_snap2, amp: 0.36 * get(:soy_master_amp).to_f
-    osc "/music/style", "shape_of_you", selected.to_s
-    osc "/music/ack", command_id, "style:#{selected}"
-  else
-    osc "/music/ack", command_id, "style_unsupported:#{requested}"
-  end
-  end
-end
-
-live_loop :soy_osc_layer_receiver do
-  use_real_time
-  command_id, requested_layer, enabled = sync "/osc*/conductor/layer"
-  if get(:active_piece) == :soy
-  layer_text = requested_layer.to_s.downcase
-  # Backend sends floats (1.0/0.0); "0.0" must read as OFF. "drums" is the
-  # backend contract name for the rhythm layer.
-  enabled_value = !["0", "0.0", "false", "off"].include?(enabled.to_s.downcase)
-
-  if ["1", "melody"].include?(layer_text)
-    layer_key = :soy_layer_melody
-    layer_name = "melody"
-  elsif ["2", "harmony"].include?(layer_text)
-    layer_key = :soy_layer_harmony
-    layer_name = "harmony"
-  elsif ["3", "bass"].include?(layer_text)
-    layer_key = :soy_layer_bass
-    layer_name = "bass"
-  elsif ["4", "rhythm", "drums"].include?(layer_text)
-    layer_key = :soy_layer_rhythm
-    layer_name = "rhythm"
-  else
-    layer_key = nil
-    layer_name = layer_text
-  end
-
-  if layer_key
-    set layer_key, enabled_value
-    soy_report_layers
-    osc "/music/ack", command_id, "layer:#{layer_name}:#{enabled_value ? 'on' : 'off'}"
-  else
-    osc "/music/ack", command_id, "layer_unsupported:#{layer_name}"
-  end
-  end
-end
 
 live_loop :soy_parameter_smoother do
   use_real_time
@@ -6785,10 +6711,5 @@ live_loop :soy_shape_track_13 do
   soy_perform_event_track soy_track_13_events, :rhythm, soy_loop_beats
 end
 
-# NO cycle clock / cycle sync (2026-07-27: four thread deaths in the fixed
-# order 13,12,8). At every 93-bar wrap the shared cue woke ALL track threads
-# in one scheduling herd, and each adoptee restarted its virtual time from
-# the cue's SEND-time value -- the herd's tail woke >1.75 s late and died
-# at its next sleep (TimingError). Deadline-based sleeps never drift
-# (core.rb sleep), so tracks simply loop their own score: no shared cue,
-# no herd, no stale virtual-time adoption. Do NOT reintroduce a wrap sync.
+# No shared cycle cue. A wrap-time herd wake adopted stale virtual time and
+# killed track threads in a fixed order. Deadline-based sleeps loop cleanly.

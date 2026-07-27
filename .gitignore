@@ -62,3 +62,4 @@ model/models/*.report.json
 
 # archived training artifacts (local only)
 data/archive/
+music/sonic_pi/validation_logs/

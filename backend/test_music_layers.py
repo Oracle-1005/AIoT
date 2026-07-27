@@ -6,7 +6,7 @@ Covers:
   3. sonic_pi.send_layer OSC payload (/conductor/layer command_id layer 0|1).
   4. sonic_pi._handle_layers syncs state.
   5. POST /api/music/layers endpoint: 200/400/503 paths.
-  6. new_world is the default track and its metadata matches the rb script.
+  6. The five-track playlist order and metadata match the rb wrapper.
 
 Script-style (same convention as test_button_events.py): run directly.
 """
@@ -74,7 +74,7 @@ def main() -> None:
     sent2: list[tuple] = []
     original_send2 = sonic_pi.sonic_pi_adapter.send_layer
     sonic_pi.sonic_pi_adapter.send_layer = (
-        lambda layer, enabled: sent2.append((layer, enabled)) or True
+        lambda layer, enabled, command_id=None: sent2.append((layer, enabled)) or True
     )
     try:
         resp = client.post("/api/music/layers",
@@ -89,10 +89,13 @@ def main() -> None:
                            json={"layer": "violas", "enabled": True})
         assert resp.status_code == 400, resp.status_code
 
-        sonic_pi.sonic_pi_adapter.send_layer = lambda layer, enabled: False
+        sonic_pi.sonic_pi_adapter.send_layer = (
+            lambda layer, enabled, command_id=None: False
+        )
         resp = client.post("/api/music/layers",
-                           json={"layer": "bass", "enabled": True})
+                           json={"layer": "bass", "enabled": False})
         assert resp.status_code == 503, resp.status_code
+        assert state.live_state.get_music()["layers"]["bass"] is True
     finally:
         sonic_pi.sonic_pi_adapter.send_layer = original_send2
     # 还原单例状态，避免影响其他测试
@@ -100,8 +103,14 @@ def main() -> None:
     state.live_state.set_music_layer("bass", True)
     print("PASS 5 /api/music/layers 端点 200/400/503")
 
-    # 6. 双曲目元数据：shape_of_you 默认 + world_is_mine（560 拍 / 4 = 140 小节）
-    assert state.SONIC_PI_TRACK_ORDER == ("shape_of_you", "world_is_mine")
+    # 6. 五曲目播放列表元数据。
+    assert state.SONIC_PI_TRACK_ORDER == (
+        "shape_of_you",
+        "world_is_mine",
+        "faded",
+        "lemon",
+        "rolling_girl",
+    )
     track = state.SONIC_PI_TRACKS["shape_of_you"]
     assert track["key"] == "C# Minor" and track["bpm"] == 96
     assert track["total_bars"] == 93 and track["beats_per_bar"] == 4
@@ -109,7 +118,10 @@ def main() -> None:
     track2 = state.SONIC_PI_TRACKS["world_is_mine"]
     assert track2["bpm"] == 132 and track2["total_bars"] == 140
     assert track2["beats_per_bar"] == 4
-    print("PASS 6 双曲目元数据（shape_of_you 默认 + world_is_mine）")
+    assert state.SONIC_PI_TRACKS["faded"]["bpm"] == 90
+    assert state.SONIC_PI_TRACKS["lemon"]["total_bars"] == 93
+    assert state.SONIC_PI_TRACKS["rolling_girl"]["bpm"] == 98
+    print("PASS 6 五曲目播放列表元数据")
 
     # 7. send_style OSC 报文 + _handle_style 风格反馈同步
     sent3: list[tuple] = []

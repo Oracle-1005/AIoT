@@ -29,6 +29,15 @@ SONIC_PI_SEND_HOST = os.getenv("AIOT_SONIC_PI_SEND_HOST", "127.0.0.1")
 SONIC_PI_SEND_PORT = int(os.getenv("AIOT_SONIC_PI_SEND_PORT", "4560"))
 SONIC_PI_LISTEN_HOST = os.getenv("AIOT_SONIC_PI_LISTEN_HOST", "127.0.0.1")
 SONIC_PI_LISTEN_PORT = int(os.getenv("AIOT_SONIC_PI_LISTEN_PORT", "4561"))
+SONIC_PI_ACK_TIMEOUT = max(
+    0.5,
+    float(os.getenv("AIOT_SONIC_PI_ACK_TIMEOUT", "1.5")),
+)
+SONIC_PI_PING_INTERVAL = max(
+    0.5,
+    float(os.getenv("AIOT_SONIC_PI_PING_INTERVAL", "2.0")),
+)
+SONIC_PI_RETRY_DELAYS = (0.12, 0.30, 0.65)
 
 # Forward Sonic Pi beat/state feedback to the Pi LED chain (music-reactive
 # panel). pi_gateway.send returns False when the Pi is offline — harmless.
@@ -84,13 +93,28 @@ class SonicPiOscAdapter:
         self._client: Any | None = None
         self._server: Any | None = None
         self._thread: threading.Thread | None = None
+        self._retry_thread: threading.Thread | None = None
+        self._retry_stop = threading.Event()
         self._lock = threading.RLock()
         self._last_error: str | None = None
         self._last_sent_command: dict[str, Any] | None = None
         self._last_feedback_at: float | None = None
+        self._last_ack_at: float | None = None
+        self._last_ack_latency_ms: float | None = None
+        self._last_pong_at: float | None = None
+        self._last_ping_at: float | None = None
+        self._last_ping_latency_ms: float | None = None
+        self._audio_output_mode: str | None = None
+        self._next_ping_at = 0.0
+        self._pending_commands: dict[str, dict[str, Any]] = {}
+        self._command_outcomes: dict[str, dict[str, Any]] = {}
         self._attempted_messages = 0
         self._sent_messages = 0
         self._received_messages = 0
+        self._retried_messages = 0
+        self._acked_commands = 0
+        self._timed_out_commands = 0
+        self._superseded_commands = 0
 
     @property
     def available(self) -> bool:
@@ -118,6 +142,7 @@ class SonicPiOscAdapter:
         osc_dispatcher.map("/music/ack", self._handle_ack)
         osc_dispatcher.map("/music/error", self._handle_error)
         osc_dispatcher.map("/music/pong", self._handle_pong)
+        osc_dispatcher.map("/music/output", self._handle_output)
 
         try:
             server = osc_server.ThreadingOSCUDPServer(
@@ -130,12 +155,20 @@ class SonicPiOscAdapter:
 
         self._client = udp_client.SimpleUDPClient(self.send_host, self.send_port)
         self._server = server
+        self._retry_stop.clear()
+        self._next_ping_at = time.time() + 0.2
         self._thread = threading.Thread(
             target=server.serve_forever,
             name="sonic-pi-osc",
             daemon=True,
         )
         self._thread.start()
+        self._retry_thread = threading.Thread(
+            target=self._retry_loop,
+            name="sonic-pi-osc-retry",
+            daemon=True,
+        )
+        self._retry_thread.start()
         self._set_error(None)
         print(
             "[SonicPi] OSC adapter listening on "
@@ -145,6 +178,7 @@ class SonicPiOscAdapter:
         return True
 
     def stop(self) -> None:
+        self._retry_stop.set()
         server = self._server
         self._server = None
 
@@ -155,6 +189,15 @@ class SonicPiOscAdapter:
         thread = self._thread
         if thread and thread.is_alive() and thread is not threading.current_thread():
             thread.join(timeout=2)
+        retry_thread = self._retry_thread
+        if (
+            retry_thread
+            and retry_thread.is_alive()
+            and retry_thread is not threading.current_thread()
+        ):
+            retry_thread.join(timeout=2)
+        self._thread = None
+        self._retry_thread = None
 
     def status(self) -> dict[str, Any]:
         with self._lock:
@@ -162,6 +205,10 @@ class SonicPiOscAdapter:
             connected = (
                 self._last_feedback_at is not None
                 and now - self._last_feedback_at <= 5
+            )
+            command_channel_ready = (
+                self._last_pong_at is not None
+                and now - self._last_pong_at <= max(5.0, SONIC_PI_PING_INTERVAL * 2.5)
             )
             return {
                 "enabled": self.enabled,
@@ -175,10 +222,51 @@ class SonicPiOscAdapter:
                 "attempted_messages": self._attempted_messages,
                 "sent_messages": self._sent_messages,
                 "received_messages": self._received_messages,
+                "retried_messages": self._retried_messages,
+                "acked_commands": self._acked_commands,
+                "timed_out_commands": self._timed_out_commands,
+                "superseded_commands": self._superseded_commands,
+                "pending_commands": len(self._pending_commands),
+                "command_channel_ready": command_channel_ready,
+                "last_ack_at": self._last_ack_at,
+                "last_ack_latency_ms": self._last_ack_latency_ms,
+                "last_pong_at": self._last_pong_at,
+                "last_ping_latency_ms": self._last_ping_latency_ms,
+                "audio_output_mode": self._audio_output_mode,
                 "last_sent_command": _copy_command(self._last_sent_command),
                 "last_feedback_at": self._last_feedback_at,
                 "last_error": self._last_error,
             }
+
+    def new_command_id(self) -> str:
+        return _command_id()
+
+    def command_status(self, command_id: str) -> dict[str, Any]:
+        command_text = str(command_id).strip()
+        with self._lock:
+            pending = self._pending_commands.get(command_text)
+            if pending is not None:
+                return _copy_delivery(pending, "pending")
+            outcome = self._command_outcomes.get(command_text)
+            if outcome is not None:
+                return dict(outcome)
+        return {
+            "command_id": command_text,
+            "status": "unknown",
+        }
+
+    def wait_for_command(
+        self,
+        command_id: str,
+        timeout: float,
+    ) -> dict[str, Any]:
+        command_text = str(command_id).strip()
+        with self._lock:
+            pending = self._pending_commands.get(command_text)
+            event = pending.get("event") if pending is not None else None
+        if event is not None:
+            event.wait(max(0.0, float(timeout)))
+        return self.command_status(command_text)
 
     def publish_control_event(
         self,
@@ -298,7 +386,7 @@ class SonicPiOscAdapter:
         *,
         command_id: str | None = None,
     ) -> bool:
-        """风格切换：/conductor/style（Shape of You 支持 next/previous 及三种预设名）。"""
+        """切换当前曲目的风格；支持 next/previous 或该曲目的明确预设名。"""
         return self._send(
             "/conductor/style",
             command_id or _command_id(),
@@ -374,15 +462,37 @@ class SonicPiOscAdapter:
 
     def _send(self, path: str, *args: Any) -> bool:
         sent_at = time.time()
+        command_id = str(args[0]) if args else ""
         command = {
+            "command_id": command_id,
             "path": path,
             "args": list(args),
             "sent_at": sent_at,
             "ok": False,
+            "attempts": 0,
+            "retry_index": 0,
+            "next_retry_at": sent_at + SONIC_PI_RETRY_DELAYS[0],
+            "deadline": sent_at + SONIC_PI_ACK_TIMEOUT,
+            "event": threading.Event(),
         }
 
         with self._lock:
             self._attempted_messages += 1
+            existing = self._pending_commands.get(command_id)
+            if existing is None:
+                existing = self._command_outcomes.get(command_id)
+            if existing is not None:
+                same_command = (
+                    existing.get("path") == path
+                    and list(existing.get("args", [])) == list(args)
+                )
+                if same_command:
+                    return True
+                self._last_error = (
+                    f"command_id collision for {command_id}: "
+                    f"{existing.get('path')} != {path}"
+                )
+                return False
             self._last_sent_command = command
 
         if not self.enabled:
@@ -396,18 +506,178 @@ class SonicPiOscAdapter:
         if self._client is None:
             self._client = udp_client.SimpleUDPClient(self.send_host, self.send_port)
 
+        reliable = path != "/conductor/accent" and bool(command_id)
+        if reliable:
+            with self._lock:
+                self._supersede_coalesced_locked(command)
+                self._pending_commands[command_id] = command
+                # Keep coalescing and the corresponding UDP send ordered.
+                # Otherwise an older state retry can race past a newer value.
+                sent = self._send_datagram(command, is_retry=False)
+        else:
+            sent = self._send_datagram(command, is_retry=False)
+        if not sent and reliable:
+            with self._lock:
+                pending = self._pending_commands.pop(command_id, None)
+                if pending is not None:
+                    self._finish_delivery_locked(
+                        pending,
+                        status="send_failed",
+                        result=self._last_error,
+                    )
+        return sent
+
+    def _send_datagram(
+        self,
+        command: dict[str, Any],
+        *,
+        is_retry: bool,
+    ) -> bool:
+        client = self._client
+        if client is None:
+            return False
         try:
-            self._client.send_message(path, list(args))
+            client.send_message(command["path"], list(command["args"]))
         except OSError as exc:
             self._set_error(f"OSC send failed: {exc}")
             return False
 
+        sent_at = time.time()
         with self._lock:
             self._sent_messages += 1
+            if is_retry:
+                self._retried_messages += 1
             command["ok"] = True
-            self._last_sent_command = command
+            command["attempts"] = int(command.get("attempts", 0)) + 1
+            command["last_sent_at"] = sent_at
+            if not is_retry:
+                self._last_sent_command = command
             self._last_error = None
         return True
+
+    def _retry_loop(self) -> None:
+        while not self._retry_stop.wait(0.025):
+            now = time.time()
+            self._retry_pending(now)
+            self._maybe_send_ping(now)
+
+    def _retry_pending(self, now: float | None = None) -> None:
+        current = time.time() if now is None else float(now)
+        due: list[dict[str, Any]] = []
+        with self._lock:
+            for command_id, pending in list(self._pending_commands.items()):
+                if current >= float(pending["deadline"]):
+                    self._pending_commands.pop(command_id, None)
+                    self._timed_out_commands += 1
+                    self._finish_delivery_locked(
+                        pending,
+                        status="timed_out",
+                        result=None,
+                        completed_at=current,
+                    )
+                    continue
+                if current < float(pending["next_retry_at"]):
+                    continue
+
+                retry_index = int(pending["retry_index"])
+                if retry_index >= len(SONIC_PI_RETRY_DELAYS):
+                    pending["next_retry_at"] = pending["deadline"]
+                    continue
+
+                pending["retry_index"] = retry_index + 1
+                next_index = retry_index + 1
+                pending["next_retry_at"] = (
+                    current + SONIC_PI_RETRY_DELAYS[next_index]
+                    if next_index < len(SONIC_PI_RETRY_DELAYS)
+                    else pending["deadline"]
+                )
+                due.append(pending)
+
+        for pending in due:
+            with self._lock:
+                command_id = str(pending["command_id"])
+                if self._pending_commands.get(command_id) is not pending:
+                    continue
+                self._send_datagram(pending, is_retry=True)
+
+    def _maybe_send_ping(self, now: float) -> None:
+        with self._lock:
+            if now < self._next_ping_at:
+                return
+            self._next_ping_at = now + SONIC_PI_PING_INTERVAL
+            command_id = f"ping-{uuid.uuid4().hex[:8]}"
+            self._last_ping_at = now
+            self._last_ping_id = command_id
+            client = self._client
+        if client is None:
+            return
+        try:
+            client.send_message("/conductor/ping", [command_id])
+        except OSError as exc:
+            self._set_error(f"OSC ping failed: {exc}")
+
+    def _supersede_coalesced_locked(self, command: dict[str, Any]) -> None:
+        key = _coalesce_key(command["path"], command["args"])
+        if key is None:
+            return
+        for command_id, pending in list(self._pending_commands.items()):
+            if _coalesce_key(pending["path"], pending["args"]) != key:
+                continue
+            self._pending_commands.pop(command_id, None)
+            self._superseded_commands += 1
+            self._finish_delivery_locked(
+                pending,
+                status="superseded",
+                result=None,
+            )
+
+    def _acknowledge_command(
+        self,
+        command_id: Any,
+        result: Any,
+        received_at: float,
+    ) -> bool:
+        command_text = str(command_id)
+        with self._lock:
+            pending = self._pending_commands.pop(command_text, None)
+            if pending is None:
+                return False
+            self._acked_commands += 1
+            self._last_ack_at = received_at
+            self._last_ack_latency_ms = round(
+                max(0.0, received_at - float(pending["sent_at"])) * 1000.0,
+                1,
+            )
+            self._finish_delivery_locked(
+                pending,
+                status="acked",
+                result=str(result),
+                completed_at=received_at,
+            )
+            return True
+
+    def _finish_delivery_locked(
+        self,
+        command: dict[str, Any],
+        *,
+        status: str,
+        result: Any,
+        completed_at: float | None = None,
+    ) -> None:
+        finished_at = time.time() if completed_at is None else completed_at
+        outcome = _copy_delivery(command, status)
+        outcome["result"] = result
+        outcome["completed_at"] = finished_at
+        outcome["latency_ms"] = round(
+            max(0.0, finished_at - float(command["sent_at"])) * 1000.0,
+            1,
+        )
+        self._command_outcomes[str(command["command_id"])] = outcome
+        while len(self._command_outcomes) > 128:
+            self._command_outcomes.pop(next(iter(self._command_outcomes)))
+        event = command.get("event")
+        if event is not None:
+            event.set()
 
     def _handle_beat(
         self,
@@ -524,18 +794,19 @@ class SonicPiOscAdapter:
         self._record_feedback(received_at)
 
     def _handle_style(self, _address: str, _track: Any, style: Any) -> None:
-        """rb 风格反馈：/music/style track_id style（Shape of You 三预设）。"""
+        """接收当前曲目的风格反馈：/music/style track_id style。"""
         received_at = time.time()
         live_state.apply_sonic_pi_style(style, received_at)
         self._record_feedback(received_at)
 
     def _handle_ack(self, _address: str, command_id: Any, result: Any) -> None:
         received_at = time.time()
-        live_state.apply_sonic_pi_ack(
-            command_id=command_id,
-            result=result,
-            received_at=received_at,
-        )
+        if self._acknowledge_command(command_id, result, received_at):
+            live_state.apply_sonic_pi_ack(
+                command_id=command_id,
+                result=result,
+                received_at=received_at,
+            )
         self._record_feedback(received_at)
 
     def _handle_error(self, _address: str, code: Any, message: Any) -> None:
@@ -548,8 +819,23 @@ class SonicPiOscAdapter:
         )
         self._record_feedback(received_at)
 
-    def _handle_pong(self, _address: str, *_args: Any) -> None:
-        self._record_feedback(time.time())
+    def _handle_pong(self, _address: str, command_id: Any = "", *_args: Any) -> None:
+        received_at = time.time()
+        with self._lock:
+            if str(command_id) == str(getattr(self, "_last_ping_id", "")):
+                self._last_pong_at = received_at
+                if self._last_ping_at is not None:
+                    self._last_ping_latency_ms = round(
+                        max(0.0, received_at - self._last_ping_at) * 1000.0,
+                        1,
+                    )
+        self._record_feedback(received_at)
+
+    def _handle_output(self, _address: str, output_mode: Any = "") -> None:
+        received_at = time.time()
+        with self._lock:
+            self._audio_output_mode = str(output_mode)
+        self._record_feedback(received_at)
 
     def _record_feedback(self, received_at: float) -> None:
         with self._lock:
@@ -589,6 +875,29 @@ def _command_id() -> str:
     return f"sp-{uuid.uuid4().hex[:10]}"
 
 
+def _coalesce_key(path: str, args: list[Any]) -> str | None:
+    if path in {"/conductor/state", "/conductor/bpm", "/conductor/volume"}:
+        return path
+    if path == "/conductor/layer" and len(args) >= 2:
+        return f"{path}:{args[1]}"
+    return None
+
+
+def _copy_delivery(
+    command: dict[str, Any],
+    status: str,
+) -> dict[str, Any]:
+    return {
+        "command_id": str(command.get("command_id", "")),
+        "path": str(command["path"]),
+        "args": list(command["args"]),
+        "sent_at": float(command["sent_at"]),
+        "last_sent_at": command.get("last_sent_at"),
+        "attempts": int(command.get("attempts", 0)),
+        "status": status,
+    }
+
+
 def _copy_command(command: dict[str, Any] | None) -> dict[str, Any] | None:
     if command is None:
         return None
@@ -597,6 +906,8 @@ def _copy_command(command: dict[str, Any] | None) -> dict[str, Any] | None:
         "args": list(command["args"]),
         "sent_at": command["sent_at"],
         "ok": command["ok"],
+        "command_id": command.get("command_id"),
+        "attempts": command.get("attempts", 0),
     }
 
 

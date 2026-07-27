@@ -486,7 +486,7 @@ export function createConductorFrame(tick = 0) {
       layers: { melody: true, harmony: true, bass: true, drums: true },
       trackId: 'shape_of_you',
       trackIndex: 0,
-      trackCount: 2,
+      trackCount: 5,
     },
     coordinate: {
       enabled: false,

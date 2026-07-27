@@ -1,75 +1,102 @@
-# Sonic Pi Roadshow Music
+# Sonic Pi 五曲目播放工作流
 
-This folder contains the roadshow music script for the AIoT Smart Conducting Performance System.
+本目录只保留由 Sonic Pi 内置合成器和采样直接发音的实现，不再依赖
+loopMIDI、REAPER 或外部 VST。正式运行入口只有 `aiot_loader.rb`。
 
-## Available Pieces
+## 曲目与风格
 
-`aiot_conductor_roadshow_set.rb`
+| 顺序 | 曲目 ID | 默认 BPM | 风格 |
+|---|---|---:|---|
+| 1 | `shape_of_you` | 96 | `acoustic_pop`、`tropical_house`、`festival_edm` |
+| 2 | `world_is_mine` | 132 | `piano_pop`、`vocaloid_electro`、`rock_band` |
+| 3 | `faded` | 90 | `piano_ballad`、`synthwave`、`festival` |
+| 4 | `lemon` | 87 | `acoustic_ballad`、`modern_pop`、`cinematic_rock`、`lofi_night` |
+| 5 | `rolling_girl` | 98 | `piano_drama`、`electro_punk`、`vocaloid_rock`、`lofi_breakbeat` |
 
-Recommended for the roadshow. This single Sonic Pi buffer starts with Ode to
-Joy and supports frontend track switching:
+每首曲目均支持 `melody`、`harmony`、`bass`、`drums` 四个逻辑声部。切歌时，
+各曲目的 BPM、音量、风格和声部开关分别保存；`reset` 恢复当前曲目的默认状态。
 
-```text
-Ode to Joy -> Canon in D -> Ode to Joy -> ...
+## 正式启动
+
+1. 完全退出并重新打开 Sonic Pi，避免旧 live loop 继续运行。
+2. 在 Sonic Pi 中打开 `music/sonic_pi/aiot_loader.rb`，只点击一次 `Run`。
+3. 启动 PC 后端。
+4. 查看 `GET /api/sonic-pi/status`，确认：
+   - `command_channel_ready=true`
+   - `audio_output_mode=internal`
+   - `pending_commands=0`
+
+loader 只负责从磁盘加载较大的构建文件，不要把 `build/*.rb` 粘贴进 Sonic Pi
+缓冲区，也不要在同一会话中重复运行 loader。
+
+## 构建文件
+
+编辑曲目源文件或构建器后执行：
+
+```powershell
+backend\.venv\Scripts\python.exe music\sonic_pi\build_playlist_wrapper.py
 ```
 
-Use this script when you want the frontend Previous / Next buttons to control
-the live Sonic Pi output.
+构建结果：
 
-`aiot_conductor_ode_to_joy.rb`
+| 文件 | 用途 |
+|---|---|
+| `build/aiot_track_soy.rb` | Shape of You 命名空间曲目 |
+| `build/aiot_track_wim.rb` | World is Mine 命名空间曲目 |
+| `build/aiot_track_faded.rb` | Faded 命名空间曲目 |
+| `build/aiot_track_lemon.rb` | Lemon 命名空间曲目 |
+| `build/aiot_track_rolling.rb` | Rolling Girl 命名空间曲目 |
+| `build/aiot_conductor_playlist.rb` | 五曲目切换、控制、ACK、去重和状态反馈 |
+| `aiot_loader.rb` | Sonic Pi 唯一正式入口 |
 
-The piece is a Sonic Pi arrangement of the public-domain melody "Ode to Joy".
-It is suitable for the project because it is recognizable, stable for live demos,
-and easy to control with conducting gestures.
+不要直接修改 `build/`，它会在下一次构建时被覆盖。
 
-The current roadshow version is a 24-bar loop. At the default 108 BPM it lasts
-about 53 seconds and moves through Intro, Theme, Build, and Finale sections.
+## 控制方式
 
-`aiot_conductor_canon_in_d.rb`
-
-The second roadshow option is a Sonic Pi arrangement inspired by the
-public-domain "Canon in D" progression. It is smoother and more layered than
-Ode to Joy, so it works well when demonstrating crescendo, decrescendo, tempo
-changes, and sustained conducting gestures.
-
-The current roadshow version is a 32-bar loop. At the default 96 BPM it lasts
-about 80 seconds and also supports the same Intro, Theme, Build, and Finale
-sections.
-
-## How To Run
-
-1. Open Sonic Pi on the PC.
-2. Open `aiot_conductor_roadshow_set.rb` for the full roadshow set, or open one
-   of the single-piece scripts for a fixed-track demo.
-3. Copy the full script into a Sonic Pi buffer.
-4. Press `Run`.
-5. Use the frontend Music Control Center to pause or resume it during the demo.
-
-The script starts immediately after `Run` so the team can confirm that Sonic Pi
-audio is working before testing frontend control.
-
-## Future Backend Control
-
-Detailed contract: `../../docs/SONIC_PI_OSC_CONTRACT.md`
-
-The script already listens for the OSC paths planned in the design document:
+PC 后端继续使用既有接口：
 
 ```text
-/conductor/transport command_id action
-/conductor/state command_id bpm master_amp drum_amp drum_density bass_amp harmony_amp melody_amp energy reverb_mix cutoff
-/conductor/bpm command_id bpm
-/conductor/accent command_id strength type
+POST /api/sonic-pi/transport  {"action":"next","wait_ms":1500}
+POST /api/music/style         {"style":"next","wait_ms":1500}
+POST /api/music/layers        {"layer":"drums","enabled":false,"wait_ms":1500}
+POST /api/sonic-pi/state      {"bpm":108,"master_amp":0.5,"wait_ms":1500}
 ```
 
-It also sends basic feedback paths back to the PC backend:
+`transport` 支持 `start`、`pause`、`stop`、`cutoff`、`reset`、`next` 和
+`previous`。完整 OSC 约定见
+[`../../docs/SONIC_PI_OSC_CONTRACT.md`](../../docs/SONIC_PI_OSC_CONTRACT.md)。
 
-```text
-/music/track
-/music/beat
-/music/bar
-/music/state
-/music/ack
+## 十分钟轮测
+
+后端和 Sonic Pi 启动后运行：
+
+```powershell
+backend\.venv\Scripts\python.exe backend\verify_sonic_pi_playlist.py
 ```
 
-When the backend Sonic Pi OSC adapter is added, these paths can be used without
-rewriting the music script.
+默认验证一个五曲目周期，共约 10 分钟：
+
+- 每 120 秒切换到下一首曲目。
+- 每首曲目的第 25、50、75、100 秒切换到下一个风格。
+- 四个时点依次关闭 melody、harmony、bass、drums，并在下一时点恢复上一声部。
+- 每条 REST/OSC 命令必须收到 ACK，节拍反馈必须持续，超时计数不得增长。
+- 运行记录写入 `music/sonic_pi/validation_logs/*.jsonl`，该目录不提交 Git。
+
+先查看计划而不连接后端：
+
+```powershell
+backend\.venv\Scripts\python.exe backend\verify_sonic_pi_playlist.py --dry-run
+```
+
+脚本可以发现命令失联、ACK 超时和节拍反馈中断，但 Sonic Pi 4.6 的个别线程
+`TimingError` 不一定传回后端。因此轮测期间仍需观察 Sonic Pi GUI，结束时确认没有
+`Runtime Error`、`Serious timing error` 或 `can't keep up`。
+
+如果脚本提示后端 API 过旧，或 `/api/music/layers` 返回 404，说明 `5000` 端口仍有
+旧后端进程。停止全部 `5000` 监听进程，再使用项目的 `backend\.venv` 启动后端。
+
+## 单曲调试
+
+`run_shape_of_you.rb`、`run_world_is_mine.rb`、`run_faded.rb`、`run_lemon.rb` 和
+`run_rolling_girl.rb` 仅用于脱离播放列表调试单曲。单曲入口和 `aiot_loader.rb`
+不能在同一个 Sonic Pi 会话中同时运行。
