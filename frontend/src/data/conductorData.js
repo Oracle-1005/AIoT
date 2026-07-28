@@ -3,11 +3,8 @@ export const navItems = [
   { id: 'experience-gateway', label: 'Experience', short: 'Try' },
   { id: 'live-stage', label: 'Workflow View', short: 'Workflow' },
   { id: 'ai-flow', label: 'AI Flow', short: 'AI' },
-  { id: 'validation', label: 'Highlights', short: 'Value' },
   { id: 'analytics', label: 'Analytics', short: 'Data' },
   { id: 'architecture', label: 'Architecture', short: 'Arch' },
-  { id: 'training', label: 'Calibration', short: 'Train' },
-  { id: 'about', label: 'About', short: 'About' },
 ]
 
 export const teamMembers = [
@@ -252,14 +249,14 @@ export const experienceScenarios = [
 ]
 
 export const flowSteps = [
-  { name: 'Camera', detail: 'Hand landmarks / trajectories', layer: 'Sensing' },
-  { name: 'Micro:bit L/R', detail: '3-axis acceleration / peaks', layer: 'Sensing' },
-  { name: 'Raspberry Pi 5', detail: 'TCP JSON Lines / edge processing', layer: 'Edge' },
-  { name: 'Feature Engine', detail: 'Speed / angle / time window', layer: 'AI' },
-  { name: 'Gesture Event Engine', detail: 'Control events / confidence', layer: 'AI' },
-  { name: 'Music Mapping', detail: 'BPM / volume / style', layer: 'Logic' },
-  { name: 'Audio + LED', detail: 'Browser audio / lighting feedback', layer: 'Output' },
-  { name: 'Database', detail: 'Raw data / predictions / actions', layer: 'Data' },
+  { name: 'Pi Camera', detail: 'Picamera2 / MediaPipe landmarks', layer: 'Sensing' },
+  { name: 'Micro:bit L/R', detail: 'BLE broadcast wrist motion', layer: 'Sensing' },
+  { name: 'ESP32 Gateway', detail: 'BLE scan -> UDP 17778', layer: 'Gateway' },
+  { name: 'Pi Fusion Pipeline', detail: 'Jitter buffer / time alignment', layer: 'Edge' },
+  { name: 'TCP JSONL', detail: 'fused_frame / control_event / status', layer: 'Transport' },
+  { name: 'Flask Backend', detail: 'Router / live state / REST API', layer: 'Backend' },
+  { name: 'Sonic Pi OSC', detail: 'BPM / volume / style / layers', layer: 'Output' },
+  { name: 'SQLite + LED', detail: 'Records / physical feedback', layer: 'Data' },
 ]
 
 export const historicalRows = [

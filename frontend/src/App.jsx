@@ -64,7 +64,6 @@ import {
   reservedInterfaceSlots,
   teamMembers,
   trainingSteps,
-  validationCards,
 } from './data/conductorData'
 import { useConductorFeed } from './hooks/useConductorFeed'
 
@@ -773,7 +772,7 @@ function LiveStage({ frame, logs, onTransport }) {
       <SectionHeader
         eyebrow="Tech Stack & Workflow"
         title="Technology Stack and Work Chain"
-        description="A single performance loop turns hand movement into recognized intention, then into Sonic Pi music, LED feedback, and saved interaction records."
+        description="Pi Camera and Micro:bit data are fused on Raspberry Pi, sent to the PC backend, and turned into Sonic Pi music, LED feedback, and saved records."
         icon={Monitor}
       />
 
@@ -1040,6 +1039,7 @@ function MusicControlCenter({ frame, onTransport }) {
             <p className="mt-1 font-semibold text-white">{frame.music.beatStrength}%</p>
           </div>
         </div>
+
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-3">
@@ -1161,7 +1161,6 @@ function CoordinateHandCard({ side, hand, zones }) {
 function GestureConsole({ frame }) {
   const coord = frame.coordinate || {}
   const hands = coord.hands || { left: {}, right: {} }
-  const zones = coord.zones || { bands: [], layers: ['melody', 'harmony', 'bass', 'drums'] }
   const progress = coord.progress || {}
   const lastActions = coord.lastActions || []
   const latest = lastActions.length ? lastActions[lastActions.length - 1] : null
@@ -1200,7 +1199,7 @@ function GestureConsole({ frame }) {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[0.9fr_1.25fr_0.9fr]">
-        <CoordinateHandCard side="LEFT HAND" hand={hands.left || {}} zones={zones} />
+        <CoordinateHandCard side="LEFT HAND" hand={hands.left || {}} zones={{ bands: [], layers: [] }} />
 
         <div className="rounded-lg border border-white/10 bg-black/25 p-3">
           <p className="mb-3 text-xs font-semibold uppercase text-slate-400">
@@ -1245,32 +1244,42 @@ function GestureConsole({ frame }) {
           </div>
         </div>
 
-        <CoordinateHandCard side="RIGHT HAND" hand={hands.right || {}} zones={zones} />
+        <CoordinateHandCard side="RIGHT HAND" hand={hands.right || {}} zones={{ bands: [], layers: [] }} />
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        <span className="mr-1 flex items-center gap-1.5 text-xs text-slate-400">
-          <Layers size={13} className="text-cyan" />
-          声部
-        </span>
-        {layerOrder.map((name) => {
-          const on = layers[name] !== false
-          return (
-            <motion.span
-              key={name}
-              layout
-              className={`rounded-md border px-3 py-1 text-xs font-semibold transition ${on
-                ? 'border-cyan/40 bg-cyan/15 text-cyan'
-                : 'border-white/10 bg-white/[0.03] text-slate-600 line-through'}`}
-            >
-              {layerZh[name]} {name}
-            </motion.span>
-          )
-        })}
-        <span className="ml-auto text-xs tabular-nums text-slate-400">
-          BPM {frame.music.bpm} · VOL {frame.music.volume}%
-        </span>
+      <div className="mt-4 rounded-lg border border-white/10 bg-black/25 p-3">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <p className="flex items-center gap-1.5 text-xs font-semibold uppercase text-slate-400">
+            <Layers size={13} className="text-cyan" />
+            Voice Layers
+          </p>
+          <span className="text-xs tabular-nums text-slate-400">
+            {layerOrder.filter((name) => layers[name] !== false).length}/4 ON · BPM {frame.music.bpm} · VOL {frame.music.volume}%
+          </span>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-4">
+          {layerOrder.map((name) => {
+            const on = layers[name] !== false
+            return (
+              <motion.div
+                key={name}
+                layout
+                className={`flex items-center justify-between rounded-md border px-3 py-2 text-xs font-semibold transition ${
+                  on
+                    ? 'border-cyan/40 bg-cyan/15 text-cyan'
+                    : 'border-white/10 bg-white/[0.03] text-slate-500'
+                }`}
+              >
+                <span>{layerZh[name]} {name}</span>
+                <span className={`rounded px-1.5 py-0.5 text-[10px] ${on ? 'bg-cyan/15 text-cyan' : 'bg-white/[0.05] text-slate-500'}`}>
+                  {on ? 'ON' : 'OFF'}
+                </span>
+              </motion.div>
+            )
+          })}
+        </div>
       </div>
+
     </div>
   )
 }
@@ -1286,7 +1295,7 @@ function MicrobitCard({ side, data, color }) {
             <Radio size={16} className={color === 'cyan' ? 'text-cyan' : 'text-gold'} />
             {side}
           </p>
-          <p className="mt-1 text-xs text-slate-400">{data.id} · Bluetooth / Serial Ready</p>
+          <p className="mt-1 text-xs text-slate-400">{data.id} via BLE broadcast / ESP32 gateway</p>
         </div>
         <span className={`rounded-md border px-3 py-1 text-xs font-semibold ${accent}`}>{data.signal}</span>
       </div>
@@ -1441,73 +1450,6 @@ function DecisionFlow({ frame, connectionState }) {
   )
 }
 
-function ValidationHighlights() {
-  return (
-    <section id="validation" className="section-shell">
-      <SectionHeader
-        eyebrow="System Highlights"
-        title="What the System Demonstrates"
-        description="The project brings together gesture recognition, multi-sensor fusion, real-time music control, and interaction records in one complete AIoT experience."
-        icon={ShieldCheck}
-      />
-
-      <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
-        <div className="glass-panel p-6">
-          <div className="flex items-center gap-3">
-            <div className="grid h-12 w-12 place-items-center rounded-md border border-gold/30 bg-gold/10 text-gold">
-              <ShieldCheck size={22} />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-white">Complete AIoT Loop</p>
-              <p className="text-xs text-slate-400">From motion input to visible and audible response</p>
-            </div>
-          </div>
-
-          <div className="mt-6 grid gap-3">
-            {[
-              ['Feature Input', 'Trajectory / Speed / Acceleration / Time Window'],
-              ['Event Output', 'Conducting Events + Confidence'],
-              ['Execution Feedback', 'BPM / Volume / Energy / Style'],
-              ['Data Logging', 'Raw Sensor / Feature / Prediction / Action'],
-            ].map(([label, value]) => (
-              <div key={label} className="rounded-lg border border-white/10 bg-white/[0.045] p-4">
-                <p className="text-xs uppercase text-slate-500">{label}</p>
-                <p className="mt-1 text-sm font-semibold text-slate-100">{value}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-2">
-          {validationCards.map((card, index) => (
-            <motion.article
-              key={card.title}
-              className={`validation-card ${index === 0 ? 'md:col-span-2' : ''}`}
-              initial={{ opacity: 0, y: 12 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, amount: 0.35 }}
-              transition={{ delay: index * 0.04 }}
-            >
-              <div className="mb-4 flex items-center justify-between">
-                <p className="font-semibold text-white">{card.title}</p>
-                <span className="rounded-md border border-cyan/25 bg-cyan/10 px-2 py-1 text-xs text-cyan">
-                  0{index + 1}
-                </span>
-              </div>
-              <p className="text-sm leading-6 text-slate-300">{card.claim}</p>
-              <div className="mt-4 rounded-md border border-white/10 bg-black/20 p-3">
-                <p className="text-xs font-semibold uppercase text-gold">Evidence</p>
-                <p className="mt-1 text-xs leading-5 text-slate-300">{card.evidence}</p>
-              </div>
-              <p className="mt-3 text-xs leading-5 text-cyan">{card.demo}</p>
-            </motion.article>
-          ))}
-        </div>
-      </div>
-    </section>
-  )
-}
-
 function AnalyticsDashboard() {
   return (
     <section id="analytics" className="section-shell">
@@ -1604,11 +1546,11 @@ function AnalyticsDashboard() {
 
 function ArchitectureView() {
   const rows = [
-    { icon: Camera, title: 'Sensing Layer', items: ['Camera', 'Micro:bit L/R', 'Hand Tracking'] },
-    { icon: Server, title: 'Network and Edge Layer', items: ['BLE', 'Serial', 'TCP JSON Lines', 'Raspberry Pi 5'] },
-    { icon: Cpu, title: 'AI and Logic Layer', items: ['Feature Engine', 'Gesture Event Engine', 'Music Mapping Engine'] },
-    { icon: Music2, title: 'Music Output Layer', items: ['Browser Audio', 'Speaker', 'RGB LED Matrix'] },
-    { icon: Database, title: 'Data Layer', items: ['Sensor Records', 'Predictions', 'Actions'] },
+    { icon: Camera, title: 'Sensing Layer', items: ['Pi Camera', 'Micro:bit L/R', 'Wrist IMU + Buttons'] },
+    { icon: Server, title: 'Edge Gateway Layer', items: ['ESP32 BLE Gateway', 'UDP 17778', 'Pi Fusion Pipeline', 'TCP JSONL 9000'] },
+    { icon: Cpu, title: 'AI and Logic Layer', items: ['MediaPipe Landmarks', 'Gesture Event Engine', 'Music Mapping Engine'] },
+    { icon: Database, title: 'PC Backend Layer', items: ['Flask REST API', 'Live State Router', 'SQLite Logging'] },
+    { icon: Music2, title: 'Performance Output Layer', items: ['Sonic Pi OSC', 'Speaker Output', 'RGB LED Matrix'] },
   ]
 
   return (
@@ -1616,7 +1558,7 @@ function ArchitectureView() {
       <SectionHeader
         eyebrow="System Architecture"
         title="System Architecture"
-        description="A clear data path connecting the camera, Micro:bit devices, Raspberry Pi, local AI inference, music output, and database logging."
+        description="A real data path from Pi Camera and Micro:bit sensing to Raspberry Pi fusion, PC backend control, Sonic Pi output, LED feedback, and database logging."
         icon={Network}
       />
 
@@ -2385,13 +2327,13 @@ function PresentationMode({ open, onClose, frame, onTransport }) {
     ['Database', frame.actuation?.databaseSaved || frame.connection.backend === 'REST Online' ? 'Saved' : 'Ready'],
   ]
   const workflowItems = [
-    ['Raspberry Pi Camera', 'Captures the performer and outputs Pi-side hand landmark data.'],
-    ['Micro:bit L/R', 'Measures wrist acceleration, beat strength, and motion intensity.'],
-    ['Local AI', 'Classifies conducting intention from camera and sensor features.'],
-    ['Sonic Pi', 'Receives transport, BPM, volume, energy, and accent commands.'],
-    ['LED + Database', 'Shows physical feedback and records every sensor/action event.'],
+    ['Pi Camera + MediaPipe', 'Captures the performer and extracts hand landmarks on Raspberry Pi.'],
+    ['Micro:bit + ESP32', 'Two wrist Micro:bits broadcast motion packets through the ESP32 UDP gateway.'],
+    ['Pi Fusion Pipeline', 'Aligns camera and wrist data, then sends live JSONL events to the PC backend.'],
+    ['Flask Backend', 'Routes gestures, updates live state, logs SQLite records, and exposes REST APIs.'],
+    ['Sonic Pi + LED', 'Receives OSC music commands and sends visible feedback to the LED matrix.'],
   ]
-  const techStackItems = ['React', 'Vite', 'Tailwind CSS', 'Flask REST', 'Raspberry Pi', 'MediaPipe', 'Micro:bit', 'Sonic Pi', 'SQLite']
+  const techStackItems = ['React + Vite', 'Tailwind CSS', 'Flask REST', 'TCP JSONL', 'Pi MediaPipe', 'Micro:bit + ESP32', 'Sonic Pi OSC', 'SQLite']
   const guestModeItems = [
     ['Watch your hand', 'The Pi camera view shows the visitor and hand tracking overlay.'],
     ['Try a gesture', 'Make a fist to start or stop, push a palm to change volume, or push a fist to change BPM.'],
@@ -2546,7 +2488,7 @@ function PresentationMode({ open, onClose, frame, onTransport }) {
             <p className="eyebrow mb-4">Tech Stack & Workflow</p>
             <h2 className="font-display text-4xl font-semibold leading-tight text-white sm:text-6xl">{current.headline}</h2>
             <p className="mt-4 text-lg leading-8 text-slate-300">
-              The system connects sensing, intelligence, music output, visual feedback, and data logging into one real-time performance loop.
+              The system connects Pi-side sensing, PC-side control, Sonic Pi output, visual feedback, and database logging into one real-time performance loop.
             </p>
             <div className="mt-6 flex flex-wrap gap-2">
               {techStackItems.map((item) => (
@@ -2904,11 +2846,8 @@ function App() {
         <ExperienceGateway frame={frame} onExperience={openExperience} />
         <LiveStage frame={frame} logs={logs} onTransport={sendSonicPiTransport} />
         <DecisionFlow frame={frame} connectionState={connectionState} />
-        <ValidationHighlights />
         <AnalyticsDashboard />
         <ArchitectureView />
-        <CalibrationTraining />
-        <AboutProject />
       </main>
       <RoadshowVideoModal open={videoOpen} onClose={closeRoadshowVideo} />
       <ExperienceMode open={experienceOpen} onClose={closeExperience} frame={frame} onTransport={sendSonicPiTransport} />
