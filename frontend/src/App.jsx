@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Activity,
-  BarChart3,
   Brain,
   Camera,
   Check,
@@ -41,11 +40,6 @@ import {
   Area,
   AreaChart,
   CartesianGrid,
-  Cell,
-  Line,
-  LineChart,
-  Pie,
-  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -58,8 +52,6 @@ import {
   experienceScenarios,
   flowSteps,
   gestureCatalog,
-  gestureDistribution,
-  historicalRows,
   navItems,
   reservedInterfaceSlots,
   teamMembers,
@@ -554,7 +546,6 @@ function ExperienceGateway({ frame, onExperience }) {
 }
 
 function ConductorSignalScene({ frame, compact = false, heightClass = '' }) {
-  const [handTrails, setHandTrails] = useState({ left: [], right: [] })
   const cameraWidth = Number(frame.camera?.width) || 640
   const cameraHeight = Number(frame.camera?.height) || 480
   const mediaSource = frame.camera?.streamUrl || frame.camera?.frameUrl || ''
@@ -599,25 +590,6 @@ function ConductorSignalScene({ frame, compact = false, heightClass = '' }) {
     }
   }, [cameraWidth, cameraHeight])
 
-  useEffect(() => {
-    if (!hasLiveLandmarks) {
-      setHandTrails({ left: [], right: [] })
-      return
-    }
-
-    setHandTrails((current) => {
-      const next = { left: current.left, right: current.right }
-      liveHands.forEach((hand) => {
-        const wrist = hand.landmarks.find((point) => point.id === 0) || hand.landmarks[0]
-        const point = toScenePoint(wrist)
-        if (!point) return
-        const key = hand.handedness?.includes('right') ? 'right' : 'left'
-        next[key] = [...(next[key] || []), point].slice(-16)
-      })
-      return next
-    })
-  }, [frame.timestamp, frame.camera?.frameId, hasLiveLandmarks, liveHands, toScenePoint])
-
   const sceneHeight = heightClass || (compact ? 'h-52' : 'h-80')
 
   return (
@@ -658,70 +630,33 @@ function ConductorSignalScene({ frame, compact = false, heightClass = '' }) {
           />
         </>
       ) : null}
-      {!mediaSource ? (
-      <svg className="absolute inset-0 h-full w-full" viewBox="0 0 900 360" role="presentation" aria-hidden="true">
-        {!hasLiveLandmarks ? null : (
-          <>
-            {Object.entries(handTrails).map(([key, trail]) => (
-              trail.length > 1 ? (
-                <polyline
-                  key={key}
-                  points={trail.map((point) => `${point.x},${point.y}`).join(' ')}
-                  fill="none"
-                  stroke={key === 'right' ? 'rgba(244,199,107,0.78)' : 'rgba(56,189,248,0.78)'}
-                  strokeWidth="4"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  opacity="0.85"
-                />
-              ) : null
-            ))}
-            {liveHands.map((hand, handIndex) => {
-              const points = new Map(
-                hand.landmarks
-                  .map((point, pointIndex) => [Number.isFinite(Number(point.id)) ? Number(point.id) : pointIndex, toScenePoint(point)])
-                  .filter(([, point]) => point),
-              )
-              const color = hand.handedness?.includes('right') ? 'rgba(244,199,107,0.92)' : 'rgba(56,189,248,0.92)'
-
-              return (
-                <g key={hand.handId || `${hand.handedness}-${handIndex}`}>
-                  {handConnections.map(([start, end]) => {
-                    const a = points.get(start)
-                    const b = points.get(end)
-                    if (!a || !b) return null
-                    return (
-                      <line
-                        key={`${start}-${end}`}
-                        x1={a.x}
-                        y1={a.y}
-                        x2={b.x}
-                        y2={b.y}
-                        stroke={color}
-                        strokeWidth="3"
-                        strokeLinecap="round"
-                        opacity="0.82"
-                      />
-                    )
-                  })}
-                  {[...points.entries()].map(([id, point]) => (
-                    <circle
-                      key={id}
-                      cx={point.x}
-                      cy={point.y}
-                      r={id === 0 ? 7 : 4.5}
-                      fill={color}
-                      stroke="rgba(255,255,255,0.9)"
-                      strokeWidth="1.5"
-                    />
-                  ))}
-                </g>
-              )
-            })}
-          </>
-        )}
+      {(
+      <svg className="absolute inset-0 h-full w-full" viewBox="0 0 900 360" preserveAspectRatio="none" role="presentation" aria-hidden="true">
+        {(frame.coordinate?.zones?.bands || []).map(([lo, hi], idx) => (
+          <g key={`zone-${idx}`}>
+            <rect
+              x="0"
+              y={Number(lo) * 360}
+              width="900"
+              height={(Number(hi) - Number(lo)) * 360}
+              fill={idx % 2 === 0 ? 'rgba(56,189,248,0.05)' : 'rgba(244,199,107,0.05)'}
+              stroke="rgba(148,163,184,0.35)"
+              strokeWidth="1"
+              strokeDasharray="6 6"
+            />
+            <text
+              x="8"
+              y={((Number(lo) + Number(hi)) / 2) * 360 + 4}
+              fill="rgba(226,232,240,0.75)"
+              fontSize="13"
+              fontFamily="monospace"
+            >
+              {(frame.coordinate?.zones?.layers || [])[idx] || `zone ${idx + 1}`}
+            </text>
+          </g>
+        ))}
       </svg>
-      ) : null}
+      )}
       {!mediaSource && !hasLiveLandmarks && !compact ? (
         <div className="absolute left-1/2 top-1/2 w-[min(480px,calc(100%-48px))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-dashed border-cyan/30 bg-black/35 p-4 text-center backdrop-blur">
           <p className="text-sm font-semibold text-white">Raspberry Pi Camera Preview</p>
@@ -789,8 +724,7 @@ function LiveStage({ frame, logs, onTransport }) {
         <MicrobitCard side="RIGHT MICRO:BIT" data={frame.microbit.right} color="gold" />
       </div>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-        <RealtimeMetrics frame={frame} />
+      <div className="mt-4">
         <InferenceLog logs={logs} />
       </div>
     </section>
@@ -1330,36 +1264,6 @@ function MicrobitCard({ side, data, color }) {
   )
 }
 
-function RealtimeMetrics({ frame }) {
-  const metrics = [
-    ['Left hand height', `${Math.round(frame.camera.leftHandY * 100)}%`],
-    ['Right hand position', `${Math.round(frame.camera.rightHandX * 100)}%`],
-    ['Hand distance', frame.camera.handDistance],
-    ['Movement speed', `${frame.camera.movementSpeed} m/s`],
-    ['Trajectory angle', `${frame.camera.trajectoryAngle} deg`],
-    ['Response latency', `${frame.connection.latency} ms`],
-    ['Pi Gateway', frame.connection.piGateway],
-    ['Pi Listen Port', frame.connection.piGatewayHost],
-    ['Last Pi Message', frame.connection.piLastMessage],
-  ]
-  return (
-    <div className="glass-panel p-5">
-      <p className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
-        <Gauge size={16} className="text-cyan" />
-        Real-time Features and System Status
-      </p>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        {metrics.map(([label, value]) => (
-          <div key={label} className="metric-tile">
-            <p className="text-xs text-slate-400">{label}</p>
-            <p className="mt-2 break-words font-display text-xl font-semibold text-white sm:text-2xl">{value}</p>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
 function InferenceLog({ logs }) {
   return (
     <div className="glass-panel p-5">
@@ -1445,100 +1349,6 @@ function DecisionFlow({ frame, connectionState }) {
             )}
           </pre>
         </div>
-      </div>
-    </section>
-  )
-}
-
-function AnalyticsDashboard() {
-  return (
-    <section id="analytics" className="section-shell">
-      <SectionHeader
-        eyebrow="Data Analytics"
-        title="Historical Analytics"
-        description="Every meaningful gesture can be recorded as sensor input, AI prediction, music response, latency, and performance history."
-        icon={BarChart3}
-      />
-
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {[
-          ['Recognitions Today', '268'],
-          ['Average Confidence', '91.4%'],
-          ['Average Latency', '86 ms'],
-          ['Valid Gesture Rate', '94.8%'],
-        ].map(([label, value]) => (
-          <div key={label} className="glass-panel p-5">
-            <p className="text-sm text-slate-400">{label}</p>
-            <p className="mt-2 font-display text-3xl font-semibold text-white">{value}</p>
-          </div>
-        ))}
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-[1.25fr_0.75fr]">
-        <div className="glass-panel p-5">
-          <p className="mb-4 text-sm font-semibold text-white">BPM / Volume / Confidence Timeline</p>
-          <div className="h-80">
-            <ResponsiveContainer>
-              <LineChart data={analyticsSeries}>
-                <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
-                <XAxis dataKey="tick" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
-                <Tooltip contentStyle={chartTooltipStyle} />
-                <Line type="monotone" dataKey="bpm" stroke="#38bdf8" strokeWidth={3} dot={false} />
-                <Line type="monotone" dataKey="volume" stroke="#f4c76b" strokeWidth={3} dot={false} />
-                <Line type="monotone" dataKey="confidence" stroke="#22c55e" strokeWidth={3} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        <div className="glass-panel p-5">
-          <p className="mb-4 text-sm font-semibold text-white">Gesture Distribution</p>
-          <div className="h-80">
-            <ResponsiveContainer>
-              <PieChart>
-                <Pie data={gestureDistribution} dataKey="value" nameKey="name" innerRadius={58} outerRadius={96} paddingAngle={3}>
-                  {gestureDistribution.map((entry) => (
-                    <Cell key={entry.name} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip contentStyle={chartTooltipStyle} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            {gestureDistribution.map((item) => (
-              <div key={item.name} className="flex items-center gap-2 text-xs text-slate-300">
-                <span className="h-2 w-2 rounded-full" style={{ background: item.color }} />
-                {item.name} {item.value}%
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-4 overflow-hidden rounded-lg border border-white/10">
-        <table className="w-full min-w-[760px] border-collapse bg-white/[0.04] text-left text-sm">
-          <thead className="bg-white/[0.07] text-xs uppercase text-slate-400">
-            <tr>
-              {['Time', 'Input Source', 'Gesture', 'Confidence', 'Music Response', 'Latency'].map((head) => (
-                <th key={head} className="px-4 py-3 font-semibold">{head}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {historicalRows.map((row) => (
-              <tr key={`${row.time}-${row.gesture}`} className="border-t border-white/10 text-slate-200">
-                <td className="px-4 py-3 font-mono text-xs">{row.time}</td>
-                <td className="px-4 py-3">{row.source}</td>
-                <td className="px-4 py-3 text-cyan">{row.gesture}</td>
-                <td className="px-4 py-3">{row.confidence}</td>
-                <td className="px-4 py-3">{row.response}</td>
-                <td className="px-4 py-3">{row.latency}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
       </div>
     </section>
   )
@@ -2008,6 +1818,17 @@ function ExperienceMode({ open, onClose, frame, onTransport }) {
                       </div>
                     </div>
                   ) : null}
+                </div>
+                <div className="mt-2 grid grid-cols-4 gap-2">
+                  {['melody', 'harmony', 'bass', 'drums'].map((layer) => {
+                    const layerOn = Boolean(displayFrame.music?.layers?.[layer])
+                    return (
+                      <div key={layer} className={`rounded-md border px-2 py-1 text-center transition ${layerOn ? 'border-cyan/45 bg-cyan/10' : 'border-white/10 bg-white/[0.04]'}`}>
+                        <p className="text-[10px] uppercase tracking-wide text-slate-400">{layer}</p>
+                        <p className={`text-sm font-semibold ${layerOn ? 'text-cyan' : 'text-slate-500'}`}>{layerOn ? 'ON' : 'OFF'}</p>
+                      </div>
+                    )
+                  })}
                 </div>
                 </div>
 
@@ -2846,7 +2667,6 @@ function App() {
         <ExperienceGateway frame={frame} onExperience={openExperience} />
         <LiveStage frame={frame} logs={logs} onTransport={sendSonicPiTransport} />
         <DecisionFlow frame={frame} connectionState={connectionState} />
-        <AnalyticsDashboard />
         <ArchitectureView />
       </main>
       <RoadshowVideoModal open={videoOpen} onClose={closeRoadshowVideo} />

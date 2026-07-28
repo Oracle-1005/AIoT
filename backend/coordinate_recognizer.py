@@ -74,6 +74,13 @@ PUSH_VELOCITY = float(os.getenv("AIOT_COORD_PUSH_VEL", "0.6"))
 STILL_VELOCITY = float(os.getenv("AIOT_COORD_STILL_VEL", "0.10"))
 PUSH_MIN_DELTA = float(os.getenv("AIOT_COORD_PUSH_DELTA", "0.035"))
 SINGLE_HAND_ONLY = _flag("AIOT_COORD_SINGLE_HAND_ONLY", "1")
+# 拳类动作（start/stop/bpm）要求本次出现内先见过"掌"——即必须存在
+# "握"的过程。防止手以握拳姿态进入画面（或检测初始化即成拳）直接
+# 触发 stop。AIOT_COORD_FIST_TRANSITION=0 可退回旧行为。
+REQUIRE_FIST_TRANSITION = _flag("AIOT_COORD_FIST_TRANSITION", "1")
+# "见过掌"证据的保质期：短暂离场/锚点抖动（<TTL）不抹掉证据——张开手
+# 2s 内握上仍算"有握的过程"；离场超 TTL 后需重新张开。0=每次出现都重置。
+SEEN_PALM_TTL_S = float(os.getenv("AIOT_COORD_FIST_TRANSITION_TTL", "2.0"))
 ZONE_MAX_HAND_SEP = float(os.getenv("AIOT_COORD_ZONE_HAND_SEP", "0.12"))
 
 # 双手拳高度差（风格切换）
@@ -108,7 +115,7 @@ class _HandTrack:
 
     __slots__ = (
         "present", "last_seen", "openness", "y", "vy",
-        "label", "label_missing", "y_history",
+        "label", "label_missing", "y_history", "seen_palm",
     )
 
     def __init__(self) -> None:
@@ -119,11 +126,14 @@ class _HandTrack:
         self.vy = 0.0
         self.label = "unknown"      # fist / palm / unknown
         self.label_missing = 0      # 连续非当前手型帧数（供 re-arm）
+        self.seen_palm = False      # 本次出现内是否见过掌（"握"的过程证据）
         self.y_history: deque[float] = deque(maxlen=8)
 
     def update(self, openness: float, y: float, vy: float,
                extended: int, at: float) -> None:
         if not self.present:
+            if at - self.last_seen > SEEN_PALM_TTL_S:
+                self.seen_palm = False    # 离场过久："握"的证据过期
             self.y_history.clear()
             self.openness = openness
             self.y = y
@@ -153,6 +163,8 @@ class _HandTrack:
         if new_label != self.label:
             self.label = new_label
             self.label_missing = 0
+        if new_label == "palm":
+            self.seen_palm = True
 
     def displacement(self) -> float:
         if len(self.y_history) < HOLD_FRAMES_PUSH:
@@ -441,8 +453,12 @@ class CoordinateRecognizer:
         right: _HandTrack,
         at: float,
     ) -> None:
-        left_fist = left.present and left.label == "fist"
-        right_fist = right.present and right.label == "fist"
+        left_fist = left.present and left.label == "fist" and (
+            left.seen_palm or not REQUIRE_FIST_TRANSITION
+        )
+        right_fist = right.present and right.label == "fist" and (
+            right.seen_palm or not REQUIRE_FIST_TRANSITION
+        )
         left_palm = left.present and left.label == "palm"
         right_palm = right.present and right.label == "palm"
         left_single = not right.present if SINGLE_HAND_ONLY else not right_fist
@@ -584,6 +600,7 @@ class CoordinateRecognizer:
                     "y": round(track.y, 3),
                     "vy": round(track.vy, 3),
                     "zone": zone_for_y(track.y) if track.present else None,
+                    "seen_palm": track.seen_palm,
                 }
                 for side, track in self._hands.items()
             },

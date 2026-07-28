@@ -145,6 +145,7 @@ def route_uplink_message(
         live_state.apply_fused_frame(
             payload,
             received_at,
+            source_ip=address[0] if address else None,
         )
         inference_pipeline.process_fused_frame(payload, received_at)
         # 坐标手势识别器（规则化，替代旧 ML 手势的音乐控制）

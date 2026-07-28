@@ -41,8 +41,8 @@ def main() -> None:
 
         assert adapter.send_gesture_command("bpm_up") is True
         assert sent[-1][0] == "/conductor/bpm"
-        assert sent[-1][1][1] == 100.0
-        assert sonic_pi.live_state.get_music()["bpm"] == 100
+        assert sent[-1][1][1] == 104.0
+        assert sonic_pi.live_state.get_music()["bpm"] == 104
 
         assert adapter.send_gesture_command("tempo_down") is True
         assert sent[-1][0] == "/conductor/bpm"

@@ -112,6 +112,10 @@ class Rig:
     def names(self) -> list[str]:
         return [name for name, _ in self.events]
 
+    def introduce(self, side: str, count: int = 3) -> None:
+        """先以掌出现 N 帧——满足"握拳必须有握的过程"(seen_palm)。"""
+        self.feed([palm(side)], count)
+
 
 def main() -> None:
     # 1. 手型分类：拳/掌 + 迟滞
@@ -128,22 +132,29 @@ def main() -> None:
 
     # 2. 右拳静置 -> start，每拳一次，松开后重新武装
     rig = Rig()
+    rig.introduce("right")
+    rig.feed([fist("right")], 1)                  # 手型迟滞过渡帧
     rig.feed([fist("right")], cr.HOLD_FRAMES_TRANSPORT - 1)
     assert rig.events == [], rig.events
     rig.feed([fist("right")], 1)
     assert rig.names() == ["start"], rig.events
     rig.feed([fist("right")], cr.HOLD_FRAMES_TRANSPORT + 5)
     assert rig.names() == ["start"], rig.events   # 不重复
-    rig.feed([], cr.REARM_FRAMES + 2)             # 手离开 -> re-arm
+    rig.feed([], cr.REARM_FRAMES + 2)             # 手离开 -> re-arm（再现需重新见掌）
+    rig.introduce("right")
+    rig.feed([fist("right")], 1)
     rig.feed([fist("right")], cr.HOLD_FRAMES_TRANSPORT)
     assert rig.names() == ["start", "start"], rig.events
     print("PASS 2 右拳=start（边沿一次 + re-arm）")
 
     # 3. 左拳静置 -> stop；左拳上推 -> bpm_up 且 stop 不触发
     rig = Rig()
+    rig.introduce("left")
+    rig.feed([fist("left")], 2)
     rig.feed([fist("left")], cr.HOLD_FRAMES_TRANSPORT)
     assert rig.names() == ["stop"], rig.events
     rig2 = Rig()
+    rig2.introduce("left")
     rig2.feed([fist("left")], 3)                  # 先静置 3 帧
     rig2.feed_motion(fist, "left", start_y=0.50, step_y=-0.025, vy=-0.8, count=cr.HOLD_FRAMES_PUSH + 5)
     assert "bpm_up" in rig2.names(), rig2.events
@@ -152,6 +163,7 @@ def main() -> None:
 
     # 4. 右拳下推 -> bpm_down 持续重复
     rig = Rig()
+    rig.introduce("right")
     rig.feed_motion(fist, "right", start_y=0.50, step_y=0.025, vy=0.8, count=cr.HOLD_FRAMES_PUSH + 5)
     assert rig.names() == ["bpm_down"], rig.events
     # 继续按住：不到重复间隔不再发，超过 0.45s 后再发
@@ -193,11 +205,14 @@ def main() -> None:
 
     # 7. 双手拳同带 -> 关声部；异带且高度差小 -> 无动作
     rig = Rig()
+    rig.feed([palm("left"), palm("right")], 3)
+    rig.feed([fist("left", y=0.82), fist("right", y=0.85)], 1)
     rig.feed([fist("left", y=0.82), fist("right", y=0.85)],
-             cr.HOLD_FRAMES_ZONE)
+             cr.HOLD_FRAMES_ZONE + 2)   # +2：手型迟滞 + y-EMA 收敛
     assert rig.events == [("zone_off", {"layer": "drums", "enabled": False})], \
         rig.events
     rig2 = Rig()
+    rig2.feed([palm("left"), palm("right")], 3)
     rig2.feed([fist("left", y=0.10), fist("right", y=0.35)],
              cr.HOLD_FRAMES_ZONE + 3)   # 异带但高度差 0.25 >= 风格阈值 -> 风格
     assert ("zone_off", {"layer": "melody", "enabled": False}) not in rig2.events
@@ -205,6 +220,8 @@ def main() -> None:
 
     # 8. 双手拳高度差 -> 风格：左高=previous 右高=next；不误触区域关
     rig = Rig()
+    rig.feed([palm("left"), palm("right")], 3)
+    rig.feed([fist("left", y=0.15), fist("right", y=0.55)], 1)
     rig.feed([fist("left", y=0.15), fist("right", y=0.55)],
              cr.HOLD_FRAMES_STYLE - 1)
     assert rig.events == [], rig.events
@@ -221,12 +238,16 @@ def main() -> None:
 
     # 9. swap_hands：物理左拳 -> 逻辑右手 -> start（而非 stop）
     rig = Rig(swap_hands=True)
+    rig.introduce("left")
+    rig.feed([fist("left")], 2)
     rig.feed([fist("left")], cr.HOLD_FRAMES_TRANSPORT)
     assert rig.names() == ["start"], rig.events
     print("PASS 9 handedness swap 开关")
 
     # 10. 短暂缺帧（<0.30s）计数保持不重置
     rig = Rig()
+    rig.introduce("right")
+    rig.feed([fist("right")], 2)
     rig.feed([fist("right")], cr.HOLD_FRAMES_TRANSPORT - 2)
     rig.feed([], 2)                                # ~0.125s 缺帧 < 0.30s
     rig.feed([fist("right")], 2)
@@ -257,6 +278,8 @@ def main() -> None:
     rig2.feed([fist("right")], cr.HOLD_FRAMES_TRANSPORT + 2, anchor="stale")
     assert rig2.events == [], rig2.events
     rig3 = Rig()
+    rig3.introduce("right")
+    rig3.feed([fist("right")], 1)
     rig3.feed([fist("right")], cr.HOLD_FRAMES_TRANSPORT - 1)
     rig3.feed([fist("right")], 3, anchor=False)      # 丢锚：计数清零
     rig3.feed([fist("right")], 1)                     # 恢复 1 帧不够
@@ -268,12 +291,38 @@ def main() -> None:
     # 14. 锚点数据形状兼容：线上列表形态（available）与 status 字典形态
     #     （age_ms）都能正确判定活性
     rig = Rig()
+    rig.introduce("right")
+    rig.feed([fist("right")], 2)
     rig.feed([fist("right")], cr.HOLD_FRAMES_TRANSPORT, anchor="dict-live")
     assert rig.names() == ["start"], rig.events
     rig2 = Rig()
     rig2.feed([fist("right")], cr.HOLD_FRAMES_TRANSPORT + 2, anchor="dict-stale")
     assert rig2.events == [], rig2.events
     print("PASS 14 锚点形状兼容（列表 available / 字典 age_ms）")
+
+    # 15. "握"的过程：以拳姿态直接出现不触发；掌→拳 才触发（防误入 stop）
+    rig = Rig()
+    rig.feed([fist("right")], cr.HOLD_FRAMES_TRANSPORT + 5)
+    assert rig.events == [], rig.events               # 出现即拳 ≠ 握
+    rig.feed([palm("right")], 3)                      # 张开=有了"握"的前提
+    rig.feed([fist("right")], 2)
+    rig.feed([fist("right")], cr.HOLD_FRAMES_TRANSPORT)
+    assert rig.names() == ["start"], rig.events
+    print("PASS 15 握拳必须有握的过程（出现即拳不触发）")
+
+    # 16. "握"证据保质期：短暂离场（<TTL）证据保留；超 TTL 离场需重新张开
+    rig = Rig()
+    rig.introduce("right")
+    rig.feed([], int(cr.SEEN_PALM_TTL_S * 16) - 8)    # 短暂离场 < 2s
+    rig.feed([fist("right")], 1)
+    rig.feed([fist("right")], cr.HOLD_FRAMES_TRANSPORT)
+    assert rig.names() == ["start"], rig.events       # 证据在保质期内
+    rig2 = Rig()
+    rig2.introduce("right")
+    rig2.feed([], int(cr.SEEN_PALM_TTL_S * 16) + 8)   # 离场 > TTL
+    rig2.feed([fist("right")], cr.HOLD_FRAMES_TRANSPORT + 5)
+    assert rig2.events == [], rig2.events             # 证据过期，出现即拳不触发
+    print("PASS 16 seen_palm 保质期（短离场保留 / 超 TTL 过期）")
 
     print("\nAll coordinate_recognizer tests passed.")
 

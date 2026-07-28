@@ -240,12 +240,23 @@ class LiveState:
         self,
         payload: dict[str, Any],
         received_at: float,
+        source_ip: str | None = None,
     ) -> None:
         with self._lock:
             self.sensor_state["timestamp"] = received_at
 
             camera = payload.get("camera")
             if isinstance(camera, dict):
+                # Frontend demo window reads camera.streamUrl; the Pi fusion
+                # feed does not advertise one, so inject the standard MJPEG
+                # preview served by the Pi itself (8790/stream).
+                if source_ip and not (
+                    camera.get("streamUrl") or camera.get("stream_url")
+                ):
+                    camera = {
+                        **camera,
+                        "streamUrl": f"http://{source_ip}:8790/stream",
+                    }
                 self.sensor_state["camera"] = copy.deepcopy(camera)
                 self.camera_connected = True
 

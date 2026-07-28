@@ -75,7 +75,7 @@ STOP_GESTURES = {
     "stop",
 }
 
-GESTURE_BPM_STEP = float(os.getenv("AIOT_GESTURE_BPM_STEP", "4"))
+GESTURE_BPM_STEP = float(os.getenv("AIOT_GESTURE_BPM_STEP", "8"))
 GESTURE_VOLUME_STEP = float(os.getenv("AIOT_GESTURE_VOLUME_STEP", "0.06"))
 
 MUSIC_COMMAND_ALIASES = {
